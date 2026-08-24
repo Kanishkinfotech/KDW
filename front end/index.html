@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>front-end</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      window.addEventListener('error', function(event) {
+        document.body.innerHTML = '<div style="color:red; z-index:9999; position:absolute; top:0; left:0; background:white; padding:20px; font-size:16px; border: 2px solid red;"><b>RUNTIME ERROR:</b><br>' + event.message + '<br><pre>' + (event.error && event.error.stack ? event.error.stack : '') + '</pre></div>' + document.body.innerHTML;
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        document.body.innerHTML = '<div style="color:red; z-index:9999; position:absolute; top:0; left:0; background:white; padding:20px; font-size:16px; border: 2px solid red;"><b>PROMISE REJECTION:</b><br>' + (event.reason && event.reason.stack ? event.reason.stack : event.reason) + '</div>' + document.body.innerHTML;
+      });
+    </script>
+    <script>
+      if (window.location.protocol === 'file:') {
+        document.body.innerHTML = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 100px auto; padding: 40px; text-align: center; background: #fff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;">
+            <div style="font-size: 48px; margin-bottom: 20px;">⚠️</div>
+            <h1 style="color: #0f172a; margin-bottom: 16px; font-size: 24px;">Do not open this file directly!</h1>
+            <p style="color: #475569; line-height: 1.6; margin-bottom: 24px;">
+              Modern React applications cannot be opened by double-clicking the <strong>index.html</strong> file. Because of browser security features, this will always result in a blank white screen.
+            </p>
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 24px; border-radius: 12px;">
+              <p style="margin: 0; color: #334155; font-weight: bold; margin-bottom: 12px;">To view the website, type this exact link into your browser's address bar:</p>
+              <a href="http://localhost:5174" style="font-size: 20px; font-weight: 900; color: #2563eb; text-decoration: none; padding: 12px 24px; background: #eff6ff; border-radius: 8px; display: inline-block;">http://localhost:5174</a>
+            </div>
+          </div>
+        `;
+        document.body.style.backgroundColor = '#f1f5f9';
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

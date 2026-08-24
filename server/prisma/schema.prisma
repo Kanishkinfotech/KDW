@@ -1,0 +1,452 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  mobile        String?
+  passwordHash  String
+  emailVerified Boolean  @default(false)
+  role          String   @default("CUSTOMER")
+  profileImage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  roleDetails   Role?    @relation(fields: [role], references: [name])
+
+  orders    Order[]
+  purchases Purchase[]
+  supportTickets SupportTicket[]
+  supportMessages SupportMessage[]
+  auditLogs AuditLog[]
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  permissions String
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+}
+
+model Category {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  description  String?
+  image        String?
+  banner       String?
+  displayOrder Int      @default(0)
+  status       String   @default("ACTIVE")
+  featured     Boolean  @default(false)
+  parentId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  parent       Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children     Category[] @relation("CategoryHierarchy")
+  products     Product[]
+}
+
+model Product {
+  id                  String    @id @default(uuid())
+  productCode         String?
+  categoryId          String
+  subcategory         String?
+  name                String
+  slug                String    @unique
+  productType         String?   @default("DOWNLOADABLE_FILE")
+  description         String
+  shortDescription    String?
+  brand               String?
+  price               Float
+  discountPrice       Float?
+  compareAtPrice      Float?
+  costPrice           Float?
+  taxMode             String?   @default("INCLUSIVE")
+  taxRate             Float?    @default(18.0)
+  offerStartAt        DateTime?
+  offerEndAt          DateTime?
+  publishScheduledAt  DateTime?
+  publishedAt         DateTime?
+  archivedAt          DateTime?
+  googleDriveFileId   String?
+  googleDriveLinks    Json?
+  driveLinksCount     Int       @default(1)
+  driveFileName       String?
+  driveMimeType       String?
+  driveFileSize       String?
+  driveParentId       String?
+  driveAccessStatus   String?   @default("CONNECTED")
+  driveLastVerifiedAt DateTime?
+  downloadLimit       Int?      @default(5)
+  accessDurationDays  Int?      @default(365)
+  tokenDurationMinutes Int?     @default(60)
+  refundPolicy        String?   @default("REVOKE_ACCESS")
+  licenceType         String?   @default("COMMERCIAL")
+  licenceTerms        String?
+  licenceKeyRequired  Boolean   @default(false)
+  activationLimit     Int?      @default(1)
+  domainLimit         Int?      @default(1)
+  deviceLimit         Int?      @default(1)
+  storefrontContent   Json?
+  requirements        Json?
+  faqs                Json?
+  attributes          Json?
+  versionsList        Json?
+  seoTitle            String?
+  seoDescription      String?
+  seoKeywords         String?
+  canonicalUrl        String?
+  ogImage             String?
+  createdBy           String?
+  updatedBy           String?
+  thumbnail           String?
+  previewImages       String?
+  version             String?
+  features            String?
+  fileSize            String?
+  tags                String?
+  sku                 String?
+  stock               Int?
+  minStock            Int       @default(0)
+  status              String    @default("ACTIVE")
+  featured            Boolean   @default(false)
+  bestSeller          Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  category   Category    @relation(fields: [categoryId], references: [id])
+  orderItems OrderItem[]
+  purchases  Purchase[]
+  reviews    Review[]
+  bundles    Bundle[]
+}
+
+model Order {
+  id                String        @id @default(uuid())
+  orderNumber       String        @unique
+  customerId        String?
+  guestName         String?
+  guestEmail        String?
+  guestMobile       String?
+  totalAmount       Float
+  currency          String        @default("INR")
+  paymentStatus     String        @default("PENDING")
+  orderStatus       String        @default("PENDING")
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  createdAt         DateTime      @default(now())
+  paidAt            DateTime?
+  emailDeliveryStatus   String    @default("PENDING")
+  emailSentAt           DateTime?
+  emailDeliveryAttempts Int       @default(0)
+  emailLastError        String?
+
+  customer  User?       @relation(fields: [customerId], references: [id])
+  items     OrderItem[]
+  purchases Purchase[]
+  supportTickets SupportTicket[]
+}
+
+model OrderItem {
+  id          String @id @default(uuid())
+  orderId     String
+  productId   String?
+  bundleId    String?
+  productName String
+  quantity    Int
+  unitPrice   Float
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+  bundle  Bundle?  @relation(fields: [bundleId], references: [id])
+}
+
+model Purchase {
+  id            String   @id @default(uuid())
+  customerId    String
+  productId     String?
+  bundleId      String?
+  orderId       String?
+  accessStatus  String   @default("ACTIVE")
+  downloadCount Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  customer     User          @relation(fields: [customerId], references: [id])
+  product      Product?      @relation(fields: [productId], references: [id])
+  bundle       Bundle?       @relation(fields: [bundleId], references: [id])
+  order        Order?        @relation(fields: [orderId], references: [id])
+  accessTokens AccessToken[]
+}
+
+model AccessToken {
+  id          String    @id @default(uuid())
+  purchaseId  String
+  secureToken String    @unique
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+}
+
+model HeroBanner {
+  id         String  @id @default(uuid())
+  title      String
+  subtitle   String?
+  image      String
+  buttonText String?
+  buttonUrl  String?
+  status     String  @default("ACTIVE")
+  sortOrder  Int     @default(0)
+}
+
+model Testimonial {
+  id           String  @id @default(uuid())
+  customerName String
+  company      String?
+  designation  String?
+  image        String?
+  review       String
+  rating       Int     @default(5)
+  status       String  @default("ACTIVE")
+}
+
+model FAQ {
+  id        String @id @default(uuid())
+  question  String
+  answer    String
+  category  String?
+  sortOrder Int    @default(0)
+  status    String @default("ACTIVE")
+}
+
+model Blog {
+  id            String   @id @default(uuid())
+  title         String
+  slug          String   @unique
+  coverImage    String
+  content       String
+  author        String
+  publishedDate DateTime @default(now())
+  status        String   @default("ACTIVE")
+}
+
+model Coupon {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  discountType  String // "PERCENTAGE" or "FIXED"
+  discountValue Float
+  expiryDate    DateTime?
+  usageLimit    Int?
+  usedCount     Int       @default(0)
+  status        String    @default("ACTIVE")
+}
+
+model SiteSettings {
+  id            String  @id @default("DEFAULT")
+  companyName   String
+  logo          String?
+  favicon       String?
+  supportEmail  String?
+  phone         String?
+  whatsapp      String?
+  socialLinks   String?
+  footerContent String?
+  seoSettings   String?
+}
+
+model Bundle {
+  id            String    @id @default(uuid())
+  title         String
+  slug          String    @unique
+  description   String
+  price         Float
+  originalPrice Float
+  discount      Float     @default(0)
+  coverImage    String
+  rating        Float     @default(5.0)
+  itemsIncluded Int       @default(0)
+  status        String    @default("ACTIVE")
+  featured      Boolean   @default(false)
+  sku           String?
+  stock         Int?
+  minStock      Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  products      Product[]
+  orderItems    OrderItem[]
+  purchases     Purchase[]
+}
+
+model Review {
+  id           String   @id @default(uuid())
+  productId    String
+  customerName String
+  rating       Int      @default(5)
+  title        String
+  comment      String
+  status       String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  images       String?  // JSON serialized string array
+  videos       String?  // JSON serialized string array
+  createdAt    DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model SupportTicket {
+  id               String   @id @default(uuid())
+  ticketNumber     String   @unique
+  userId           String
+  orderId          String?
+  category         String
+  priority         String   @default("Normal")
+  subject          String
+  description      String
+  status           String   @default("Open")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order            Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  messages         SupportMessage[]
+}
+
+model SupportMessage {
+  id         String   @id @default(uuid())
+  ticketId   String
+  senderId   String
+  senderType String   @default("CUSTOMER") // "CUSTOMER" or "ADMIN"
+  message    String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender     User          @relation(fields: [senderId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@index([senderId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  adminId   String
+  action    String
+  entity    String
+  details   String?
+  timestamp DateTime @default(now())
+
+  admin     User     @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([timestamp])
+}
+
+model DriveFile {
+  id            String   @id @default(uuid())
+  filename      String
+  size          String?
+  linkedProduct String?
+  driveUrl      String
+  status        String   @default("Synced")
+  createdAt     DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String?
+  message   String
+  type      String   @default("System")
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Tag {
+  id         String   @id @default(uuid())
+  name       String   @unique
+  slug       String   @unique
+  usageCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Attribute {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  type        String   @default("TEXT") // TEXT, SELECT, NUMBER, BOOLEAN
+  options     Json?    // Available choices for SELECT type
+  productType String   @default("ALL")
+  isRequired  Boolean  @default(false)
+  displayOrder Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LicenceType {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  slug            String   @unique
+  description     String?
+  activationLimit Int      @default(1)
+  domainLimit     Int      @default(1)
+  deviceLimit     Int      @default(1)
+  durationDays    Int      @default(365)
+  renewalAllowed  Boolean  @default(true)
+  transferAllowed Boolean  @default(false)
+  resaleAllowed   Boolean  @default(false)
+  terms           String?
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ProductVersion {
+  id                 String   @id @default(uuid())
+  productId          String
+  versionNumber      String
+  versionLabel       String?
+  driveFileId        String?
+  fileName           String?
+  releaseNotes       String?
+  compatibilityNotes String?
+  eligibilityPolicy  String   @default("ALL_PURCHASERS")
+  status             String   @default("PUBLISHED")
+  publishedAt        DateTime @default(now())
+  createdAt          DateTime @default(now())
+
+  @@index([productId])
+}
+
+model ProductFile {
+  id             String   @id @default(uuid())
+  productId      String
+  driveFileId    String
+  fileName       String
+  mimeType       String?
+  sizeBytes      String?
+  parentFolderId String?
+  accessStatus   String   @default("CONNECTED")
+  lastVerifiedAt DateTime @default(now())
+  isCurrent      Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  @@index([productId])
+  @@index([driveFileId])
+}
+

@@ -1,0 +1,1 @@
+import { prisma } from './src/database/db'; async function main() { const users = await prisma.user.findMany(); const updated = await prisma.review.updateMany({ where: { customerName: 'Anonymous' }, data: { customerName: users.length > 0 ? users[0].name : 'Admin' } }); console.log('Updated reviews:', updated.count); } main();
