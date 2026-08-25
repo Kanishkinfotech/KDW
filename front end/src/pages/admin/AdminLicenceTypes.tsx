@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Trash2, Key, CheckCircle2, Shield } from 'lucide-react';
+import { ShieldCheck, Plus, Trash2, Key, CheckCircle2, Shield, Loader2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -13,6 +13,7 @@ export default function AdminLicenceTypes() {
   const [durationDays, setDurationDays] = useState(365);
   const [terms, setTerms] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchLicences = async () => {
     try {
@@ -53,7 +54,7 @@ export default function AdminLicenceTypes() {
       });
 
       if (res.data.success) {
-        toast.success(`Licence "${name}" created`);
+        toast.success(`Licence "${name}" created successfully!`);
         setName('');
         setDescription('');
         setTerms('');
@@ -63,6 +64,28 @@ export default function AdminLicenceTypes() {
       toast.error(err.response?.data?.message || 'Failed to create licence type');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleDeleteLicence = async (id: string, licenceName: string) => {
+    if (!window.confirm(`Are you sure you want to delete the licence "${licenceName}"?`)) {
+      return;
+    }
+
+    try {
+      setDeletingId(id);
+      const res = await axios.delete(`/api/products/licences/${id}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+
+      if (res.data.success) {
+        toast.success(`Licence "${licenceName}" deleted successfully`);
+        fetchLicences();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to delete licence type');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -197,8 +220,19 @@ export default function AdminLicenceTypes() {
                     </div>
                     <p className="text-xs text-slate-500 mt-1">{lic.description}</p>
                   </div>
-                  <div className="p-2 rounded-xl bg-primary/10 text-primary shrink-0">
-                    <Shield size={18} />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLicence(lic.id, lic.name)}
+                      disabled={deletingId === lic.id}
+                      title={`Delete "${lic.name}"`}
+                      className="p-2 rounded-xl text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer border border-transparent hover:border-rose-200"
+                    >
+                      {deletingId === lic.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    </button>
+                    <div className="p-2 rounded-xl bg-primary/10 text-primary shrink-0">
+                      <Shield size={18} />
+                    </div>
                   </div>
                 </div>
 

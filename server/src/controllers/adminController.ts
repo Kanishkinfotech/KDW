@@ -475,7 +475,7 @@ export const getAdminDashboard = async (req: Request, res: Response) => {
       recentNotifications,
       orderItemsAll
     ] = await Promise.all([
-      prisma.product.count({ where: { status: 'ACTIVE' } }),
+      prisma.product.count({ where: { status: { in: ['ACTIVE', 'PUBLISHED'] } } }),
       prisma.category.count({ where: { parentId: null, status: 'ACTIVE' } }),
       prisma.category.count({ where: { parentId: { not: null }, status: 'ACTIVE' } }),
       prisma.bundle.count({ where: { status: 'ACTIVE' } }),

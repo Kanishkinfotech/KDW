@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, X, Clock, TrendingUp, Tag, Box, Loader2 } from 'lucide-react';
+import { Search, X, Clock, TrendingUp, Tag, Box, Loader2, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { formatCurrency } from '../../../utils/currency';
@@ -14,18 +14,24 @@ interface SearchBarProps {
 export default function SearchBar({ onOpenChange, variant = 'header' }: SearchBarProps = {}) {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [results, setResults] = useState<{ products: any[], suggestions: { brands: string[], categories: string[] } } | null>(null);
+  const [results, setResults] = useState<{ products: any[]; suggestions: { brands: string[]; categories: string[] } } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   
   const storeProducts = useStore(state => state.products);
-  
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const saved = localStorage.getItem('recentSearches');
-    if (saved) setRecentSearches(JSON.parse(saved));
+    const saved = localStorage.getItem('kdw_recent_searches');
+    if (saved) {
+      try {
+        setRecentSearches(JSON.parse(saved));
+      } catch (e) {}
+    } else {
+      setRecentSearches(['Agency Starter', 'Proposal Templates', 'Business Dashboard', 'Framer']);
+    }
   }, []);
 
   useEffect(() => {
@@ -37,56 +43,61 @@ export default function SearchBar({ onOpenChange, variant = 'header' }: SearchBa
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [wrapperRef]);
+  }, [wrapperRef, onOpenChange]);
 
   useEffect(() => {
     const fetchResults = async () => {
-      if (!query.trim()) {
+      const q = query.trim();
+      if (!q) {
         setResults(null);
         return;
       }
       setIsLoading(true);
       try {
-        const res = await axios.get(`/api/products/search?q=${encodeURIComponent(query)}`);
-        if (res.data.success && res.data.data.products.length > 0) {
+        const res = await axios.get(`/api/products/search?q=${encodeURIComponent(q)}`);
+        if (res.data.success && res.data.data) {
           setResults(res.data.data);
         } else {
-          throw new Error('Fallback to local');
+          throw new Error('Fallback');
         }
       } catch (err) {
-        console.log("Search API failed, using local data");
-        const lowerQuery = query.toLowerCase();
+        // Safe fallback to storeProducts
+        const lowerQuery = q.toLowerCase();
         const localResults = storeProducts.filter(p => 
           p.title?.toLowerCase().includes(lowerQuery) || 
+          p.name?.toLowerCase().includes(lowerQuery) ||
           p.description?.toLowerCase().includes(lowerQuery) ||
-          (typeof p.category === 'object' ? (p.category as any).name : p.category)?.toLowerCase().includes(lowerQuery)
+          (typeof p.category === 'object' ? (p.category as any)?.name : p.category)?.toLowerCase().includes(lowerQuery)
         );
-        const cats = Array.from(new Set(localResults.map(p => typeof p.category === 'object' ? (p.category as any).name : p.category).filter(Boolean)));
+        const cats = Array.from(new Set(localResults.map(p => typeof p.category === 'object' ? (p.category as any)?.name : p.category).filter(Boolean)));
         
         setResults({
-          products: localResults.slice(0, 5),
-          suggestions: { categories: cats.slice(0, 3) as string[], brands: [] }
+          products: localResults.slice(0, 6),
+          suggestions: { categories: cats.slice(0, 4) as string[], brands: ['KDW'] }
         });
       } finally {
         setIsLoading(false);
       }
     };
 
-    const debounceTimer = setTimeout(fetchResults, 300);
+    const debounceTimer = setTimeout(fetchResults, 200);
     return () => clearTimeout(debounceTimer);
-  }, [query]);
+  }, [query, storeProducts]);
 
   const handleSearch = (searchTerm: string) => {
-    if (!searchTerm.trim()) return;
+    const trimmed = searchTerm.trim();
+    if (!trimmed) return;
     
-    // Save to recent
-    const updated = [searchTerm, ...recentSearches.filter(s => s !== searchTerm)].slice(0, 5);
+    // Save to recent searches
+    const updated = [trimmed, ...recentSearches.filter(s => s.toLowerCase() !== trimmed.toLowerCase())].slice(0, 6);
     setRecentSearches(updated);
-    localStorage.setItem('recentSearches', JSON.stringify(updated));
+    try {
+      localStorage.setItem('kdw_recent_searches', JSON.stringify(updated));
+    } catch (e) {}
     
     setIsOpen(false);
     onOpenChange?.(false);
-    navigate(`/shop?q=${encodeURIComponent(searchTerm)}`);
+    navigate(`/categories/all-products?q=${encodeURIComponent(trimmed)}`);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -99,135 +110,224 @@ export default function SearchBar({ onOpenChange, variant = 'header' }: SearchBa
   const isHero = variant === 'hero';
 
   return (
-    <div ref={wrapperRef} className={`relative z-50 transition-all duration-500 ease-in-out ${
-      isHero ? 'w-full max-w-xl mx-auto' : `hidden md:flex items-center justify-end w-full ${isOpen ? 'max-w-3xl flex-1' : 'max-w-md'}`
-    }`}>
+    <div ref={wrapperRef} className="relative w-full max-w-2xl z-40">
+      {/* Search Input Container */}
       <div 
-        className={`flex items-center backdrop-blur-md border transition-all duration-400 ease-out relative z-50 ${
-          isHero 
-            ? `w-full bg-white ${isOpen ? 'border-slate-300 rounded-t-2xl shadow-xl' : 'border-slate-300 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-slate-400 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20'} py-3 px-5`
-            : `bg-slate-100/60 rounded-full px-4 py-2.5 ${isOpen ? 'w-full border-slate-300 shadow-[0_8px_30px_rgb(0,0,0,0.06)] bg-white' : 'w-[180px] border-transparent hover:bg-slate-200/60 hover:w-[220px]'}`
+        className={`flex items-center transition-all duration-200 relative ${
+          isHero
+            ? 'bg-white rounded-2xl border border-slate-300 shadow-lg p-1.5 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary'
+            : 'bg-slate-800/90 hover:bg-slate-800 focus-within:bg-slate-800 rounded-xl border border-slate-700/80 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/25 p-1'
         }`}
       >
-        <Search size={isHero ? 20 : 18} className={`${isOpen ? 'text-slate-900' : isHero ? 'text-slate-400' : 'text-slate-500'}`} />
+        <div className="pl-3 pr-2 flex items-center justify-center text-slate-400">
+          <Search size={16} />
+        </div>
+
         <input
+          ref={inputRef}
           type="text"
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setIsOpen(true); onOpenChange?.(true); }}
-          onFocus={() => { setIsOpen(true); onOpenChange?.(true); }}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setIsOpen(true);
+            onOpenChange?.(true);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            onOpenChange?.(true);
+          }}
           onKeyDown={handleKeyDown}
-          placeholder={isHero ? "Search categories or products..." : "Search products, brands..."}
-          className={`bg-transparent border-none outline-none w-full ml-3 font-medium ${
-            isHero ? `text-lg py-1 text-slate-900 placeholder-slate-400` : 'text-sm text-slate-900 placeholder-slate-500'
+          placeholder="Search for products, templates, assets..."
+          className={`w-full bg-transparent border-none outline-none text-xs sm:text-sm font-medium ${
+            isHero ? 'text-slate-900 placeholder-slate-400 py-2' : 'text-white placeholder-slate-400 py-1.5'
           }`}
         />
+
         {isLoading && (
-          <Loader2 size={16} className="text-slate-600 animate-spin absolute right-10" />
+          <Loader2 size={16} className="text-primary-light animate-spin shrink-0 mr-2" />
         )}
-        {query && (
+
+        {query && !isLoading && (
           <button 
-            onClick={() => { setQuery(''); setResults(null); document.querySelector('input')?.focus(); }}
-            className="absolute right-4 text-slate-600 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 p-1 rounded-full transition-colors"
+            type="button"
+            onClick={() => {
+              setQuery('');
+              setResults(null);
+              inputRef.current?.focus();
+            }}
+            className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-700/60 mr-1 transition-colors"
+            aria-label="Clear search"
           >
             <X size={14} />
           </button>
         )}
+
+        {/* Purple Search Button */}
+        <button
+          type="button"
+          onClick={() => handleSearch(query)}
+          className="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg text-xs font-black flex items-center gap-1.5 shadow-sm transition-all active:scale-95 shrink-0 cursor-pointer"
+        >
+          <Search size={13} />
+          <span className="hidden sm:inline">Search</span>
+        </button>
       </div>
 
+      {/* Auto-suggest Popover Dropdown */}
       <AnimatePresence>
         {isOpen && (
           <motion.div 
-            initial={{ opacity: 0, y: isHero ? 0 : 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: isHero ? 0 : 10 }}
+            initial={{ opacity: 0, y: 6, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.99 }}
             transition={{ duration: 0.15 }}
-            className={`absolute left-0 w-full bg-white shadow-xl border border-slate-200 overflow-hidden z-40 ${
-              isHero ? 'top-full rounded-b-2xl border-t-0' : 'top-full mt-2 rounded-2xl'
-            }`}
+            className="absolute left-0 w-full top-full mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 text-slate-900"
           >
-            {/* No Query (Empty State) */}
+            {/* Empty State / Suggestions */}
             {!isLoading && !query && (
-              <div className="p-2">
+              <div className="p-4 space-y-4">
                 {recentSearches.length > 0 && (
-                  <div className="mb-2">
-                    <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Recent Searches</div>
-                    {recentSearches.map(term => (
-                      <button key={term} onClick={() => handleSearch(term)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 text-slate-700 text-sm rounded-lg transition-colors text-left">
-                        <Clock size={16} className="text-slate-600" />
-                        {term}
-                      </button>
-                    ))}
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                      <Clock size={12} /> Recent Searches
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {recentSearches.map(term => (
+                        <button
+                          key={term}
+                          type="button"
+                          onClick={() => handleSearch(term)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-primary/10 hover:text-primary text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          <span>{term}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
                 
                 <div>
-                  <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Popular Now</div>
-                  <button onClick={() => handleSearch('Framer')} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 text-slate-700 text-sm rounded-lg transition-colors text-left">
-                    <TrendingUp size={16} className="text-primary" /> Framer Templates
-                  </button>
-                  <button onClick={() => handleSearch('Dashboard')} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 text-slate-700 text-sm rounded-lg transition-colors text-left">
-                    <TrendingUp size={16} className="text-primary" /> Admin Dashboards
-                  </button>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                    <TrendingUp size={12} className="text-primary" /> Popular Categories & Assets
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { name: 'Agency Starter Kits', query: 'Agency' },
+                      { name: 'Business Proposal Packs', query: 'Proposal' },
+                      { name: 'SaaS Website Kits', query: 'Website' },
+                      { name: 'AI Prompts Library', query: 'AI Prompt' }
+                    ].map(item => (
+                      <button
+                        key={item.name}
+                        type="button"
+                        onClick={() => handleSearch(item.query)}
+                        className="flex items-center justify-between p-2 px-3 rounded-xl bg-slate-50 hover:bg-primary/5 text-slate-700 hover:text-primary text-xs font-bold transition-all text-left group cursor-pointer"
+                      >
+                        <span>{item.name}</span>
+                        <ArrowRight size={12} className="text-slate-300 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Results State */}
             {!isLoading && query && results && (
-              <div className="max-h-[60vh] overflow-y-auto">
+              <div className="max-h-[65vh] overflow-y-auto custom-scrollbar">
                 {results.products.length === 0 && (
-                  <div className="p-8 text-center text-slate-500">
-                    <Search size={32} className="mx-auto mb-3 text-slate-700" />
-                    <p>No results found for "{query}"</p>
-                    <p className="text-sm mt-1">Try checking for typos or using broader terms.</p>
+                  <div className="p-8 text-center text-slate-500 space-y-2">
+                    <Search size={28} className="mx-auto text-slate-300" />
+                    <p className="font-bold text-slate-800 text-sm">No products found for "{query}"</p>
+                    <p className="text-xs text-slate-500">Try searching for templates, agency kits, or browse categories.</p>
                   </div>
                 )}
 
+                {/* Categories matched */}
                 {results.suggestions.categories.length > 0 && (
-                  <div className="p-2 border-b border-slate-100">
-                    <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Categories</div>
-                    <div className="flex flex-wrap gap-2 px-3">
+                  <div className="p-3 bg-slate-50 border-b border-slate-100">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
+                      Matching Categories
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
                       {results.suggestions.categories.map(cat => (
-                        <button key={cat} onClick={() => { setIsOpen(false); onOpenChange?.(false); navigate(`/shop?category=${cat}`); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-full transition-colors">
-                          <Tag size={12} /> {cat}
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            setIsOpen(false);
+                            onOpenChange?.(false);
+                            navigate(`/categories/${cat.toLowerCase().replace(/\s+/g, '-')}`);
+                          }}
+                          className="flex items-center gap-1 px-3 py-1 bg-white border border-slate-200 hover:border-primary hover:text-primary text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Tag size={11} className="text-primary" /> {cat}
                         </button>
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* Product results */}
                 {results.products.length > 0 && (
-                  <div className="p-2">
-                    <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Products</div>
-                    {results.products.map(product => (
-                      <button 
-                        key={product._id || product.id} 
-                        onClick={() => { setIsOpen(false); onOpenChange?.(false); navigate(`/product/${product._id || product.id}`); }}
-                        className="w-full flex items-center gap-4 p-3 hover:bg-slate-50 rounded-lg transition-colors text-left group"
-                      >
-                        {product.coverImage ? (
-                          <img src={product.coverImage} alt={product.title || product.name} className="w-12 h-12 rounded-lg object-cover bg-slate-100" />
-                        ) : (
-                          <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center text-slate-600">
-                            <Box size={20} />
+                  <div className="p-2 space-y-1">
+                    <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      Matching Products ({results.products.length})
+                    </div>
+                    {results.products.map(product => {
+                      const idOrSlug = product.slug || product.id || product._id;
+                      const price = product.discountPrice !== null && product.discountPrice !== undefined ? product.discountPrice : product.price;
+                      return (
+                        <button 
+                          key={product.id || product._id} 
+                          type="button"
+                          onClick={() => {
+                            setIsOpen(false);
+                            onOpenChange?.(false);
+                            navigate(`/products/${idOrSlug}`);
+                          }}
+                          className="w-full flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl transition-all text-left group cursor-pointer"
+                        >
+                          {product.coverImage || product.thumbnail ? (
+                            <img 
+                              src={product.coverImage || product.thumbnail} 
+                              alt={product.name || product.title} 
+                              className="w-12 h-12 rounded-xl object-cover bg-slate-100 border border-slate-200 shrink-0" 
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 shrink-0">
+                              <Box size={20} />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-slate-900 group-hover:text-primary transition-colors truncate text-xs sm:text-sm">
+                              {product.name || product.title}
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                              <span className="font-bold text-slate-900">{formatCurrency(price)}</span>
+                              {product.discountPrice && (
+                                <span className="text-slate-400 line-through text-[10px]">{formatCurrency(product.price)}</span>
+                              )}
+                              <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                              <span className="truncate text-slate-500 font-medium">{product.category}</span>
+                            </div>
                           </div>
-                        )}
-                        <div className="flex-1">
-                          <div className="font-semibold text-slate-900 group-hover:text-primary transition-colors line-clamp-1 text-sm">{product.title || product.name}</div>
-                          <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                            <span className="font-medium text-slate-700">{formatCurrency(product.price)}</span>
-                            {product.category && <><span className="w-1 h-1 bg-slate-300 rounded-full" /> <span>{typeof product.category === 'object' ? (product.category as any).name : product.category}</span></>}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
+                          <ArrowRight size={14} className="text-slate-300 group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0 mr-2" />
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 
+                {/* View all results button */}
                 {results.products.length > 0 && (
-                  <div className="p-2 border-t border-slate-100">
-                    <button onClick={() => handleSearch(query)} className="w-full py-3 text-sm font-semibold text-primary hover:bg-primary/5 rounded-lg transition-colors text-center flex items-center justify-center gap-2">
-                      <Search size={16} /> View all results for "{query}"
+                  <div className="p-3 bg-slate-50 border-t border-slate-100">
+                    <button 
+                      type="button"
+                      onClick={() => handleSearch(query)} 
+                      className="w-full py-2.5 bg-primary hover:bg-primary-dark text-white text-xs font-black rounded-xl transition-colors text-center flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Search size={13} /> View all search results for "{query}"
                     </button>
                   </div>
                 )}
@@ -236,10 +336,7 @@ export default function SearchBar({ onOpenChange, variant = 'header' }: SearchBa
           </motion.div>
         )}
       </AnimatePresence>
-      
-      {isOpen && (
-        <div className="fixed inset-0 z-30" onClick={() => { setIsOpen(false); onOpenChange?.(false); }}></div>
-      )}
     </div>
   );
 }
+

@@ -9,7 +9,12 @@ import { csrfProtection } from './middleware/authMiddleware';
 const app = express();
 
 // Middleware
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({
+  limit: '50mb',
+  verify: (req: any, res, buf) => {
+    req.rawBody = buf.toString('utf8');
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 app.use(cors({
@@ -33,6 +38,7 @@ import authRoutes from './routes/authRoutes';
 import productRoutes from './routes/productRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import paymentRoutes from './routes/paymentRoutes';
+import adminPaymentRoutes from './routes/adminPaymentRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import adminRoutes from './routes/adminRoutes';
 import bundleRoutes from './routes/bundleRoutes';
@@ -43,6 +49,12 @@ import uploadRoutes from './routes/uploadRoutes';
 import inventoryRoutes from './routes/inventoryRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import couponRoutes from './routes/couponRoutes';
+import offerRoutes from './routes/offerRoutes';
+import campaignRoutes from './routes/campaignRoutes';
+import digitalDeliveryRoutes from './routes/digitalDeliveryRoutes';
+import orderRoutes from './routes/orderRoutes';
+import customerRoutes from './routes/customerRoutes';
+import accountCustomerRoutes from './routes/accountCustomerRoutes';
 
 // Apply CSRF protection to all API routes
 app.use('/api', csrfProtection);
@@ -51,9 +63,18 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/admin/payments', adminPaymentRoutes);
+app.use('/api/admin/orders', orderRoutes);
+app.use('/api/admin/customers', customerRoutes);
+app.use('/api/account', accountCustomerRoutes);
 app.use('/api/admin/analytics', analyticsRoutes);
 app.use('/api/admin/inventory', inventoryRoutes);
+app.use('/api/admin/coupons', couponRoutes);
+app.use('/api/admin/offers', offerRoutes);
+app.use('/api/admin/campaigns', campaignRoutes);
+app.use('/api/admin/reviews', reviewRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/digital-delivery', digitalDeliveryRoutes);
 app.use('/api/bundles', bundleRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/purchases', purchaseRoutes);
@@ -61,6 +82,8 @@ app.use('/api/support', supportRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/coupons', couponRoutes);
+app.use('/api/offers', offerRoutes);
+app.use('/api/campaigns', campaignRoutes);
 
 // Basic health check route
 app.get('/api/health', (req, res) => {

@@ -65,27 +65,32 @@ export default function BundleCard({ bundle }: BundleCardProps) {
           <div>
             <div className="flex items-center gap-1.5 mb-1">
               <div className="flex text-amber-400">
-                <Star className="fill-amber-400" size={14} />
+                <Star className="fill-amber-400" size={13} />
               </div>
-              <span className="text-sm font-bold text-slate-900">{bundle.rating?.toFixed(1) || '5.0'}</span>
-              <span className="text-xs text-slate-600 font-medium">({Math.floor(Math.random() * 500) + 100})</span>
+              <span className="text-xs font-bold text-slate-900">{bundle.rating?.toFixed(1) || '5.0'}</span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                {bundle.itemsIncluded ? `(${bundle.itemsIncluded} items)` : ''}
+              </span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="text-xl font-black text-slate-900 tracking-tight">
+              <div className="text-lg font-black text-slate-900 tracking-tight">
                 {formatCurrency(bundle.price)}
               </div>
-              <div className="text-sm text-slate-400 line-through font-medium">
-                {formatCurrency(bundle.originalPrice)}
-              </div>
+              {bundle.originalPrice > bundle.price && (
+                <div className="text-xs text-slate-400 line-through font-medium">
+                  {formatCurrency(bundle.originalPrice)}
+                </div>
+              )}
             </div>
           </div>
           
           <button 
+            type="button"
             onClick={handleAddToCart}
-            className="w-11 h-11 rounded-xl bg-primary border border-primary hover:bg-primary/90 text-white flex items-center justify-center transition-all duration-300 shadow-sm shadow-primary/25 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none hover:-translate-y-0.5 active:translate-y-0"
+            className="w-10 h-10 rounded-xl bg-primary hover:bg-primary-dark text-white flex items-center justify-center transition-all duration-200 shadow-sm shadow-primary/25 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none hover:scale-105 active:scale-95 cursor-pointer"
             aria-label={`Add ${bundle.title} to cart`}
           >
-            <ShoppingCart size={18} />
+            <ShoppingCart size={16} />
           </button>
         </div>
       </div>

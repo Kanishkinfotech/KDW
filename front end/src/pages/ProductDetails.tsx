@@ -15,6 +15,7 @@ import { formatCurrency } from '../utils/currency';
 import CheckoutModal from '../components/CheckoutModal';
 import { useStore } from '../store/useStore';
 import { useAuth } from '../context/AuthContext';
+import { addRecentlyViewed } from '../utils/recentlyViewed';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
@@ -78,6 +79,7 @@ export default function ProductDetails() {
         if (res.data.success && res.data.data) {
           const p = res.data.data;
           setProduct(p);
+          addRecentlyViewed(p);
 
           // Build media gallery list
           const images: string[] = [];
@@ -381,32 +383,6 @@ export default function ProductDetails() {
         }}
         deliveryEmail={deliveryEmail.trim()}
       />
-
-      {/* 1. Secondary Navigation Catalog Bar */}
-      <div className="bg-slate-900 text-slate-300 text-xs border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between overflow-x-auto gap-6 custom-scrollbar whitespace-nowrap">
-          <div className="flex items-center gap-5 font-bold">
-            <Link to="/categories" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <Layers size={13} className="text-primary-light" /> Categories
-            </Link>
-            <Link to="/bundles" className="hover:text-white transition-colors">Bundles</Link>
-            <Link to="/categories/templates" className="hover:text-white transition-colors">Templates</Link>
-            <Link to="/categories/graphics" className="hover:text-white transition-colors">Graphics</Link>
-            <Link to="/categories/ui-kits" className="hover:text-white transition-colors">UI Kits</Link>
-            <Link to="/categories/plugins" className="hover:text-white transition-colors">Plugins</Link>
-            <Link to="/new-arrivals" className="hover:text-white transition-colors flex items-center gap-1">
-              <Sparkles size={13} className="text-amber-400" /> New Arrivals
-            </Link>
-            <Link to="/best-sellers" className="hover:text-white transition-colors">Deals</Link>
-          </div>
-
-          <div className="flex items-center gap-4 text-[11px] font-semibold text-slate-400">
-            <Link to="/support" className="hover:text-white transition-colors">Support</Link>
-            <span>•</span>
-            <Link to="/dashboard" className="hover:text-white transition-colors">Track Order</Link>
-          </div>
-        </div>
-      </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-10 space-y-12">
         

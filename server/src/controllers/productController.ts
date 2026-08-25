@@ -1032,6 +1032,20 @@ export const createLicenceType = async (req: Request, res: Response, next: NextF
   }
 };
 
+export const deleteLicenceType = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const existing = await prisma.licenceType.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Licence type not found' });
+    }
+    await prisma.licenceType.delete({ where: { id } });
+    res.json({ success: true, message: `Licence type "${existing.name}" deleted successfully` });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ==========================================
 // PRODUCT VERSIONS & FILES
 // ==========================================
@@ -1293,6 +1307,95 @@ export const sendTestPurchaseEmail = async (req: Request, res: Response, next: N
     res.json({
       success: true,
       message: `Test purchase email simulated for ${testEmail}. (No customer entitlement created)`
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/products/search — Live Product & Category Search
+export const searchProducts = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (!q) {
+      return res.json({ 
+        success: true, 
+        data: { 
+          products: [], 
+          suggestions: { categories: [], brands: [] } 
+        } 
+      });
+    }
+
+    const where: any = {
+      status: { in: ['PUBLISHED', 'ACTIVE'] },
+      OR: [
+        { name: { contains: q, mode: 'insensitive' } },
+        { productCode: { contains: q, mode: 'insensitive' } },
+        { slug: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { shortDescription: { contains: q, mode: 'insensitive' } },
+        { brand: { contains: q, mode: 'insensitive' } },
+        { tags: { contains: q, mode: 'insensitive' } },
+        { subcategory: { contains: q, mode: 'insensitive' } },
+        { category: { name: { contains: q, mode: 'insensitive' } } }
+      ]
+    };
+
+    const products = await prisma.product.findMany({
+      where,
+      include: {
+        category: true,
+        reviews: { where: { status: 'APPROVED' } }
+      },
+      take: 8
+    });
+
+    const matchedCategories = await prisma.category.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { slug: { contains: q, mode: 'insensitive' } }
+        ]
+      },
+      take: 4
+    });
+
+    const mapped = products.map(p => {
+      const reviewCount = p.reviews ? p.reviews.length : 0;
+      const avgRating = reviewCount > 0 
+        ? p.reviews.reduce((acc, r) => acc + r.rating, 0) / reviewCount 
+        : 5.0;
+
+      return {
+        id: p.id,
+        _id: p.id,
+        name: p.name,
+        title: p.name,
+        slug: p.slug,
+        productCode: p.productCode || `KDW-P-${p.id.slice(0, 6).toUpperCase()}`,
+        productType: p.productType || 'DOWNLOADABLE_FILE',
+        price: p.price,
+        discountPrice: p.discountPrice,
+        coverImage: p.thumbnail,
+        thumbnail: p.thumbnail,
+        category: p.category?.name || 'Uncategorized',
+        categorySlug: p.category?.slug || 'uncategorized',
+        subcategory: p.subcategory,
+        rating: avgRating,
+        reviews: reviewCount
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        products: mapped,
+        suggestions: {
+          categories: matchedCategories.map(c => c.name),
+          brands: ['KDW']
+        }
+      }
     });
   } catch (error) {
     next(error);

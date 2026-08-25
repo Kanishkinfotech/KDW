@@ -16,24 +16,43 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const normalizedEmail = email.trim().toLowerCase();
 
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (existingUser) {
+    if (existingUser && existingUser.customerType === 'ACCOUNT') {
       return res.status(400).json({ success: false, message: 'Email already exists' });
     }
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email: normalizedEmail,
-        passwordHash,
-        mobile,
-        role: 'CUSTOMER'
-      }
-    });
+    let user;
+    if (existingUser && existingUser.customerType === 'GUEST') {
+      // Transition guest to account
+      user = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          name: name || existingUser.name,
+          passwordHash,
+          mobile: mobile || existingUser.mobile,
+          customerType: 'ACCOUNT',
+          emailVerified: true,
+          emailVerifiedAt: new Date()
+        }
+      });
+    } else {
+      user = await prisma.user.create({
+        data: {
+          name,
+          email: normalizedEmail,
+          normalizedEmail,
+          passwordHash,
+          mobile,
+          role: 'CUSTOMER',
+          customerType: 'ACCOUNT',
+          emailVerified: false
+        }
+      });
+    }
 
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, {
       httpOnly: true,
@@ -45,6 +64,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     res.status(201).json({
       success: true,
+      token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role }
     });
   } catch (error) {
@@ -63,7 +83,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const normalizedEmail = email.trim().toLowerCase();
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (!user) {
+    if (!user || !user.passwordHash) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
@@ -72,7 +92,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, {
       httpOnly: true,
@@ -84,6 +104,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
     res.json({
       success: true,
+      token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role }
     });
   } catch (error) {
@@ -103,11 +124,9 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     
     if (!user) {
-      // Return generic message for security
       return res.status(200).json({ success: true, message: 'If the email exists, a reset link was sent.' });
     }
 
-    // For demonstration, we just return a simulated token
     const token = 'simulated-reset-token-12345';
     
     res.json({
@@ -136,11 +155,14 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
       where: { id: (req as any).user?.id },
       select: {
         id: true,
+        customerCode: true,
         name: true,
         email: true,
         mobile: true,
         profileImage: true,
         role: true,
+        emailVerified: true,
+        customerType: true,
         createdAt: true
       }
     });
@@ -158,40 +180,29 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
 export const updateProfile = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
     const { name, mobile, profileImage } = req.body;
-    
-    // Explicitly prevent email modification if passed
-    if (req.body.email) {
-      return res.status(400).json({ success: false, message: 'Email address cannot be changed' });
-    }
 
-    if (!name || name.trim() === '') {
-      return res.status(400).json({ success: false, message: 'Name is required' });
-    }
-
-    const updatedUser = await prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: userId },
       data: {
-        name: name.trim(),
-        mobile: mobile ? mobile.trim() : null,
-        profileImage: profileImage || null,
+        ...(name && { name: String(name).trim() }),
+        ...(mobile !== undefined && { mobile: mobile ? String(mobile).trim() : null }),
+        ...(profileImage !== undefined && { profileImage })
       },
       select: {
         id: true,
+        customerCode: true,
         name: true,
         email: true,
         mobile: true,
         profileImage: true,
         role: true,
-        createdAt: true
+        emailVerified: true,
+        customerType: true
       }
     });
 
-    res.json({ success: true, user: updatedUser, message: 'Profile updated successfully' });
+    res.json({ success: true, user });
   } catch (error) {
     next(error);
   }

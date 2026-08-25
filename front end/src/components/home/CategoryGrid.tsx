@@ -1,76 +1,102 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Layout, Bot, Image, Share2, Cpu, Code2 } from 'lucide-react';
+import { ArrowRight, Layout, Bot, Image, Share2, Cpu, Code2, Layers, Sparkles, FolderTree } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 export default function CategoryGrid() {
-  const { categories } = useStore();
+  const { categories, products } = useStore();
 
-  const defaultCategories = [
-    { name: 'Website Kits', icon: <Layout className="text-blue-500" size={28} />, desc: 'Ready-to-launch website templates and UI kits.' },
-    { name: 'AI Prompt Bundles', icon: <Bot className="text-purple-500" size={28} />, desc: 'Curated prompts for Midjourney, ChatGPT & Claude.' },
-    { name: 'Graphic Assets', icon: <Image className="text-emerald-500" size={28} />, desc: 'High-res textures, mockups, vector packs and overlays.' },
-    { name: 'Social Media Bundles', icon: <Share2 className="text-pink-500" size={28} />, desc: 'Canva templates, reels packs, and story designs.' },
-    { name: 'Automation Tools', icon: <Cpu className="text-amber-500" size={28} />, desc: 'Make, Zapier & Python workflow automations.' },
-    { name: 'Code Templates', icon: <Code2 className="text-indigo-500" size={28} />, desc: 'Full-stack boilerplates, Next.js & React starters.' }
-  ];
+  // Top level categories
+  const topCategories = categories.filter((c: any) => !c.parentId);
+  const displayCats = topCategories.length > 0 ? topCategories : categories;
+
+  const categoryIcons: Record<string, any> = {
+    templates: <Layout className="text-purple-600" size={26} />,
+    graphics: <Image className="text-emerald-600" size={26} />,
+    'ui-kits': <Layers className="text-blue-600" size={26} />,
+    automation: <Cpu className="text-amber-600" size={26} />,
+    'social-media-bundles': <Share2 className="text-pink-600" size={26} />,
+    'ai-prompt-bundles': <Bot className="text-indigo-600" size={26} />
+  };
+
+  const getProductCount = (catName: string, catSlug?: string) => {
+    const tName = (catName || '').toLowerCase().trim();
+    const tSlug = (catSlug || '').toLowerCase().trim();
+
+    return products.filter((p: any) => {
+      const pCat = typeof p.category === 'object' ? p.category?.name : p.category;
+      const pSlug = typeof p.category === 'object' ? p.category?.slug : '';
+      const pName = (pCat || '').toLowerCase().trim();
+      const pCatSlug = (pSlug || '').toLowerCase().trim();
+
+      return pName === tName || pCatSlug === tSlug || pName.includes(tName);
+    }).length;
+  };
 
   return (
-    <section className="py-20 bg-slate-50/60 border-t border-b border-slate-200/60">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-4">
+    <section className="py-16 sm:py-20 bg-white border-t border-b border-slate-200/70">
+      <div className="w-full px-4 sm:px-6 lg:px-8 2xl:px-12">
+        
+        {/* Section Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
           <div>
-            <span className="text-xs font-black tracking-widest text-primary uppercase mb-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20 inline-block">
-              EXPLORE CATALOG
+            <span className="text-xs font-black tracking-widest text-primary uppercase mb-2 px-3 py-1 bg-primary/10 rounded-full border border-primary/20 inline-flex items-center gap-1.5">
+              <FolderTree size={13} /> EXPLORE CATALOG
             </span>
-            <h2 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight mt-2">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight mt-2">
               Browse Popular Categories
             </h2>
-            <p className="text-slate-600 text-base mt-1 max-w-xl font-medium">
+            <p className="text-slate-500 text-xs sm:text-sm mt-1 max-w-xl font-medium">
               Discover curated collections designed for creators, developers, agency owners, and digital entrepreneurs.
             </p>
           </div>
           <Link 
-            to="/categories" 
-            className="text-primary font-bold text-sm flex items-center gap-2 hover:gap-3 transition-all shrink-0"
+            to="/categories/all-products" 
+            className="text-primary hover:text-primary-dark font-bold text-xs sm:text-sm flex items-center gap-1.5 hover:gap-2.5 transition-all shrink-0"
           >
-            All Categories <ArrowRight size={18} />
+            <span>View All Categories</span>
+            <ArrowRight size={16} />
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {defaultCategories.map((cat, idx) => {
-            const dbMatch = categories?.find((c: any) => c.name.toLowerCase() === cat.name.toLowerCase());
-            const productCount = dbMatch ? (dbMatch._count?.products || 12) : 12;
+        {/* Categories Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5 sm:gap-6">
+          {displayCats.slice(0, 8).map((cat: any) => {
+            const slug = cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-');
+            const count = getProductCount(cat.name, cat.slug);
+            const icon = categoryIcons[slug] || <Layers className="text-primary" size={26} />;
 
             return (
               <Link 
-                key={idx}
-                to={`/shop?category=${encodeURIComponent(cat.name)}`}
-                className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-xl hover:border-primary/40 hover:-translate-y-1 transition-all duration-300 group flex flex-col justify-between"
+                key={cat.id || slug}
+                to={`/categories/${slug}`}
+                className="bg-slate-50/70 hover:bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-xl hover:border-primary/40 hover:-translate-y-1 transition-all duration-300 group flex flex-col justify-between"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                      {cat.icon}
+                    <div className="w-12 h-12 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center group-hover:scale-110 shadow-xs transition-transform">
+                      {icon}
                     </div>
-                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">
-                      {productCount}+ Assets
+                    <span className="bg-slate-200/80 text-slate-700 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono">
+                      {count} {count === 1 ? 'Asset' : 'Assets'}
                     </span>
                   </div>
-                  <h3 className="text-xl font-bold text-slate-900 group-hover:text-primary transition-colors mb-2">
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-primary transition-colors mb-1.5 capitalize">
                     {cat.name}
                   </h3>
-                  <p className="text-slate-600 text-sm font-medium leading-relaxed">
-                    {cat.desc}
+                  <p className="text-slate-500 text-xs font-medium line-clamp-2 leading-relaxed">
+                    {cat.description || `Explore premium ${cat.name} templates, files, and digital resources.`}
                   </p>
                 </div>
-                <div className="mt-6 pt-4 border-t border-slate-100 text-primary font-bold text-xs flex items-center gap-1.5 group-hover:gap-2.5 transition-all">
-                  Browse {cat.name} <ArrowRight size={14} />
+
+                <div className="mt-5 pt-3 border-t border-slate-200/60 text-primary font-bold text-xs flex items-center justify-between group-hover:text-primary-dark transition-colors">
+                  <span>Explore {cat.name}</span>
+                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                 </div>
               </Link>
             );
           })}
         </div>
+
       </div>
     </section>
   );

@@ -1,6 +1,6 @@
 import express from 'express';
 import { getSystemHealth, resendOrderEmail, getAdminSettings, updateAdminSettings, getAdminAuditLogs, getAdminDashboard, searchGlobalAdmin } from '../controllers/adminController';
-import { getAdminReviews, updateReviewStatus, deleteReview } from '../controllers/reviewController';
+import { getAdminReviews, updateReviewModeration } from '../controllers/reviewController';
 import { getAdminOrders, getAdminOrderById, updateAdminOrderStatus, refundAdminOrder } from '../controllers/orderController';
 import { 
   getAdminUsers, 
@@ -9,7 +9,7 @@ import {
   createAdminUser,
   deleteAdminUser 
 } from '../controllers/userController';
-import { getAdminCoupons, createAdminCoupon, updateAdminCoupon, deleteAdminCoupon } from '../controllers/couponController';
+import { getAdminCoupons, createAdminCoupon, updateAdminCoupon, updateCouponStatus } from '../controllers/couponController';
 import { getDriveFiles, linkDriveFile, deleteDriveFile } from '../controllers/driveController';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 
@@ -35,8 +35,8 @@ router.get('/audit-logs', getAdminAuditLogs);
 
 // Admin Reviews
 router.get('/reviews', getAdminReviews);
-router.put('/reviews/:id/status', updateReviewStatus);
-router.delete('/reviews/:id', deleteReview);
+router.put('/reviews/:id/status', updateReviewModeration);
+router.post('/reviews/:id/moderation', updateReviewModeration);
 
 // Orders
 router.get('/orders', getAdminOrders);
@@ -56,7 +56,7 @@ router.delete('/users/:id', deleteAdminUser);
 router.get('/coupons', getAdminCoupons);
 router.post('/coupons', createAdminCoupon);
 router.put('/coupons/:id', updateAdminCoupon);
-router.delete('/coupons/:id', deleteAdminCoupon);
+router.patch('/coupons/:id/status', updateCouponStatus);
 
 // Media / Drive Manager
 router.get('/drive', getDriveFiles);

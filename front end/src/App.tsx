@@ -54,10 +54,13 @@ import AdminReports from './pages/admin/AdminReports';
 import AdminPayments from './pages/admin/AdminPayments';
 import AdminInventory from './pages/admin/AdminInventory';
 import AdminCoupons from './pages/admin/AdminCoupons';
+import AdminOffers from './pages/admin/AdminOffers';
+import AdminCampaigns from './pages/admin/AdminCampaigns';
 import AdminSystemHealth from './pages/admin/AdminSystemHealth';
 import AdminAuditLogs from './pages/admin/AdminAuditLogs';
 import AdminMediaManager from './pages/admin/AdminMediaManager';
 import AdminReviews from './pages/admin/AdminReviews';
+import AdminDigitalDeliveries from './pages/admin/AdminDigitalDeliveries';
 import AdminSupportPage from './pages/admin/AdminSupportPage';
 import AdminRoles from './pages/admin/AdminRoles';
 import AdminUsers from './pages/admin/AdminUsers';
@@ -153,8 +156,8 @@ export default function App() {
           <Route path="/category/:categorySlug" element={<Shop />} />
           <Route path="/category/:categorySlug/:subcategorySlug" element={<Shop />} />
           
-          {/* Safely redirect legacy /shop to new architecture */}
-          <Route path="/shop" element={<Navigate to="/categories/all-products" replace />} />
+          {/* Direct support for /shop and category query params */}
+          <Route path="/shop" element={<Shop />} />
           
           <Route path="/product/:id" element={<ProductDetails />} />
           <Route path="/products/:id" element={<ProductDetails />} />
@@ -237,6 +240,7 @@ export default function App() {
           <Route path="bundles/new" element={<AdminBundleForm />} />
           <Route path="bundles/edit/:id" element={<AdminBundleForm />} />
           <Route path="orders" element={<AdminOrders />} />
+          <Route path="digital-deliveries" element={<AdminDigitalDeliveries />} />
           <Route path="customers" element={<AdminCustomers />} />
           <Route path="categories" element={<AdminCategories />} />
           <Route path="inventory" element={<AdminInventory />} />
@@ -244,6 +248,8 @@ export default function App() {
           <Route path="reports" element={<AdminReports />} />
           <Route path="payments" element={<AdminPayments />} />
           <Route path="coupons" element={<AdminCoupons />} />
+          <Route path="offers" element={<AdminOffers />} />
+          <Route path="campaigns" element={<AdminCampaigns />} />
           <Route path="health" element={<AdminSystemHealth />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
           <Route path="media" element={<AdminMediaManager />} />

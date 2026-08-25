@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { 
-  getProducts, getProductById, getRelatedProducts, createProduct, updateProduct, deleteProduct,
+  getProducts, searchProducts, getProductById, getRelatedProducts, createProduct, updateProduct, deleteProduct,
   publishProduct, scheduleProduct, pauseProduct, archiveProduct, restoreProduct,
   duplicateProduct, getProductHealth, getTags, createTag, deleteTag,
   getAttributes, createAttribute, deleteAttribute,
-  getLicenceTypes, createLicenceType,
+  getLicenceTypes, createLicenceType, deleteLicenceType,
   getProductVersions, createProductVersion, getProductFiles,
   validateDriveLink, previewPurchaseEmail, sendTestPurchaseEmail
 } from '../controllers/productController';
@@ -19,6 +19,7 @@ router.post('/email/test', sendTestPurchaseEmail);
 
 // Public routes
 router.get('/', getProducts);
+router.get('/search', searchProducts);
 router.get('/tags', getTags);
 router.get('/attributes', getAttributes);
 router.get('/licences', getLicenceTypes);
@@ -47,6 +48,7 @@ router.delete('/tags/:id', deleteTag);
 router.post('/attributes', createAttribute);
 router.delete('/attributes/:id', deleteAttribute);
 router.post('/licences', createLicenceType);
+router.delete('/licences/:id', deleteLicenceType);
 router.post('/versions', createProductVersion);
 
 export default router;

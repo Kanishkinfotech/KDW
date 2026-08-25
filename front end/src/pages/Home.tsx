@@ -1,4 +1,5 @@
 import HeroCarousel from '../components/home/HeroCarousel';
+import CategoryGrid from '../components/home/CategoryGrid';
 import BestSellers from '../components/home/BestSellers';
 import BundlesSection from '../components/home/BundlesSection';
 import TestimonialsSection from '../components/home/TestimonialsSection';
@@ -11,6 +12,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
       <SEO title="Kanishk Digital World — Premium Digital Products Marketplace" description="Discover and download high-quality website templates, UI kits, AI tools, bundles, and digital resources." />
       <HeroCarousel />
+      <CategoryGrid />
       <BestSellers />
       <BundlesSection />
       <TestimonialsSection />

@@ -205,14 +205,20 @@ export default function Cart() {
       }
 
       if (orderData.paymentMode === 'mock') {
-        setPaymentState('waiting');
-        setTimeout(() => {
-          verifyPaymentOnServer(
+        const confirmTest = window.confirm(
+          `[TEST MODE ACTIVATED]\n\nRazorpay Gateway is in simulation mode.\nWould you like to complete this test transaction of ${formatCurrency(finalTotal)}?`
+        );
+        if (confirmTest) {
+          setPaymentState('verifying');
+          await verifyPaymentOnServer(
             orderData.razorpayOrderId,
             'pay_mock_' + Date.now(),
             'sig_mock_dummy'
           );
-        }, 1500);
+        } else {
+          setPaymentState('idle');
+          setPaymentError('Payment simulation cancelled.');
+        }
         return;
       }
 
@@ -235,7 +241,7 @@ export default function Cart() {
           email: trimmedEmail,
           contact: ''
         },
-        theme: { color: '#2563EB' },
+        theme: { color: '#7C3AED' },
         modal: {
           ondismiss: function() {
             setPaymentState('idle');
@@ -244,7 +250,23 @@ export default function Cart() {
         }
       };
 
-      if (!options.key) throw new Error("Razorpay Key ID is not configured.");
+      if (!options.key || options.key === 'dummy_key_id') {
+        const confirmTest = window.confirm(
+          `[TEST MODE ACTIVATED]\n\nRazorpay Gateway is in simulation mode.\nWould you like to complete this test transaction of ${formatCurrency(finalTotal)}?`
+        );
+        if (confirmTest) {
+          setPaymentState('verifying');
+          await verifyPaymentOnServer(
+            orderData.razorpayOrderId,
+            'pay_mock_' + Date.now(),
+            'sig_mock_dummy'
+          );
+        } else {
+          setPaymentState('idle');
+          setPaymentError('Payment simulation cancelled.');
+        }
+        return;
+      }
 
       const paymentObject = new (window as any).Razorpay(options);
       paymentObject.on('payment.failed', function (response: any) {

@@ -24,7 +24,7 @@ const slides: SlideConfig[] = [
     headline: 'Everything Digital. One Place.',
     description: 'Discover practical templates, AI tools, business resources and creative assets built to help you get more done.',
     primaryCta: 'Explore Products →',
-    primaryLink: '/shop',
+    primaryLink: '/categories/all-products',
     secondaryCta: 'View Best Sellers',
     secondaryLink: '/best-sellers',
     categories: [] // Uses general best sellers / featured
@@ -35,10 +35,10 @@ const slides: SlideConfig[] = [
     headline: 'Build Faster With Ready-Made Templates.',
     description: 'Professional website kits, business templates and ready-to-use resources that save hours of work.',
     primaryCta: 'Explore Templates →',
-    primaryLink: '/shop?category=Website%20Kits',
-    secondaryCta: 'View Products',
-    secondaryLink: '/shop?category=Business%20Templates',
-    categories: ['Website Kits', 'Business Templates']
+    primaryLink: '/categories/templates',
+    secondaryCta: 'View Business Assets',
+    secondaryLink: '/categories/business-templates',
+    categories: ['Templates', 'Business Templates', 'Website Kits']
   },
   {
     id: 'ai',
@@ -46,7 +46,7 @@ const slides: SlideConfig[] = [
     headline: 'Work Smarter With AI & Automation.',
     description: 'Practical AI resources and automation tools designed to reduce repetitive work and speed up your workflow.',
     primaryCta: 'Explore AI Tools →',
-    primaryLink: '/shop?category=AI%20Prompt%20Bundles',
+    primaryLink: '/categories/automation',
     secondaryCta: 'View Best Sellers',
     secondaryLink: '/best-sellers',
     categories: ['AI Prompt Bundles', 'Automation']
@@ -57,10 +57,10 @@ const slides: SlideConfig[] = [
     headline: 'Create Better. Launch Faster.',
     description: 'Premium social media resources, creative assets and digital kits for creators and businesses.',
     primaryCta: 'Explore Creative Assets →',
-    primaryLink: '/shop?category=Social%20Media%20Bundles',
-    secondaryCta: 'View Products',
-    secondaryLink: '/shop?category=Instagram%20Bundles',
-    categories: ['Social Media Bundles', 'Instagram Bundles', 'Agency Kits']
+    primaryLink: '/categories/social-media-bundles',
+    secondaryCta: 'View Graphics',
+    secondaryLink: '/categories/graphics',
+    categories: ['Social Media Bundles', 'Graphics', 'Agency Kits']
   }
 ];
 

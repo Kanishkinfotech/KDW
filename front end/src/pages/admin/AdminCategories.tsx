@@ -1,333 +1,316 @@
-import { useState } from 'react';
-import { Search, Plus, Edit2, Trash2, Image as ImageIcon, Loader2, X } from 'lucide-react';
-import { useStore } from '../../store/useStore';
-import { uploadImage } from '../../utils/uploadImage';
-import { exportToCSV } from '../../utils/csvExport';
+import { useState, useEffect } from 'react';
+import { 
+  FolderTree, Plus, Sparkles, Layers, Image as ImageIcon, 
+  Globe, Shuffle, Cpu, LineChart, RefreshCw, Eye, MoveRight, 
+  Copy, Trash2, Edit2, CheckCircle2, AlertCircle, FileText
+} from 'lucide-react';
+import CategoryTable from '../../components/admin/categories/CategoryTable';
+import CategoryWizardModal from '../../components/admin/categories/CategoryWizardModal';
+import CategoryTreeView from '../../components/admin/categories/CategoryTreeView';
+import FeaturedCategoriesManager from '../../components/admin/categories/FeaturedCategoriesManager';
+import CategoryAttributesManager from '../../components/admin/categories/CategoryAttributesManager';
+import CategoryBannersManager from '../../components/admin/categories/CategoryBannersManager';
+import CategorySEOManager from '../../components/admin/categories/CategorySEOManager';
+import CategoryRedirectsManager from '../../components/admin/categories/CategoryRedirectsManager';
+import CategoryRulesEngine from '../../components/admin/categories/CategoryRulesEngine';
+import CategoryAnalyticsDashboard from '../../components/admin/categories/CategoryAnalyticsDashboard';
+import CategoryMoveModal from '../../components/admin/categories/CategoryMoveModal';
+import CategoryMergeModal from '../../components/admin/categories/CategoryMergeModal';
+import CategoryViewDrawer from '../../components/admin/categories/CategoryViewDrawer';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
-export default function AdminCategories() {
-  const { categories, fetchCategories } = useStore();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [parentId, setParentId] = useState<string>('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isSaving, setIsSaving] = useState(false);
+type ActiveTabType = 
+  | 'all' 
+  | 'tree' 
+  | 'featured' 
+  | 'attributes' 
+  | 'banners' 
+  | 'seo' 
+  | 'redirects' 
+  | 'rules' 
+  | 'analytics';
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
-    return {
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    };
+export default function AdminCategories() {
+  const [activeTab, setActiveTab] = useState<ActiveTabType>('all');
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Modals & Drawer States
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<any | null>(null);
+  
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [movingCategory, setMovingCategory] = useState<any | null>(null);
+
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergingCategory, setMergingCategory] = useState<any | null>(null);
+
+  const [viewingCategoryId, setViewingCategoryId] = useState<string | null>(null);
+
+  const fetchCategories = async () => {
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
+      const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+
+      const res = await axios.get('/api/categories/admin/all', { headers });
+      if (res.data.success) {
+        setCategories(res.data.data);
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed to load categories');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      try {
-        setIsUploading(true);
-        const url = await uploadImage(file, 'categories', setUploadProgress);
-        if (url) {
-          setImagePreview(url);
-          toast.success('Category image uploaded successfully');
-        }
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to upload image');
-      } finally {
-        setIsUploading(false);
-        setUploadProgress(0);
-      }
-    }
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const handleOpenAddWizard = () => {
+    setEditingCategory(null);
+    setIsWizardOpen(true);
   };
 
   const handleEdit = (cat: any) => {
-    setEditingId(cat.id);
-    setName(cat.name);
-    setSlug(cat.slug);
-    setParentId(cat.parentId || '');
-    setImagePreview(cat.image || null);
+    setEditingCategory(cat);
+    setIsWizardOpen(true);
   };
 
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setName('');
-    setSlug('');
-    setParentId('');
-    setImagePreview(null);
+  const handleView = (cat: any) => {
+    setViewingCategoryId(cat.id);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      toast.error('Category name is required');
-      return;
-    }
-    
-    setIsSaving(true);
+  const handleMove = (cat: any) => {
+    setMovingCategory(cat);
+    setIsMoveModalOpen(true);
+  };
+
+  const handleDuplicate = async (cat: any) => {
     try {
-      const payload = {
-        name: name.trim(),
-        slug: slug.trim() || name.trim().toLowerCase().replace(/\s+/g, '-'),
-        description: 'Category description',
-        image: imagePreview || undefined,
-        status: 'Active',
-        parentId: parentId && parentId !== '' ? parentId : null
-      };
-      
-      const headers = getAuthHeaders();
+      const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
+      const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 
-      if (editingId) {
-        const res = await axios.put(`/api/categories/${editingId}`, payload, { headers });
-        if (res.data.success) {
-          toast.success('Category updated successfully');
-          handleCancelEdit();
-          fetchCategories();
-        }
-      } else {
-        const res = await axios.post('/api/categories', payload, { headers });
-        if (res.data.success) {
-          toast.success('Category created successfully');
-          handleCancelEdit();
-          fetchCategories();
-        }
+      const res = await axios.post(`/api/categories/${cat.id}/duplicate`, {}, { headers });
+      if (res.data.success) {
+        toast.success('Category duplicated successfully');
+        fetchCategories();
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to save category');
-    } finally {
-      setIsSaving(false);
+      toast.error('Failed to duplicate category');
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this category? Linked products will be safely moved to Uncategorized.')) {
-      try {
-        const headers = getAuthHeaders();
-        const res = await axios.delete(`/api/categories/${id}`, { headers });
-        if (res.data.success) {
-          toast.success('Category deleted successfully');
-          fetchCategories();
-          if (editingId === id) handleCancelEdit();
-        }
-      } catch (err: any) {
-        toast.error(err.response?.data?.message || 'Failed to delete category');
+  const handleArchive = async (cat: any) => {
+    const reason = window.prompt(`Archive category "${cat.name}"? Please provide a reason:`, 'Archived by administrator');
+    if (reason === null) return;
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
+      const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+
+      const res = await axios.delete(`/api/categories/${cat.id}`, { 
+        headers, 
+        data: { reason, forceDelete: false } 
+      });
+
+      if (res.data.success) {
+        toast.success('Category archived successfully');
+        fetchCategories();
       }
+    } catch (err: any) {
+      toast.error('Failed to archive category');
     }
   };
 
-  const filteredCategories = categories.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.slug.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const handleExport = () => {
-    const exportData = filteredCategories.map(c => ({
-      ID: c.id,
-      Name: c.name,
-      Slug: c.slug,
-      Items: c.count || 0,
-      Status: c.status || 'Active'
-    }));
-    exportToCSV(exportData, 'categories_export');
-    toast.success('Categories exported successfully');
+  const handleAddSubcategory = (parentCat: any) => {
+    setEditingCategory({
+      parentId: parentCat.id,
+      name: '',
+      slug: ''
+    });
+    setIsWizardOpen(true);
   };
+
+  const tabs: { id: ActiveTabType; label: string; icon: any; count?: number }[] = [
+    { id: 'all', label: 'All Categories', icon: FolderTree, count: categories.length },
+    { id: 'tree', label: 'Category Tree', icon: Layers },
+    { id: 'featured', label: 'Featured Placements', icon: Sparkles, count: categories.filter(c => c.featured).length },
+    { id: 'attributes', label: 'Category Attributes', icon: FileText },
+    { id: 'banners', label: 'Banners & Media', icon: ImageIcon },
+    { id: 'seo', label: 'Category SEO', icon: Globe },
+    { id: 'redirects', label: 'URL Redirects', icon: Shuffle },
+    { id: 'rules', label: 'Auto Rules', icon: Cpu },
+    { id: 'analytics', label: 'Analytics & Health', icon: LineChart },
+  ];
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      {/* Top Banner Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Categories</h1>
-          <p className="text-slate-500 mt-1">Organize your digital products into collections.</p>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center font-black shadow-md shadow-primary/25">
+              <FolderTree size={16} />
+            </div>
+            <h1 className="text-2xl font-black text-slate-900">Category Management</h1>
+          </div>
+          <p className="text-slate-500 text-xs mt-1">
+            Organize digital products, hierarchy trees, dynamic filters, SEO landing pages, and automated assignment rules.
+          </p>
         </div>
-        <button 
-          onClick={handleExport}
-          className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-2 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center gap-2 w-full sm:w-auto justify-center"
-        >
-          <Search size={18} />
-          Export Data
-        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchCategories}
+            className="p-2.5 text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer shadow-2xs"
+            title="Refresh All"
+          >
+            <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
+          </button>
+
+          <button
+            onClick={handleOpenAddWizard}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-primary hover:bg-primary-dark rounded-xl shadow-md shadow-primary/20 transition-all cursor-pointer"
+          >
+            <Plus size={16} />
+            <span>Add Category</span>
+          </button>
+        </div>
       </div>
 
-      {/* Main Layout: Table + Form (Split view on large screens) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Table Area (Left/Top) */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="relative w-full">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text"
-              placeholder="Search categories..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
-            />
-          </div>
+      {/* Top Navigation Tabs Bar */}
+      <div className="bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-1.5 overflow-x-auto custom-scrollbar text-xs font-bold">
+        {tabs.map(t => {
+          const Icon = t.icon;
+          const isActive = activeTab === t.id;
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="px-6 py-4">Name</th>
-                    <th className="px-6 py-4">Products</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredCategories.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
-                        No categories found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredCategories.map((cat) => (
-                      <tr key={cat.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-bold text-slate-900">{cat.name}</p>
-                          <p className="text-xs text-slate-500">/{cat.slug}</p>
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 font-medium">
-                          {cat.count || 0} items
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
-                            (cat.status || 'Active').toLowerCase() === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
-                          }`}>
-                            {cat.status || 'Active'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button 
-                              onClick={() => handleEdit(cat)} 
-                              className="p-2 text-slate-600 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" 
-                              title="Edit Category"
-                            >
-                              <Edit2 size={16} />
-                            </button>
-                            <button 
-                              onClick={() => handleDelete(cat.id)} 
-                              className="p-2 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" 
-                              title="Delete Category"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Add / Edit Form (Right/Bottom) */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sticky top-24">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-              <h3 className="text-lg font-bold text-slate-900">
-                {editingId ? 'Edit Category' : 'Quick Add'}
-              </h3>
-              {editingId && (
-                <button 
-                  onClick={handleCancelEdit}
-                  className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 font-semibold"
-                >
-                  <X size={14} /> Cancel
-                </button>
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Icon size={14} className={isActive ? 'text-primary-light' : 'text-slate-400'} />
+              <span>{t.label}</span>
+              {t.count !== undefined && (
+                <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                  isActive ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {t.count}
+                </span>
               )}
-            </div>
-            
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Category Name</label>
-                <input 
-                  type="text" 
-                  value={name} 
-                  onChange={e => setName(e.target.value)} 
-                  placeholder="e.g. 3D Icons" 
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 text-slate-900" 
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Slug (Optional)</label>
-                <input 
-                  type="text" 
-                  value={slug} 
-                  onChange={e => setSlug(e.target.value)} 
-                  placeholder="3d-icons" 
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 text-slate-900" 
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Parent Category (Optional)</label>
-                <select
-                  value={parentId}
-                  onChange={e => setParentId(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 text-slate-900 bg-white"
-                >
-                  <option value="">None (Top-Level Category)</option>
-                  {categories
-                    .filter((c: any) => !editingId || c.id !== editingId)
-                    .filter((c: any) => !c.parentId)
-                    .map((c: any) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))
-                  }
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Cover Image (Optional)</label>
-                <label className="border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors cursor-pointer relative overflow-hidden h-32">
-                  <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp,image/avif" onChange={handleImageChange} disabled={isUploading} />
-                  {imagePreview ? (
-                    <>
-                      <img src={imagePreview} alt="Preview" className="absolute inset-0 w-full h-full object-cover" />
-                      {isUploading && (
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                          <Loader2 className="text-white animate-spin" size={32} />
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <ImageIcon size={20} className="text-slate-600 mb-2" />
-                      <p className="text-xs text-slate-600 font-medium">Upload Image</p>
-                    </>
-                  )}
-                </label>
-              </div>
-
-              <div className="pt-2 flex gap-2">
-                <button 
-                  type="submit" 
-                  disabled={isSaving || isUploading}
-                  className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-2.5 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center justify-center gap-2"
-                >
-                  {isSaving && <Loader2 size={16} className="animate-spin" />}
-                  {editingId ? 'Update Category' : 'Save Category'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            </button>
+          );
+        })}
       </div>
+
+      {/* Main Tab View Render */}
+      <div>
+        {activeTab === 'all' && (
+          <CategoryTable
+            categories={categories}
+            isLoading={isLoading}
+            onRefresh={fetchCategories}
+            onEdit={handleEdit}
+            onView={handleView}
+            onMove={handleMove}
+            onDuplicate={handleDuplicate}
+            onArchive={handleArchive}
+            onAssignProducts={(cat) => handleView(cat)}
+            onOpenWizard={handleOpenAddWizard}
+          />
+        )}
+
+        {activeTab === 'tree' && (
+          <CategoryTreeView
+            categories={categories}
+            onAddSubcategory={handleAddSubcategory}
+            onEdit={handleEdit}
+            onMove={handleMove}
+            onView={handleView}
+            onArchive={handleArchive}
+          />
+        )}
+
+        {activeTab === 'featured' && (
+          <FeaturedCategoriesManager
+            categories={categories}
+            onRefresh={fetchCategories}
+          />
+        )}
+
+        {activeTab === 'attributes' && (
+          <CategoryAttributesManager
+            categories={categories}
+            onRefresh={fetchCategories}
+          />
+        )}
+
+        {activeTab === 'banners' && (
+          <CategoryBannersManager
+            categories={categories}
+            onRefresh={fetchCategories}
+          />
+        )}
+
+        {activeTab === 'seo' && (
+          <CategorySEOManager
+            categories={categories}
+            onRefresh={fetchCategories}
+          />
+        )}
+
+        {activeTab === 'redirects' && (
+          <CategoryRedirectsManager />
+        )}
+
+        {activeTab === 'rules' && (
+          <CategoryRulesEngine categories={categories} />
+        )}
+
+        {activeTab === 'analytics' && (
+          <CategoryAnalyticsDashboard />
+        )}
+      </div>
+
+      {/* Modals & Drawers */}
+      <CategoryWizardModal
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+        onSuccess={fetchCategories}
+        editCategory={editingCategory}
+        categories={categories}
+      />
+
+      <CategoryMoveModal
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        category={movingCategory}
+        categories={categories}
+        onSuccess={fetchCategories}
+      />
+
+      <CategoryMergeModal
+        isOpen={isMergeModalOpen}
+        onClose={() => setIsMergeModalOpen(false)}
+        sourceCategory={mergingCategory}
+        categories={categories}
+        onSuccess={fetchCategories}
+      />
+
+      <CategoryViewDrawer
+        isOpen={!!viewingCategoryId}
+        onClose={() => setViewingCategoryId(null)}
+        categoryId={viewingCategoryId}
+      />
     </div>
   );
 }

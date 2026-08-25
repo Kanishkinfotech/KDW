@@ -28,10 +28,11 @@ export default function BundleDetails() {
   const [isCheckingOwnership, setIsCheckingOwnership] = useState(false);
 
   const bundle = bundles.find(b => b.id === id || b.slug === id);
+  const bundleProducts = (bundle?.bundleItems?.length ? bundle.bundleItems.map((bi: any) => bi.product).filter(Boolean) : bundle?.products) || [];
 
   useEffect(() => {
     if (isAuthenticated) {
-      if (bundle && bundle.products) checkOwnership();
+      if (bundle && bundleProducts.length > 0) checkOwnership();
     }
   }, [bundle, isAuthenticated]);
 
@@ -315,15 +316,15 @@ export default function BundleDetails() {
         </div>
 
         {/* Included Products Section */}
-        {bundle.products && bundle.products.length > 0 && (
+        {bundleProducts && bundleProducts.length > 0 && (
           <div>
             <h2 className="text-3xl font-black text-slate-900 mb-8 flex items-center gap-3">
               <Package className="text-primary" size={32} />
-              Included in this bundle ({bundle.products.length})
+              Included in this bundle ({bundleProducts.length})
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {bundle.products.map((product: any) => (
+              {bundleProducts.map((product: any) => (
                 <div key={product.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col group hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
                   <div className="relative aspect-video overflow-hidden">
                     <img 

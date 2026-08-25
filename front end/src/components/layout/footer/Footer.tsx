@@ -133,7 +133,7 @@ export default function Footer() {
       <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-50" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-primary/20 blur-[100px] rounded-full pointer-events-none mix-blend-screen" />
       
-      <div className="max-w-7xl mx-auto px-6 py-10 relative z-10">
+      <div className="w-full px-4 sm:px-6 lg:px-8 2xl:px-12 py-10 relative z-10">
         
         {/* Brand Row */}
         <div className="mb-8 border-b border-white/10 pb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">

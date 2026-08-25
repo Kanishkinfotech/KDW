@@ -1,24 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useParams, Link, useNavigate } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
-import { Filter, SlidersHorizontal, ChevronRight, Layers, ArrowLeft, ArrowRight, PackageSearch } from 'lucide-react';
+import { 
+  Filter, SlidersHorizontal, ChevronRight, Layers, ArrowLeft, 
+  ArrowRight, PackageSearch, LayoutGrid, List, Sparkles, 
+  RotateCcw, ShoppingBag, FolderCheck, CreditCard
+} from 'lucide-react';
 import SEO from '../components/SEO';
 import { useStore } from '../store/useStore';
-import FilterSidebar from '../components/shop/FilterSidebar';
+import StorefrontLeftSidebar from '../components/shop/StorefrontLeftSidebar';
+import StorefrontRightPanel from '../components/shop/StorefrontRightPanel';
 import Skeleton from '../components/ui/Skeleton';
 
 export default function Shop() {
   const { categorySlug, subcategorySlug } = useParams<{ categorySlug?: string; subcategorySlug?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [visibleCount, setVisibleCount] = useState<number>(12);
+  const [activeTab, setActiveTab] = useState<'all' | 'orders' | 'subscriptions' | 'digital'>('all');
   const navigate = useNavigate();
 
   const storeProducts = useStore(state => state.products);
   const categories = useStore(state => state.categories);
 
-  const [products, setProducts] = useState<any[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [totalProducts, setTotalProducts] = useState(0);
 
   // Read URL search parameters & path parameters
   const categoryQuery = searchParams.get('category');
@@ -31,28 +38,33 @@ export default function Shop() {
   const activeSubcategory = subcategoryQuery || (subcategorySlug ? subcategorySlug.replace(/-/g, ' ') : '');
   
   const searchQuery = searchParams.get('q') || '';
-  const sort = searchParams.get('sort') || 'createdAt';
+  const sort = searchParams.get('sort') || 'newest';
   const ratingFilter = searchParams.get('rating') || '';
   const filterParam = searchParams.get('filter') || '';
-  const minPriceFilter = searchParams.get('minPrice');
-  const maxPriceFilter = searchParams.get('maxPrice');
+  const typeFilter = searchParams.get('type') || '';
+  const tagFilter = searchParams.get('tag') || '';
+  const licenceFilter = searchParams.get('licence') || '';
+  const minPriceParam = searchParams.get('minPrice');
+  const maxPriceParam = searchParams.get('maxPrice');
+
+  const sliderMin = 0;
+  const sliderMax = 4999;
+  const currentMin = minPriceParam ? Number(minPriceParam) : sliderMin;
+  const currentMax = maxPriceParam ? Number(maxPriceParam) : sliderMax;
 
   // Match current active category object
   const currentCategoryObj = categories.find((c: any) => 
-    c.name.toLowerCase() === activeCategory.toLowerCase() || 
+    c.name?.toLowerCase() === activeCategory.toLowerCase() || 
     (c.slug && c.slug.toLowerCase() === effectiveCatSlug.toLowerCase())
   );
 
   const currentSubcategories = (currentCategoryObj?.children || categories.filter((c: any) => c.parentId === currentCategoryObj?.id)) || [];
 
-  // VIEW CONDITION A: Show Subcategory Grid Drill-down
-  // Trigger when a parent category is selected, has child subcategories, and NO subcategory is selected yet.
-  const showSubcategoryGrid = activeCategory !== 'All' && currentSubcategories.length > 0 && !activeSubcategory;
-
+  // Filter products when dependencies change
   useEffect(() => {
-    const filterAndSetProducts = async () => {
+    const filterAndSet = async () => {
       setIsLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       try {
         let localProducts = [...storeProducts];
@@ -108,46 +120,94 @@ export default function Shop() {
 
         // 3. Search Query Filter
         if (searchQuery) {
+          const q = searchQuery.toLowerCase().trim();
           localProducts = localProducts.filter(p => {
-            const title = p.title || (p as any).name || '';
-            return title.toLowerCase().includes(searchQuery.toLowerCase());
+            const title = (p.title || (p as any).name || '').toLowerCase();
+            const desc = (p.description || (p as any).shortDescription || '').toLowerCase();
+            const tags = String(p.tags || '').toLowerCase();
+            return title.includes(q) || desc.includes(q) || tags.includes(q);
           });
         }
 
-        // 4. Rating Filter
+        // 4. Product Type Filter
+        if (typeFilter) {
+          localProducts = localProducts.filter(p => {
+            const pType = (p.productType || (p as any).type || '').toUpperCase();
+            return pType === typeFilter.toUpperCase();
+          });
+        }
+
+        // 5. Tag Filter
+        if (tagFilter) {
+          const targetTag = tagFilter.toLowerCase();
+          localProducts = localProducts.filter(p => {
+            if (Array.isArray(p.tags)) {
+              return p.tags.some((t: any) => String(t).toLowerCase() === targetTag);
+            }
+            if (typeof p.tags === 'string') {
+              return p.tags.toLowerCase().includes(targetTag);
+            }
+            return false;
+          });
+        }
+
+        // 6. Licence Filter
+        if (licenceFilter) {
+          localProducts = localProducts.filter(p => {
+            const pLicence = (p.licenceType || '').toUpperCase();
+            return pLicence.includes(licenceFilter.toUpperCase());
+          });
+        }
+
+        // 7. Rating Filter
         if (ratingFilter) {
-          localProducts = localProducts.filter(p => p.rating >= Number(ratingFilter));
+          const minRate = Number(ratingFilter);
+          localProducts = localProducts.filter(p => {
+            const rate = p.rating || 5;
+            return rate >= minRate;
+          });
         }
         
-        // 5. Free products filter
+        // 8. Availability Filter (free vs sale)
         if (filterParam === 'free') {
           localProducts = localProducts.filter(p => p.price === 0);
+        } else if (filterParam === 'sale') {
+          localProducts = localProducts.filter(p => (p.discountPrice && p.discountPrice < p.price) || p.compareAtPrice > p.price);
         }
         
-        // 6. Price Range Filter
-        if (minPriceFilter) {
-          localProducts = localProducts.filter(p => p.price >= Number(minPriceFilter));
+        // 9. Price Range Filter
+        if (minPriceParam) {
+          localProducts = localProducts.filter(p => p.price >= Number(minPriceParam));
         }
-        if (maxPriceFilter) {
-          localProducts = localProducts.filter(p => p.price <= Number(maxPriceFilter));
+        if (maxPriceParam) {
+          localProducts = localProducts.filter(p => p.price <= Number(maxPriceParam));
+        }
+
+        // 10. Context Tabs Filter
+        if (activeTab === 'digital') {
+          localProducts = localProducts.filter(p => p.productType !== 'BUNDLE');
         }
         
-        // 7. Sorting
+        // 11. Sorting
         if (sort === 'price_asc') localProducts.sort((a, b) => a.price - b.price);
-        if (sort === 'price_desc') localProducts.sort((a, b) => b.price - a.price);
-        if (sort === 'rating') localProducts.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-        if (sort === 'new') localProducts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        if (sort === 'popular') localProducts.sort((a, b) => (b.sales || b.rating || 0) - (a.sales || a.rating || 0));
+        else if (sort === 'price_desc') localProducts.sort((a, b) => b.price - a.price);
+        else if (sort === 'rating') localProducts.sort((a, b) => (b.rating || 5) - (a.rating || 5));
+        else if (sort === 'popular') localProducts.sort((a, b) => (b.sales || b.totalUnitsSold || 0) - (a.sales || a.totalUnitsSold || 0));
+        else localProducts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         
-        setProducts(localProducts);
-        setTotalProducts(localProducts.length);
+        setFilteredProducts(localProducts);
+        setVisibleCount(12); // Reset pagination on filter change
       } finally {
         setIsLoading(false);
       }
     };
 
-    filterAndSetProducts();
-  }, [activeCategory, activeSubcategory, searchQuery, sort, ratingFilter, filterParam, minPriceFilter, maxPriceFilter, storeProducts, effectiveCatSlug]);
+    filterAndSet();
+  }, [
+    activeCategory, activeSubcategory, searchQuery, sort, ratingFilter, 
+    filterParam, typeFilter, tagFilter, licenceFilter, minPriceParam, 
+    maxPriceParam, storeProducts, effectiveCatSlug, activeTab
+  ]);
 
   const updateParams = (key: string, value: string) => {
     setSearchParams(prev => {
@@ -179,260 +239,270 @@ export default function Shop() {
     navigate('/categories/all-products');
   };
 
-  const handleSubcategorySelect = (sub: any) => {
-    const subSlug = sub.slug || sub.name.toLowerCase().replace(/\s+/g, '-');
-    if (categorySlug) {
-      navigate(`/categories/${categorySlug}/${subSlug}`);
-    } else {
-      setSearchParams(prev => {
-        const p = new URLSearchParams(prev);
-        p.set('category', activeCategory);
-        p.set('subcategory', sub.name);
-        return p;
-      });
-    }
-  };
+  const displayedProducts = filteredProducts.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredProducts.length;
 
-  const handleBackToSubcategories = () => {
-    if (categorySlug) {
-      navigate(`/categories/${categorySlug}`);
-    } else {
-      setSearchParams(prev => {
-        const p = new URLSearchParams(prev);
-        p.delete('subcategory');
-        return p;
-      });
-    }
+  const handleLoadMore = () => {
+    setVisibleCount(prev => Math.min(prev + 12, filteredProducts.length));
   };
 
   return (
-    <div className="min-h-screen py-12 px-6 bg-slate-50/50">
+    <div className="min-h-screen py-6 sm:py-8 px-4 sm:px-6 lg:px-8 2xl:px-12 bg-slate-50/50">
       <SEO 
-        title={activeSubcategory ? `${activeSubcategory} - ${activeCategory}` : `${activeCategory} - Marketplace`} 
-        description={`Browse digital products in ${activeCategory}${activeSubcategory ? ` / ${activeSubcategory}` : ''}.`} 
+        title={activeSubcategory ? `${activeSubcategory} - ${activeCategory} | KDW` : `${activeCategory} Digital Assets | KDW Store`} 
+        description={`Explore premium digital products, templates, and assets in ${activeCategory}${activeSubcategory ? ` / ${activeSubcategory}` : ''}.`} 
       />
       
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row gap-8 md:gap-12 relative">
+      <div className="w-full flex flex-col lg:flex-row gap-6 xl:gap-8 items-start relative">
         
-        {/* Mobile Filter Toggle */}
-        <div className="md:hidden flex justify-between items-center mb-4">
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Products</h1>
-          <button 
-            onClick={() => setIsFilterOpen(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200/60 rounded-xl text-sm font-bold text-slate-700 hover:text-slate-900 shadow-sm"
-          >
-            <Filter size={16} /> Filters
-          </button>
-        </div>
-
-        {/* Sidebar Filters */}
-        <FilterSidebar 
-          isFilterOpen={isFilterOpen}
-          setIsFilterOpen={setIsFilterOpen}
+        {/* ================================================================= */}
+        {/* 1. LEFT SIDEBAR: Navigation & Unified Filters (No center filters)  */}
+        {/* ================================================================= */}
+        <StorefrontLeftSidebar
+          isMobileOpen={isMobileFilterOpen}
+          setIsMobileOpen={setIsMobileFilterOpen}
           categories={categories}
+          allProducts={storeProducts}
           activeCategory={activeCategory}
           activeSubcategory={activeSubcategory}
+          selectedProductType={typeFilter}
+          selectedTag={tagFilter}
+          selectedLicence={licenceFilter}
           ratingFilter={ratingFilter}
-          updateParams={updateParams}
-          updateMultipleParams={updateMultipleParams}
-          clearFilters={clearFilters}
+          availabilityFilter={filterParam}
+          minPrice={currentMin}
+          maxPrice={currentMax}
+          sliderMin={sliderMin}
+          sliderMax={sliderMax}
+          onUpdateParams={updateParams}
+          onUpdateMultipleParams={updateMultipleParams}
+          onClearFilters={clearFilters}
         />
 
-        {/* Catalog Main View Area */}
-        <main className="flex-1">
+        {/* ================================================================= */}
+        {/* 2. CENTER PRODUCT AREA (Apple-Style Staggered Grid & Metadata)    */}
+        {/* ================================================================= */}
+        <main className="flex-1 min-w-0 w-full space-y-6">
           
-          {/* Breadcrumbs & Header Bar */}
-          <div className="hidden md:flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-semibold mb-3 text-slate-500">
-                <Link to="/home" className="hover:text-primary transition-colors">Home</Link>
-                <ChevronRight size={14} />
-                <Link to="/categories" className="hover:text-primary transition-colors">Categories</Link>
-                <ChevronRight size={14} />
-                <span className="text-slate-800 capitalize font-bold">
-                  {activeCategory === 'All' ? 'All Products' : activeCategory}
-                </span>
-                {activeSubcategory && (
-                  <>
-                    <ChevronRight size={14} />
-                    <span className="text-primary capitalize font-black">{activeSubcategory}</span>
-                  </>
-                )}
-              </div>
-              
-              <h1 className="text-4xl font-black text-slate-900 tracking-tight mb-1 capitalize flex items-center gap-3">
-                {searchQuery 
-                  ? `Results for "${searchQuery}"` 
-                  : showSubcategoryGrid 
-                    ? `${activeCategory} Subcategories`
+          {/* Breadcrumbs Navigation */}
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-semibold text-slate-500 flex-wrap">
+            <Link to="/" className="hover:text-primary transition-colors">Home</Link>
+            <ChevronRight size={13} className="text-slate-400" />
+            <Link to="/categories/all-products" className="hover:text-primary transition-colors">Categories</Link>
+            {activeCategory && activeCategory !== 'All' && (
+              <>
+                <ChevronRight size={13} className="text-slate-400" />
+                <Link to={`/categories/${effectiveCatSlug}`} className="text-slate-700 font-bold hover:text-primary transition-colors capitalize">
+                  {activeCategory}
+                </Link>
+              </>
+            )}
+            {activeSubcategory && (
+              <>
+                <ChevronRight size={13} className="text-slate-400" />
+                <span className="text-primary font-black capitalize">{activeSubcategory}</span>
+              </>
+            )}
+          </nav>
+
+          {/* Page Header (Title + Contextual Description) */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight capitalize flex items-center gap-2.5">
+                  {searchQuery 
+                    ? `Results for "${searchQuery}"` 
                     : activeSubcategory 
                       ? activeSubcategory 
                       : activeCategory === 'All' 
-                        ? 'All Digital Products' 
-                        : activeCategory
-                }
-              </h1>
-              <p className="text-slate-500 font-medium text-sm">
-                {showSubcategoryGrid 
-                  ? `Select a subcategory below to explore ${activeCategory} assets.`
-                  : `${totalProducts} products available`
-                }
-              </p>
-            </div>
-            
-            {!showSubcategoryGrid && (
-              <div className="flex items-center gap-3">
-                <div className="relative group">
-                  <select 
-                    value={sort}
-                    onChange={(e) => updateParams('sort', e.target.value)}
-                    className="appearance-none flex items-center gap-2 pl-4 pr-10 py-2.5 bg-white border border-slate-200/80 rounded-xl text-sm font-bold text-slate-700 hover:border-slate-300 cursor-pointer outline-none focus:ring-2 focus:ring-primary shadow-sm"
-                  >
-                    <option value="createdAt">Newest First</option>
-                    <option value="price_asc">Price: Low to High</option>
-                    <option value="price_desc">Price: High to Low</option>
-                    <option value="rating">Top Rated</option>
-                    <option value="popular">Most Popular</option>
-                  </select>
-                  <SlidersHorizontal size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
-                </div>
+                        ? 'All Digital Products & Assets' 
+                        : `${activeCategory} Collection`
+                  }
+                </h1>
+                <p className="text-slate-500 text-xs sm:text-sm font-medium mt-1">
+                  {activeCategory === 'All'
+                    ? 'Explore premium digital templates, graphics, UI kits, and creator blueprints with instant cloud delivery.'
+                    : `Browse curated ${activeCategory} assets built for creators, businesses, and digital entrepreneurs.`
+                  }
+                </p>
               </div>
-            )}
+
+              {/* Mobile Filter Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsMobileFilterOpen(true)}
+                className="lg:hidden inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-xl shadow-sm shadow-primary/20 shrink-0 cursor-pointer"
+              >
+                <Filter size={15} />
+                <span>Filters & Categories</span>
+              </button>
+            </div>
+
+            {/* Context Tabs (All, Orders, Subscriptions, Digital Content) */}
+            <div className="flex items-center gap-2 pt-5 mt-5 border-t border-slate-100 overflow-x-auto custom-scrollbar">
+              <button
+                type="button"
+                onClick={() => setActiveTab('all')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                  activeTab === 'all'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                All Assets
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('digital')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                  activeTab === 'digital'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Digital Downloads
+              </button>
+              <Link
+                to="/dashboard"
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all shrink-0 flex items-center gap-1.5 cursor-pointer"
+              >
+                <FolderCheck size={13} className="text-primary" />
+                <span>My Orders & Library</span>
+              </Link>
+              <Link
+                to="/bundles"
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all shrink-0 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles size={13} className="text-purple-600" />
+                <span>Bundle Packs</span>
+              </Link>
+            </div>
           </div>
 
-          {/* VIEW CONDITION A: Subcategory Blocks/Cards Grid */}
-          {showSubcategoryGrid ? (
-            <div className="space-y-6 animate-fade-in">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {currentSubcategories.map((sub: any) => (
-                  <div 
-                    key={sub.id || sub.name}
-                    onClick={() => handleSubcategorySelect(sub)}
-                    className="group bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm hover:shadow-xl hover:shadow-primary/10 hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-5 group-hover:bg-primary group-hover:text-white transition-all overflow-hidden">
-                        {sub.image ? (
-                          <img src={sub.image} alt={sub.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <Layers size={26} />
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <h3 className="text-xl font-black text-slate-900 group-hover:text-primary transition-colors">{sub.name}</h3>
-                        <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs font-bold shrink-0">
-                          {sub.count || sub.productCount || 0}
-                        </span>
-                      </div>
-                      
-                      <p className="text-slate-500 text-xs font-medium line-clamp-2 mb-6">
-                        {sub.description || `Explore all ${sub.name} digital templates and assets.`}
-                      </p>
-                    </div>
+          {/* Results Toolbar: Count + Sort + View Mode (No center filter panel) */}
+          <div className="flex items-center justify-between gap-4 px-1 flex-wrap">
+            <div className="text-xs font-bold text-slate-600">
+              Showing <span className="text-slate-900 font-black">{displayedProducts.length}</span> of <span className="text-slate-900 font-black">{filteredProducts.length}</span> assets
+            </div>
 
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-100 text-xs font-bold text-primary">
-                      <span>Explore Subcategory</span>
-                      <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </div>
-                ))}
+            <div className="flex items-center gap-3">
+              {/* Sort Select */}
+              <div className="relative">
+                <select
+                  value={sort}
+                  onChange={(e) => updateParams('sort', e.target.value)}
+                  className="appearance-none pl-3 pr-8 py-2 bg-white border border-slate-200/90 rounded-xl text-xs font-bold text-slate-700 hover:border-slate-300 outline-none focus:ring-2 focus:ring-primary shadow-xs cursor-pointer"
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="price_asc">Price: Low to High</option>
+                  <option value="price_desc">Price: High to Low</option>
+                  <option value="rating">Top Rated</option>
+                  <option value="popular">Most Popular</option>
+                </select>
+                <SlidersHorizontal size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+
+              {/* View Mode Toggle (Grid vs List) */}
+              <div className="flex items-center bg-white border border-slate-200/90 rounded-xl p-1 shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    viewMode === 'grid' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                  aria-label="Grid View"
+                >
+                  <LayoutGrid size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    viewMode === 'list' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                  aria-label="List View"
+                >
+                  <List size={15} />
+                </button>
               </div>
             </div>
+          </div>
+
+          {/* Product Grid / List with Apple-Style Progressive Reveal Animation */}
+          {isLoading ? (
+            <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-5 sm:gap-6" : "space-y-4"}>
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl p-4 border border-slate-200/70 space-y-3">
+                  <Skeleton className="w-full aspect-[4/3] rounded-xl" />
+                  <Skeleton className="h-5 w-3/4 rounded-md" />
+                  <Skeleton className="h-4 w-full rounded-md" />
+                  <div className="flex justify-between items-center pt-2">
+                    <Skeleton className="h-5 w-20 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredProducts.length > 0 ? (
+            <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-5 sm:gap-6" : "space-y-4"}>
+              {displayedProducts.map((product, idx) => {
+                // Progressive stagger calculation for Apple-style reveal
+                const staggerDelay = `${(idx % 12) * 75}ms`;
+
+                return (
+                  <div 
+                    key={product.id} 
+                    className="apple-product-reveal h-full"
+                    style={{ animationDelay: staggerDelay }}
+                  >
+                    <ProductCard product={product} viewMode={viewMode} />
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            /* VIEW CONDITION B: Product Cards Grid */
-            <div>
-              {/* Back to all Subcategories Navigation Link */}
-              {activeCategory !== 'All' && currentSubcategories.length > 0 && activeSubcategory && (
-                <div className="mb-6">
-                  <button 
-                    onClick={handleBackToSubcategories}
-                    className="inline-flex items-center gap-2 text-xs font-bold text-primary hover:text-primary-dark bg-primary/10 hover:bg-primary/20 px-3.5 py-2 rounded-xl transition-all shadow-sm"
-                  >
-                    <ArrowLeft size={14} /> Back to all {activeCategory} subcategories
-                  </button>
-                </div>
-              )}
+            <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-xs space-y-4">
+              <div className="w-16 h-16 bg-slate-100 text-slate-500 rounded-2xl flex items-center justify-center mx-auto">
+                <PackageSearch size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900">No assets match your search</h3>
+              <p className="text-slate-500 text-xs max-w-md mx-auto leading-relaxed">
+                Try adjusting your category, price range, or filter criteria to discover more products.
+              </p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="px-6 py-2.5 bg-primary hover:bg-primary-dark text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                Clear All Filters
+              </button>
+            </div>
+          )}
 
-              {/* Subcategory Filter Pills Bar */}
-              {activeCategory !== 'All' && currentSubcategories.length > 0 && (
-                <div className="mb-8 p-4 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                    <Layers size={14} /> Switch Subcategory:
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={handleBackToSubcategories}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${!activeSubcategory ? 'bg-primary text-white shadow-md shadow-primary/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                    >
-                      All Subcategories ({currentSubcategories.length})
-                    </button>
-                    {currentSubcategories.map((sub: any) => {
-                      const subSlug = sub.slug || sub.name.toLowerCase().replace(/\s+/g, '-');
-                      const isSelected = activeSubcategory.toLowerCase() === sub.name.toLowerCase() || 
-                                         activeSubcategory.toLowerCase() === subSlug.toLowerCase().replace(/-/g, ' ');
-
-                      return (
-                        <button
-                          key={sub.id || sub.name}
-                          onClick={() => handleSubcategorySelect(sub)}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${isSelected ? 'bg-primary text-white shadow-md shadow-primary/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                        >
-                          <span>{sub.name}</span>
-                          <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                            {sub.count || sub.productCount || 0}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {isLoading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-                  {[...Array(6)].map((_, i) => (
-                    <div key={i} className="flex flex-col gap-4">
-                      <Skeleton className="w-full aspect-[4/3] rounded-2xl" />
-                      <Skeleton className="h-6 w-3/4 rounded-lg" />
-                      <Skeleton className="h-4 w-full rounded-lg" />
-                      <div className="flex justify-between items-end mt-2">
-                        <div>
-                          <Skeleton className="h-4 w-16 mb-2 rounded-md" />
-                          <Skeleton className="h-6 w-20 rounded-lg" />
-                        </div>
-                        <Skeleton className="h-10 w-10 rounded-xl" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : products.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-                  {products.map((product, idx) => (
-                    <div key={product.id} className="animate-in fade-in slide-in-from-bottom-4 fill-mode-both" style={{ animationDelay: `${idx * 80}ms`, animationDuration: '400ms' }}>
-                      <ProductCard product={product} />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-white/80 backdrop-blur-xl h-[400px] rounded-3xl flex flex-col items-center justify-center text-center p-8 border border-slate-200/60 shadow-sm">
-                  <div className="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center mb-6 text-slate-600 rotate-12">
-                    <Filter size={32} />
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">No products found</h3>
-                  <p className="text-slate-500 mb-8 max-w-md">We couldn't find any products matching your selected subcategory filter.</p>
-                  <button 
-                    onClick={clearFilters}
-                    className="px-8 py-3 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md"
-                  >
-                    Clear All Filters
-                  </button>
-                </div>
-              )}
+          {/* Load More Pagination Button */}
+          {!isLoading && hasMore && (
+            <div className="text-center pt-6 pb-4">
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                className="px-8 py-3.5 bg-white hover:bg-slate-900 text-slate-900 hover:text-white border border-slate-200/90 rounded-2xl text-xs font-black transition-all shadow-xs hover:shadow-md cursor-pointer inline-flex items-center gap-2"
+              >
+                <span>Load More ({filteredProducts.length - displayedProducts.length} remaining)</span>
+                <ArrowRight size={14} />
+              </button>
             </div>
           )}
 
         </main>
+
+        {/* ================================================================= */}
+        {/* 3. RIGHT SHOPPING PANEL: Cart Subtotal, Delivery, Recently Viewed */}
+        {/* ================================================================= */}
+        <StorefrontRightPanel 
+          currentCategory={activeCategory} 
+          allProducts={storeProducts} 
+        />
+
       </div>
     </div>
   );

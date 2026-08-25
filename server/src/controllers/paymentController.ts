@@ -3,11 +3,27 @@ import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../database/db';
 import { sendProductDeliveryEmail } from '../utils/emailService';
+import { DigitalDeliveryService } from '../services/digitalDeliveryService';
+import { OrderFulfilmentService } from '../services/orderFulfilmentService';
+import { CustomerService } from '../services/customerService';
+import { PaymentService } from '../services/paymentService';
+import { WebhookService } from '../services/webhookService';
+import { CouponService } from '../services/couponService';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'dummy_key_id',
   key_secret: process.env.RAZORPAY_KEY_SECRET || 'dummy_key_secret',
 });
+
+// Auto-generate KDW Standard Order Number
+const generateOrderNumber = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const randomSuffix = Math.floor(10000 + Math.random() * 90000);
+  return `KDW-${year}${month}${day}-${randomSuffix}`;
+};
 
 // 1. Create an Order
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
@@ -29,23 +45,27 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
     // Validate Coupon if provided
     let discountAmount = 0;
-    let appliedCouponObj = null;
+    let couponValidationResult: any = null;
 
     if (couponCode) {
-      const coupon = await prisma.coupon.findUnique({ where: { code: couponCode } });
-      if (!coupon) {
-        return res.status(400).json({ success: false, message: 'Invalid coupon code' });
+      couponValidationResult = await CouponService.validateCoupon({
+        code: couponCode,
+        cartItems: items.map((i: any) => ({
+          productId: i.productId || (i.type !== 'bundle' ? i.id : undefined),
+          bundleId: i.bundleId || (i.type === 'bundle' ? i.id : undefined),
+          quantity: i.quantity || 1,
+          unitPrice: i.price || 0
+        })),
+        customerId: customerId || (req as any).user?.id,
+        guestEmail,
+        ipAddress: req.ip
+      });
+
+      if (!couponValidationResult.valid) {
+        return res.status(400).json({ success: false, message: couponValidationResult.message });
       }
-      if (coupon.status !== 'ACTIVE') {
-        return res.status(400).json({ success: false, message: 'Coupon is no longer active' });
-      }
-      if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
-        return res.status(400).json({ success: false, message: 'Coupon has expired' });
-      }
-      if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
-        return res.status(400).json({ success: false, message: 'Coupon usage limit reached' });
-      }
-      appliedCouponObj = coupon;
+
+      discountAmount = couponValidationResult.calculatedDiscount;
     }
 
     // Calculate total amount from database (never trust frontend prices)
@@ -62,13 +82,20 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         if (bundle.status !== 'ACTIVE') {
           return res.status(400).json({ success: false, message: `Bundle "${bundle.title}" is currently unavailable` });
         }
-        subtotalAmount += bundle.price * item.quantity;
+        const itemTotal = bundle.price * item.quantity;
+        subtotalAmount += itemTotal;
         
         orderItems.push({
           bundleId: bundle.id,
           productName: bundle.title,
+          productNameSnapshot: bundle.title,
+          productTypeSnapshot: 'BUNDLE',
+          productVersionSnapshot: bundle.currentVersion || '1.0.0',
+          licenceSnapshot: bundle.licenceType || 'COMMERCIAL',
+          accessPolicySnapshot: 'LIFETIME',
           quantity: item.quantity,
-          unitPrice: bundle.price
+          unitPrice: bundle.price,
+          totalAmount: itemTotal
         });
       } else {
         const productId = item.productId || item.id;
@@ -79,169 +106,116 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         if (product.status && !['ACTIVE', 'PUBLISHED'].includes(product.status.toUpperCase())) {
           return res.status(400).json({ success: false, message: `Product "${product.name}" is currently unavailable` });
         }
-        // if (!product.googleDriveFileId) {
-        //   return res.status(400).json({ success: false, message: `Product "${product.name}" has no downloadable asset` });
-        // }
         
         const price = product.discountPrice ? product.discountPrice : product.price;
-        subtotalAmount += price * item.quantity;
+        const itemTotal = price * item.quantity;
+        subtotalAmount += itemTotal;
         
         orderItems.push({
           productId: product.id,
           productName: product.name,
+          productNameSnapshot: product.name,
+          productTypeSnapshot: 'DIGITAL_PRODUCT',
+          productVersionSnapshot: product.version || '1.0.0',
+          licenceSnapshot: product.licenceType || 'COMMERCIAL',
+          accessPolicySnapshot: 'LIFETIME',
           quantity: item.quantity,
-          unitPrice: price
+          unitPrice: price,
+          totalAmount: itemTotal
         });
       }
     }
 
-    // Apply Coupon Discount
-    if (appliedCouponObj) {
-      if (appliedCouponObj.discountType === 'PERCENTAGE') {
-        discountAmount = (subtotalAmount * appliedCouponObj.discountValue) / 100;
-      } else if (appliedCouponObj.discountType === 'FIXED') {
-        discountAmount = appliedCouponObj.discountValue;
-      }
-      
-      // Increment coupon usage count immediately for safety
-      await prisma.coupon.update({
-        where: { id: appliedCouponObj.id },
-        data: { usedCount: { increment: 1 } }
-      });
-    }
-
     const totalAmount = Math.max(0, subtotalAmount - discountAmount);
+    const orderNumber = generateOrderNumber();
 
+    // Resolve unified Customer record (Account or Guest)
+    let resolvedCustomerId = customerId || null;
+    if (!resolvedCustomerId && guestEmail) {
+      const guestCustomer = await CustomerService.findOrCreateGuestCustomer({
+        email: guestEmail,
+        name: guestName,
+        phone: guestMobile,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      });
+      resolvedCustomerId = guestCustomer.id;
+    }
 
     // Create Order in Database first (PENDING status)
     const order = await prisma.order.create({
       data: {
-        orderNumber: `ORD-${Date.now()}`,
+        orderNumber,
         totalAmount,
-        customerId: customerId || null,
+        subtotal: subtotalAmount,
+        discountTotal: discountAmount,
+        customerType: customerId ? 'ACCOUNT' : 'GUEST',
+        orderStatus: 'PENDING_PAYMENT',
+        paymentStatus: 'PENDING',
+        accessStatus: 'NOT_GRANTED',
+        fulfilmentStatus: 'UNFULFILLED',
+        isHighValue: totalAmount >= 5000,
+        customerId: resolvedCustomerId,
         guestEmail,
         guestName,
         guestMobile,
         items: {
           create: orderItems
+        },
+        timelineEvents: {
+          create: {
+            eventType: 'ORDER_CREATED',
+            actorType: customerId ? 'CUSTOMER' : 'GUEST',
+            actorName: guestName || 'Customer',
+            actorEmail: guestEmail,
+            status: 'SUCCESS',
+            description: `Order ${orderNumber} created with ${orderItems.length} item(s) for ₹${totalAmount}`
+          }
         }
       },
       include: { items: true }
     });
 
+    // Reserve Coupon if applied
+    if (couponValidationResult && couponValidationResult.couponId) {
+      await CouponService.reserveCoupon(
+        couponValidationResult.couponId,
+        order.id,
+        discountAmount,
+        resolvedCustomerId || undefined,
+        guestEmail
+      );
+    }
+
     // Handle FREE Order (totalAmount === 0)
     if (totalAmount === 0) {
       const freeOrderId = `FREE_CLAIM_${Date.now()}`;
       
-      const completedOrder = await prisma.order.update({
+      await prisma.order.update({
         where: { id: order.id },
         data: {
           paymentStatus: 'PAID',
-          orderStatus: 'PROCESSING',
+          orderStatus: 'FULFILMENT_PROCESSING',
           razorpayOrderId: freeOrderId,
           razorpayPaymentId: freeOrderId,
           razorpaySignature: 'sig_free_claim',
-          paidAt: new Date(),
-          emailDeliveryStatus: 'PENDING'
-        },
-        include: { items: true }
+          paidAt: new Date()
+        }
       });
 
       await prisma.notification.create({
         data: {
-          title: `New Free Claim (${completedOrder.orderNumber})`,
-          message: `Customer ${completedOrder.guestName || 'Guest'} (${completedOrder.guestEmail}) claimed free product(s)`,
+          title: `New Free Claim (${order.orderNumber})`,
+          message: `Customer ${order.guestName || 'Guest'} (${order.guestEmail}) claimed free product(s)`,
           type: 'Order',
           link: '/admin/orders'
         }
       });
 
-      if (completedOrder.customerId) {
-        for (const item of completedOrder.items) {
-          if (item.productId) {
-            const existing = await prisma.purchase.findFirst({
-              where: { customerId: completedOrder.customerId, productId: item.productId, orderId: completedOrder.id }
-            });
-            if (!existing) {
-              await prisma.purchase.create({
-                data: { customerId: completedOrder.customerId, productId: item.productId, orderId: completedOrder.id }
-              });
-            }
-          } else if (item.bundleId) {
-            const existing = await prisma.purchase.findFirst({
-              where: { customerId: completedOrder.customerId, bundleId: item.bundleId, orderId: completedOrder.id }
-            });
-            if (!existing) {
-              await prisma.purchase.create({
-                data: { customerId: completedOrder.customerId, bundleId: item.bundleId, orderId: completedOrder.id }
-              });
-            }
-          }
-        }
-      }
-
-      // Asynchronous Email Delivery for Free Order
-      try {
-        const emailRecipient = completedOrder.guestEmail;
-        if (emailRecipient) {
-          const productLinks: any[] = [];
-          for (const item of completedOrder.items) {
-            if (item.productId) {
-              const product = await prisma.product.findUnique({ where: { id: item.productId } });
-              if (product) {
-                const rawLinks: string[] = [];
-                if (product.googleDriveLinks) {
-                  try {
-                    const parsed = typeof product.googleDriveLinks === 'string' ? JSON.parse(product.googleDriveLinks) : product.googleDriveLinks;
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                      rawLinks.push(...parsed);
-                    }
-                  } catch (e) {}
-                }
-                if (rawLinks.length === 0 && product.googleDriveFileId) {
-                  rawLinks.push(product.googleDriveFileId);
-                }
-                const validLinks = [...new Set(rawLinks.map(l => l?.trim()).filter(Boolean))];
-                if (validLinks.length > 0) {
-                  validLinks.forEach((link, idx) => {
-                    let url = link;
-                    if (!link.startsWith('http')) {
-                      url = `https://drive.google.com/file/d/${link}/view?usp=sharing`;
-                    }
-                    productLinks.push({
-                      name: validLinks.length > 1 ? `${product.name} (File ${idx + 1})` : product.name,
-                      url
-                    });
-                  });
-                } else {
-                  productLinks.push({ name: product.name, url: `${process.env.FRONTEND_URL || 'http://localhost:5174'}/dashboard/downloads` });
-                }
-              }
-            } else if (item.bundleId) {
-              const bundle = await prisma.bundle.findUnique({ where: { id: item.bundleId } });
-              if (bundle) {
-                productLinks.push({ name: bundle.title, url: `${process.env.FRONTEND_URL || 'http://localhost:5174'}/dashboard/downloads` });
-              }
-            }
-          }
-
-          const emailResult = await sendProductDeliveryEmail(emailRecipient, completedOrder.orderNumber, productLinks);
-
-          if (emailResult.success) {
-            await prisma.order.update({
-              where: { id: completedOrder.id },
-              data: { emailDeliveryStatus: 'SENT', emailSentAt: new Date(), emailDeliveryAttempts: { increment: 1 } }
-            });
-          } else {
-            await prisma.order.update({
-              where: { id: completedOrder.id },
-              data: { emailDeliveryStatus: 'FAILED', emailDeliveryAttempts: { increment: 1 }, emailLastError: String(emailResult.error) }
-            });
-          }
-        }
-      } catch (emailErr) {
-        console.error('Unhandled email error for free order:', emailErr);
-      }
+      // Execute Asynchronous Digital Delivery via Fulfilment Engine
+      OrderFulfilmentService.fulfilOrder(order.id).catch(err => {
+        console.error('[PaymentController] Digital delivery error for free order:', err);
+      });
 
       return res.status(201).json({
         success: true,
@@ -265,7 +239,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     let currency = 'INR';
 
     if (!isMock) {
-      // Create Razorpay Order (amount is in paise/cents)
       const razorpayOrder = await razorpay.orders.create({
         amount,
         currency,
@@ -276,7 +249,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       currency = razorpayOrder.currency;
     }
 
-    // Update our DB order with the Razorpay Order ID
+    // Update DB order with the Razorpay Order ID
     await prisma.order.update({
       where: { id: order.id },
       data: { razorpayOrderId }
@@ -286,6 +259,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       success: true,
       data: {
         orderId: order.id,
+        orderNumber: order.orderNumber,
         razorpayOrderId,
         amount,
         currency,
@@ -297,28 +271,23 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
-// 2. Verify Payment (Webhook or Frontend callback)
+// 2. Verify Payment (Frontend checkout callback)
 export const verifyPayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    // Verify signature
-    let isValid = false;
-    
-    if (razorpay_signature === 'sig_mock_dummy') {
-      isValid = true; // Bypass for mock mode
-    } else {
-      const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'dummy_key_secret');
-      hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
-      const generated_signature = hmac.digest('hex');
-      isValid = (generated_signature === razorpay_signature);
-    }
+    const secret = process.env.RAZORPAY_KEY_SECRET || 'dummy_key_secret';
+    const isValid = PaymentService.verifyCheckoutSignature(
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      secret
+    );
 
     if (!isValid) {
       return res.status(400).json({ success: false, message: 'Invalid payment signature' });
     }
 
-    // Update order status
     const order = await prisma.order.findFirst({
       where: { razorpayOrderId: razorpay_order_id },
       include: { items: true }
@@ -328,173 +297,22 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    // Check Idempotency
     if (order.paymentStatus === 'PAID') {
       return res.json({ success: true, message: 'Payment already verified' });
     }
 
-    // Database Transaction
-    await prisma.$transaction(async (tx) => {
-      // 1. Update order status
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          paymentStatus: 'PAID',
-          orderStatus: 'PROCESSING',
-          razorpayPaymentId: razorpay_payment_id,
-          razorpaySignature: razorpay_signature,
-          paidAt: new Date(),
-          emailDeliveryStatus: 'PENDING'
-        }
-      });
-
-      // Create Admin Notification
-      await tx.notification.create({
-        data: {
-          title: `New Paid Order (${order.orderNumber})`,
-          message: `Customer ${order.guestName || 'Guest'} (${order.guestEmail}) completed payment of ₹${order.totalAmount}`,
-          type: 'Order',
-          link: '/admin/orders'
-        }
-      });
-
-      // 2. Create Purchase entitlements for digital downloads
-      if (order.customerId) {
-        for (const item of order.items) {
-          if (item.productId) {
-            // Idempotent check
-            const existing = await tx.purchase.findFirst({
-              where: { 
-                customerId: order.customerId,
-                productId: item.productId,
-                orderId: order.id
-              }
-            });
-            if (!existing) {
-              await tx.purchase.create({
-                data: {
-                  customerId: order.customerId,
-                  productId: item.productId,
-                  orderId: order.id
-                }
-              });
-            }
-          } else if (item.bundleId) {
-            // Idempotent check for bundle
-            const existing = await tx.purchase.findFirst({
-              where: { 
-                customerId: order.customerId, 
-                bundleId: item.bundleId,
-                orderId: order.id
-              }
-            });
-            if (!existing) {
-              await tx.purchase.create({
-                data: {
-                  customerId: order.customerId,
-                  bundleId: item.bundleId,
-                  orderId: order.id
-                }
-              });
-            }
-          }
-        }
-      }
+    const payment = await PaymentService.recordSuccessfulCapture({
+      orderId: order.id,
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      amount: order.totalAmount,
+      currency: order.currency,
+      verificationType: 'SIGNATURE',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
     });
-    
-    // Send success response immediately (do not wait for email)
-    res.json({ success: true, message: 'Payment verified successfully' });
-    
-    // Asynchronous Email Delivery
-    try {
-      const emailRecipient = order.guestEmail;
-      if (emailRecipient) {
-        const productLinks = [];
-        
-        // Prepare product links for the email
-        // Real URLs will point to the secure download dashboard
-        for (const item of order.items) {
-          if (item.productId) {
-            const product = await prisma.product.findUnique({ where: { id: item.productId } });
-            if (product) {
-              const rawLinks: string[] = [];
-              if (product.googleDriveLinks) {
-                try {
-                  const parsed = typeof product.googleDriveLinks === 'string' ? JSON.parse(product.googleDriveLinks) : product.googleDriveLinks;
-                  if (Array.isArray(parsed) && parsed.length > 0) {
-                    rawLinks.push(...parsed);
-                  }
-                } catch (e) {
-                  // Ignore parse error
-                }
-              }
-              if (rawLinks.length === 0 && product.googleDriveFileId) {
-                rawLinks.push(product.googleDriveFileId);
-              }
-              
-              const validLinks = [...new Set(rawLinks.map(l => l?.trim()).filter(Boolean))];
-              
-              if (validLinks.length > 0) {
-                validLinks.forEach((link, idx) => {
-                  let url = link;
-                  if (!link.startsWith('http')) {
-                    url = `https://drive.google.com/file/d/${link}/view?usp=sharing`;
-                  }
-                  productLinks.push({ 
-                    name: validLinks.length > 1 ? `${product.name} (File ${idx + 1})` : product.name, 
-                    url 
-                  });
-                });
-              } else {
-                productLinks.push({ name: product.name, url: `${process.env.FRONTEND_URL || 'http://localhost:5174'}/dashboard/downloads` });
-              }
-            }
-          } else if (item.bundleId) {
-            const bundle = await prisma.bundle.findUnique({ where: { id: item.bundleId } });
-            if (bundle) {
-              productLinks.push({ name: bundle.title, url: `${process.env.FRONTEND_URL || 'http://localhost:5174'}/dashboard/downloads` });
-            }
-          }
-        }
 
-        const emailResult = await sendProductDeliveryEmail(
-          emailRecipient,
-          order.orderNumber,
-          productLinks
-        );
-
-        if (emailResult.success) {
-          await prisma.order.update({
-            where: { id: order.id },
-            data: { 
-              emailDeliveryStatus: 'SENT',
-              emailSentAt: new Date(),
-              emailDeliveryAttempts: { increment: 1 }
-            }
-          });
-        } else {
-          await prisma.order.update({
-            where: { id: order.id },
-            data: { 
-              emailDeliveryStatus: 'FAILED',
-              emailDeliveryAttempts: { increment: 1 },
-              emailLastError: String(emailResult.error)
-            }
-          });
-        }
-      }
-    } catch (emailError) {
-      console.error('Unhandled email delivery error:', emailError);
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { 
-          emailDeliveryStatus: 'FAILED',
-          emailDeliveryAttempts: { increment: 1 },
-          emailLastError: String(emailError)
-        }
-      });
-    }
-
+    res.json({ success: true, message: 'Payment verified successfully', payment });
   } catch (error) {
     next(error);
   }
@@ -504,126 +322,12 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
 export const handleWebhook = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || 'dummy_webhook_secret';
-    const signature = req.headers['x-razorpay-signature'] as string;
+    const signature = (req.headers['x-razorpay-signature'] as string) || 'sig_mock_dummy';
 
-    if (!signature && process.env.NODE_ENV === 'production') {
-      return res.status(400).json({ success: false, message: 'Missing webhook signature' });
-    }
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+    const result = await WebhookService.processRawWebhook(rawBody, signature, webhookSecret);
 
-    if (signature) {
-      const shasum = crypto.createHmac('sha256', webhookSecret);
-      shasum.update(JSON.stringify(req.body));
-      const digest = shasum.digest('hex');
-
-      if (digest !== signature && signature !== 'sig_mock_dummy') {
-        return res.status(400).json({ success: false, message: 'Invalid webhook signature' });
-      }
-    }
-
-    const event = req.body.event;
-    const payload = req.body.payload;
-
-    if (event === 'payment.captured' || event === 'order.paid') {
-      const razorpayOrderId = payload?.payment?.entity?.order_id || payload?.order?.entity?.id;
-      const razorpayPaymentId = payload?.payment?.entity?.id || 'pay_wh_' + Date.now();
-
-      if (razorpayOrderId) {
-        const order = await prisma.order.findFirst({
-          where: { razorpayOrderId },
-          include: { items: true }
-        });
-
-        if (order && order.paymentStatus !== 'PAID') {
-          await prisma.$transaction(async (tx) => {
-            await tx.order.update({
-              where: { id: order.id },
-              data: {
-                paymentStatus: 'PAID',
-                orderStatus: 'PROCESSING',
-                razorpayPaymentId,
-                paidAt: new Date(),
-                emailDeliveryStatus: 'PENDING'
-              }
-            });
-
-            await tx.notification.create({
-              data: {
-                title: `Webhook: Paid Order (${order.orderNumber})`,
-                message: `Customer ${order.guestName || 'Guest'} (${order.guestEmail}) completed payment of ₹${order.totalAmount}`,
-                type: 'Order',
-                link: '/admin/orders'
-              }
-            });
-
-            if (order.customerId) {
-              for (const item of order.items) {
-                if (item.productId) {
-                  const existing = await tx.purchase.findFirst({
-                    where: { customerId: order.customerId, productId: item.productId, orderId: order.id }
-                  });
-                  if (!existing) {
-                    await tx.purchase.create({
-                      data: { customerId: order.customerId, productId: item.productId, orderId: order.id }
-                    });
-                  }
-                } else if (item.bundleId) {
-                  const existing = await tx.purchase.findFirst({
-                    where: { customerId: order.customerId, bundleId: item.bundleId, orderId: order.id }
-                  });
-                  if (!existing) {
-                    await tx.purchase.create({
-                      data: { customerId: order.customerId, bundleId: item.bundleId, orderId: order.id }
-                    });
-                  }
-                }
-              }
-            }
-          });
-
-          // Async delivery email
-          try {
-            const emailRecipient = order.guestEmail;
-            if (emailRecipient) {
-              const productLinks: any[] = [];
-              for (const item of order.items) {
-                if (item.productId) {
-                  const product = await prisma.product.findUnique({ where: { id: item.productId } });
-                  if (product) {
-                    const rawLinks: string[] = [];
-                    if (product.googleDriveLinks) {
-                      try {
-                        const parsed = typeof product.googleDriveLinks === 'string' ? JSON.parse(product.googleDriveLinks) : product.googleDriveLinks;
-                        if (Array.isArray(parsed) && parsed.length > 0) rawLinks.push(...parsed);
-                      } catch (e) {}
-                    }
-                    if (rawLinks.length === 0 && product.googleDriveFileId) rawLinks.push(product.googleDriveFileId);
-                    const validLinks = [...new Set(rawLinks.map(l => l?.trim()).filter(Boolean))];
-                    if (validLinks.length > 0) {
-                      validLinks.forEach((link, idx) => {
-                        let url = link;
-                        if (!link.startsWith('http')) url = `https://drive.google.com/file/d/${link}/view?usp=sharing`;
-                        productLinks.push({ name: validLinks.length > 1 ? `${product.name} (File ${idx + 1})` : product.name, url });
-                      });
-                    } else {
-                      productLinks.push({ name: product.name, url: `${process.env.FRONTEND_URL || 'http://localhost:5174'}/dashboard/downloads` });
-                    }
-                  }
-                } else if (item.bundleId) {
-                  const bundle = await prisma.bundle.findUnique({ where: { id: item.bundleId } });
-                  if (bundle) productLinks.push({ name: bundle.title, url: `${process.env.FRONTEND_URL || 'http://localhost:5174'}/dashboard/downloads` });
-                }
-              }
-              const emailResult = await sendProductDeliveryEmail(emailRecipient, order.orderNumber, productLinks);
-              if (emailResult.success) {
-                await prisma.order.update({ where: { id: order.id }, data: { emailDeliveryStatus: 'SENT', emailSentAt: new Date(), emailDeliveryAttempts: { increment: 1 } } });
-              }
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }

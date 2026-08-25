@@ -330,16 +330,109 @@ export default function AdminProductForm() {
 
   const completeness = calculateCompleteness();
 
-  // Save / Publish Product Handler
-  const handleSaveProduct = async (desiredStatus: string = 'DRAFT') => {
-    if (!driveFileId || driveValidationStatus !== 'VALID') {
-      if (desiredStatus === 'PUBLISHED') {
-        toast.error('Valid Google Drive file connection is strictly required before publishing');
-        setCurrentStepIndex(0);
-        return;
+  // Mandatory validation function per stage
+  const validateProductStage = (stageIdx: number): boolean => {
+    if (stageIdx === 0) {
+      if (!googleDriveUrl.trim() && !driveFileId.trim()) {
+        toast.error('Google Drive Product URL or File ID is mandatory to advance.');
+        return false;
       }
+      return true;
     }
 
+    if (stageIdx === 1) {
+      if (!name.trim()) {
+        toast.error('Product Name is mandatory.');
+        return false;
+      }
+      if (!slug.trim()) {
+        toast.error('URL Slug is mandatory.');
+        return false;
+      }
+      if (!shortDescription.trim()) {
+        toast.error('Short Description is mandatory.');
+        return false;
+      }
+      if (!description.trim()) {
+        toast.error('Full Product Description is mandatory.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 2) {
+      if (!category.trim()) {
+        toast.error('Product Category is mandatory.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 3) {
+      if (!price || parseFloat(price) <= 0) {
+        toast.error('Regular Price is mandatory and must be greater than ₹0.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 4) {
+      if (!coverImage.trim()) {
+        toast.error('Cover Thumbnail Image is mandatory to advance.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 5) {
+      if (!downloadLimit) {
+        toast.error('Download limit is mandatory.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 6) {
+      if (!licenceType.trim()) {
+        toast.error('Licence Type is mandatory.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 7) {
+      if (!heroHighlight.trim() && (!faqs || faqs.length === 0 || !faqs[0]?.question.trim())) {
+        toast.error('Hero Highlights or at least 1 FAQ is mandatory.');
+        return false;
+      }
+      return true;
+    }
+
+    if (stageIdx === 8) {
+      if (!seoTitle.trim()) {
+        toast.error('SEO Meta Title is mandatory.');
+        return false;
+      }
+      if (!seoDescription.trim()) {
+        toast.error('SEO Meta Description is mandatory.');
+        return false;
+      }
+      return true;
+    }
+
+    return true;
+  };
+
+  const handleStepClick = (targetIndex: number) => {
+    setCurrentStepIndex(targetIndex);
+  };
+
+  const handleNext = () => {
+    setCurrentStepIndex(Math.min(STEPS.length - 1, currentStepIndex + 1));
+  };
+
+  // Save / Publish Product Handler
+  const handleSaveProduct = async (desiredStatus: string = 'DRAFT') => {
     if (!name.trim()) {
       toast.error('Product Name is required');
       setCurrentStepIndex(1);
@@ -347,19 +440,9 @@ export default function AdminProductForm() {
     }
 
     if (desiredStatus === 'PUBLISHED') {
-      if (!category) {
-        toast.error('Category is required before publishing');
-        setCurrentStepIndex(2);
-        return;
-      }
       if (!price || parseFloat(price) <= 0) {
-        toast.error('Valid Price is required before publishing');
+        toast.error('Valid selling price is required before publishing');
         setCurrentStepIndex(3);
-        return;
-      }
-      if (!coverImage) {
-        toast.error('Cover Image is required before publishing');
-        setCurrentStepIndex(4);
         return;
       }
     }
@@ -530,7 +613,7 @@ export default function AdminProductForm() {
               <button
                 key={s.id}
                 type="button"
-                onClick={() => setCurrentStepIndex(idx)}
+                onClick={() => handleStepClick(idx)}
                 className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
                   isCurrent 
                     ? 'bg-primary text-white shadow-xs' 
@@ -1190,14 +1273,31 @@ export default function AdminProductForm() {
                     </label>
                     <select
                       value={licenceType}
-                      onChange={(e) => setLicenceType(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setLicenceType(val);
+                        const match = availableLicences.find(l => l.name === val || l.slug === val || l.name?.toUpperCase() === val?.toUpperCase());
+                        if (match) {
+                          if (match.domainLimit) setDomainLimit(match.domainLimit.toString());
+                          if (match.activationLimit) setActivationLimit(match.activationLimit.toString());
+                          if (match.terms && !licenceTerms) setLicenceTerms(match.terms);
+                        }
+                      }}
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
                     >
-                      <option value="PERSONAL">Personal Licence</option>
-                      <option value="COMMERCIAL">Commercial Licence (Default)</option>
-                      <option value="AGENCY">Agency Licence (5 Clients)</option>
-                      <option value="EXTENDED_COMMERCIAL">Extended Commercial</option>
-                      <option value="RESELLER">Reseller Licence</option>
+                      {availableLicences.length > 0 ? (
+                        availableLicences.map(l => (
+                          <option key={l.id} value={l.name}>{l.name} {l.isDefault ? '(Default)' : ''}</option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="Personal Licence">Personal Licence</option>
+                          <option value="Commercial Licence">Commercial Licence (Default)</option>
+                          <option value="Agency Licence">Agency Licence (5 Clients)</option>
+                          <option value="Extended Commercial">Extended Commercial</option>
+                          <option value="Reseller Licence">Reseller Licence</option>
+                        </>
+                      )}
                     </select>
                   </div>
 
@@ -1452,7 +1552,7 @@ export default function AdminProductForm() {
             {currentStepIndex < STEPS.length - 1 ? (
               <button
                 type="button"
-                onClick={() => setCurrentStepIndex(Math.min(STEPS.length - 1, currentStepIndex + 1))}
+                onClick={handleNext}
                 className="px-6 py-2.5 bg-primary hover:bg-primary-dark text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-2"
               >
                 Next <ArrowRight size={14} />

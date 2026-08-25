@@ -8,24 +8,71 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(uuid())
-  name          String
-  email         String   @unique
-  mobile        String?
-  passwordHash  String
-  emailVerified Boolean  @default(false)
-  role          String   @default("CUSTOMER")
-  profileImage  String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  customerCode       String?   @unique
+  customerType       String    @default("ACCOUNT") // ACCOUNT, GUEST
+  name               String
+  email              String    @unique
+  normalizedEmail    String?
+  mobile             String?
+  normalizedPhone    String?
+  passwordHash       String?
+  emailVerified      Boolean   @default(false)
+  emailVerifiedAt    DateTime?
+  phoneVerifiedAt    DateTime?
+  role               String    @default("CUSTOMER")
+  profileImage       String?
+  businessName       String?
+  businessType       String?
+  gstNumber          String?
+  country            String?   @default("IN")
+  state              String?
+  language           String?   @default("en")
+  timezone           String?   @default("Asia/Kolkata")
+  status             String    @default("ACTIVE") // ACTIVE, BLOCKED, SUSPENDED, ANONYMIZED
+  blockScope         String?   // NONE, LOGIN, PURCHASES, DOWNLOADS, LICENCES, MARKETING, FULL
+  blockReason        String?
+  fraudRisk          String?   @default("LOW") // LOW, MEDIUM, HIGH
+  supportPriority    String?   @default("NORMAL") // NORMAL, HIGH, VIP
+  assignedStaffId    String?
+  anonymizedAt       DateTime?
+  lastLoginAt        DateTime?
+  failedLoginCount   Int       @default(0)
+  passwordChangedAt  DateTime?
+  isMerged           Boolean   @default(false)
+  masterCustomerId   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
 
-  roleDetails   Role?    @relation(fields: [role], references: [name])
+  roleDetails        Role?     @relation(fields: [role], references: [name])
 
-  orders    Order[]
-  purchases Purchase[]
-  supportTickets SupportTicket[]
-  supportMessages SupportMessage[]
-  auditLogs AuditLog[]
+  orders                Order[]
+  purchases             Purchase[]
+  supportTickets        SupportTicket[]
+  supportMessages       SupportMessage[]
+  auditLogs             AuditLog[]
+  bundleEntitlements    BundleEntitlement[]
+  componentEntitlements ComponentEntitlement[]
+  bundleAuditLogs       BundleAuditLog[]
+  consents              CustomerConsent[]
+  customerTags          CustomerTagMapping[]
+  customerNotes         CustomerNote[]
+  timelineEvents        CustomerTimelineEvent[]
+  customerAuditLogs     CustomerAuditLog[]
+  dataRequests          CustomerDataRequest[]
+  abandonedCheckouts    AbandonedCheckout[]
+  payments              Payment[]
+  reviews               Review[]
+  couponRedemptions     CouponRedemption[]
+  campaignRecipients    CampaignRecipient[]
+  suppressions          SuppressionEntry[]
+  couponAbuseLogs       CouponAbuseLog[]
+
+  @@index([customerCode])
+  @@index([customerType])
+  @@index([normalizedEmail])
+  @@index([normalizedPhone])
+  @@index([status])
 }
 
 model Role {
@@ -41,22 +88,48 @@ model Role {
 }
 
 model Category {
-  id           String   @id @default(uuid())
-  name         String
-  slug         String   @unique
-  description  String?
-  image        String?
-  banner       String?
-  displayOrder Int      @default(0)
-  status       String   @default("ACTIVE")
-  featured     Boolean  @default(false)
-  parentId     String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String    @id @default(uuid())
+  categoryCode        String?   @unique
+  name                String
+  slug                String    @unique
+  description         String?
+  shortDescription    String?
+  internalNote        String?
+  image               String?
+  icon                String?
+  banner              String?
+  bannerConfig        Json?
+  buyingGuide         String?
+  faqs                Json?
+  ctaText             String?
+  attributeConfig     Json?
+  displayOrder        Int       @default(0)
+  status              String    @default("ACTIVE")
+  featured            Boolean   @default(false)
+  featuredPlacement   String?
+  featuredPriority    Int?      @default(0)
+  featuredStartDate   DateTime?
+  featuredEndDate     DateTime?
+  seoTitle            String?
+  seoDescription      String?
+  seoKeywords         String?
+  canonicalUrl        String?
+  ogImage             String?
+  noindex             Boolean   @default(false)
+  includeInSitemap    Boolean   @default(true)
+  ownerAdminId        String?
+  publishedAt         DateTime?
+  publishScheduledAt  DateTime?
+  archivedAt          DateTime?
+  qualityScore        Int?      @default(0)
+  parentId            String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   parent       Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
   children     Category[] @relation("CategoryHierarchy")
   products     Product[]
+  bundles      Bundle[]
 }
 
 model Product {
@@ -127,52 +200,419 @@ model Product {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  category   Category    @relation(fields: [categoryId], references: [id])
-  orderItems OrderItem[]
-  purchases  Purchase[]
-  reviews    Review[]
-  bundles    Bundle[]
+  category              Category              @relation(fields: [categoryId], references: [id])
+  orderItems            OrderItem[]
+  purchases             Purchase[]
+  reviews               Review[]
+  reviewRequests        ReviewRequest[]
+  bundles               Bundle[]
+  bundleItems           BundleItem[]
+  digitalDeliveries     DigitalDelivery[]
+  deliveryItems         DigitalDeliveryItem[]
+  componentEntitlements ComponentEntitlement[]
 }
 
 model Order {
-  id                String        @id @default(uuid())
-  orderNumber       String        @unique
-  customerId        String?
-  guestName         String?
-  guestEmail        String?
-  guestMobile       String?
-  totalAmount       Float
-  currency          String        @default("INR")
-  paymentStatus     String        @default("PENDING")
-  orderStatus       String        @default("PENDING")
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  razorpaySignature String?
-  createdAt         DateTime      @default(now())
-  paidAt            DateTime?
-  emailDeliveryStatus   String    @default("PENDING")
+  id                    String        @id @default(uuid())
+  orderNumber           String        @unique
+  customerId            String?
+  guestName             String?
+  guestEmail            String?
+  guestMobile           String?
+  customerType          String        @default("ACCOUNT") // ACCOUNT, GUEST
+  totalAmount           Float
+  subtotal              Float?        @default(0)
+  discountTotal         Float?        @default(0)
+  taxTotal              Float?        @default(0)
+  refundedAmount        Float?        @default(0)
+  currency              String        @default("INR")
+  
+  // Independent State Machine
+  orderStatus           String        @default("PENDING_PAYMENT") // PENDING_PAYMENT, PAYMENT_REVIEW, PAID, FULFILMENT_PROCESSING, FULFILLED, FAILED, CANCELLED, REFUNDED, PARTIALLY_REFUNDED, DISPUTED, ACCESS_REVOKED
+  paymentStatus         String        @default("PENDING") // PENDING, AUTHORIZED, CAPTURED, FAILED, PARTIALLY_REFUNDED, REFUNDED, DISPUTED
+  accessStatus          String        @default("NOT_GRANTED") // NOT_GRANTED, PENDING, ACTIVE, PARTIALLY_DOWNLOADED, DOWNLOADED, EXPIRED, REVOKED
+  fulfilmentStatus      String        @default("UNFULFILLED") // UNFULFILLED, PROCESSING, FULFILLED, FAILED, RETRYING
+  refundStatus          String        @default("NONE") // NONE, REQUESTED, UNDER_REVIEW, APPROVED, PROCESSING, COMPLETED, FAILED, REJECTED, PARTIALLY_REFUNDED
+  licenceStatus         String        @default("NOT_REQUIRED") // NOT_REQUIRED, NOT_ISSUED, ISSUED, ACTIVE, EXPIRED, SUSPENDED, REVOKED
+  disputeStatus         String        @default("NONE") // NONE, RECEIVED, EVIDENCE_PENDING, EVIDENCE_SUBMITTED, WON, LOST, CLOSED
+
+  razorpayOrderId       String?
+  razorpayPaymentId     String?
+  razorpaySignature     String?
+  
+  priority              String        @default("NORMAL") // NORMAL, HIGH, CRITICAL
+  isHighValue           Boolean       @default(false)
+
+  fulfilmentRetryCount  Int           @default(0)
+  lastFulfilmentAttemptAt DateTime?
+  fulfilmentFailureReason String?
+
+  emailDeliveryStatus   String        @default("PENDING")
   emailSentAt           DateTime?
-  emailDeliveryAttempts Int       @default(0)
+  emailDeliveryAttempts Int           @default(0)
   emailLastError        String?
 
-  customer  User?       @relation(fields: [customerId], references: [id])
-  items     OrderItem[]
-  purchases Purchase[]
-  supportTickets SupportTicket[]
+  claimedAccountId      String?
+  claimedAt             DateTime?
+
+  createdAt             DateTime      @default(now())
+  paidAt                DateTime?
+  fulfilledAt           DateTime?
+  cancelledAt           DateTime?
+  refundedAt            DateTime?
+  disputedAt            DateTime?
+  updatedAt             DateTime      @default(now()) @updatedAt
+
+  customer              User?                  @relation(fields: [customerId], references: [id])
+  items                 OrderItem[]
+  payments              Payment[]
+  refunds               Refund[]
+  disputes              Dispute[]
+  orderNotes            OrderNote[]
+  timelineEvents        OrderTimelineEvent[]
+  auditLogs             OrderAuditLog[]
+  licenceKeys           LicenceKey[]
+  downloadHistory       DownloadHistory[]
+  purchases             Purchase[]
+  supportTickets        SupportTicket[]
+  digitalDeliveries     DigitalDelivery[]
+  bundleEntitlements    BundleEntitlement[]
+  componentEntitlements ComponentEntitlement[]
+  reviews               Review[]
+  couponRedemptions     CouponRedemption[]
+  reviewRequests        ReviewRequest[]
+
+  @@index([orderNumber])
+  @@index([customerId])
+  @@index([guestEmail])
+  @@index([orderStatus])
+  @@index([paymentStatus])
+  @@index([accessStatus])
+  @@index([fulfilmentStatus])
+  @@index([createdAt])
 }
 
 model OrderItem {
-  id          String @id @default(uuid())
-  orderId     String
-  productId   String?
-  bundleId    String?
-  productName String
-  quantity    Int
-  unitPrice   Float
+  id                     String                 @id @default(uuid())
+  orderId                String
+  productId              String?
+  bundleId               String?
+  parentOrderItemId      String?
+  productName            String
+  productNameSnapshot    String?
+  productTypeSnapshot    String?                @default("DIGITAL_PRODUCT")
+  productVersionSnapshot String?                @default("1.0.0")
+  licenceSnapshot        String?                @default("COMMERCIAL")
+  accessPolicySnapshot   String?                @default("LIFETIME")
+  quantity               Int                    @default(1)
+  unitPrice              Float
+  discountAmount         Float?                 @default(0)
+  taxAmount              Float?                 @default(0)
+  totalAmount            Float?                 @default(0)
+  refundedAmount         Float?                 @default(0)
 
-  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id])
-  bundle  Bundle?  @relation(fields: [bundleId], references: [id])
+  order                  Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product                Product?               @relation(fields: [productId], references: [id])
+  bundle                 Bundle?                @relation(fields: [bundleId], references: [id])
+  bundleEntitlements     BundleEntitlement[]
+  componentEntitlements  ComponentEntitlement[]
+  licenceKeys            LicenceKey[]
+}
+
+model Payment {
+  id                    String                 @id @default(uuid())
+  orderId               String
+  customerId            String?
+  razorpayOrderId       String?
+  razorpayPaymentId     String?                @unique
+  amount                Float
+  currency              String                 @default("INR")
+  method                String?                @default("RAZORPAY") // UPI, CARD, NETBANKING, WALLET, RAZORPAY
+  status                String                 @default("PENDING") // PENDING, AUTHORIZED, CAPTURED, FAILED, CANCELLED, PARTIALLY_REFUNDED, REFUNDED, DISPUTED
+  verificationStatus    String                 @default("NOT_VERIFIED") // NOT_VERIFIED, SIGNATURE_VERIFIED, WEBHOOK_VERIFIED, FULLY_VERIFIED, VERIFICATION_FAILED
+  fulfilmentStatus      String                 @default("NOT_STARTED") // NOT_STARTED, PROCESSING, COMPLETED, FAILED, PARTIALLY_COMPLETED
+  refundStatus          String                 @default("NOT_REFUNDED") // NOT_REFUNDED, REFUND_REQUESTED, REFUND_PENDING, PARTIALLY_REFUNDED, REFUNDED, REFUND_FAILED
+  disputeStatus         String                 @default("NONE") // NONE, CREATED, UNDER_REVIEW, EVIDENCE_PENDING, EVIDENCE_SUBMITTED, WON, LOST, CLOSED
+  reconciliationStatus  String                 @default("UNRECONCILED") // UNRECONCILED, MATCHED, AMOUNT_MISMATCH, CURRENCY_MISMATCH, SETTLEMENT_PENDING, RESOLVED
+  signatureVerified     Boolean                @default(false)
+  signatureVerifiedAt   DateTime?
+  webhookVerified       Boolean                @default(false)
+  webhookVerifiedAt     DateTime?
+  capturedAt            DateTime?
+  failedAt              DateTime?
+  failureCode           String?
+  failureCategory       String?                // BANK_DECLINE, INSUFFICIENT_FUNDS, AUTH_FAILURE, CUSTOMER_ABANDONED, TIMEOUT, TECHNICAL_ERROR, OTHER
+  failureDescription    String?
+  refundedAmount        Float                  @default(0)
+  riskScore             String?                @default("NORMAL") // NORMAL, REVIEW, HIGH_RISK, BLOCKED, CLEARED
+  riskReason            String?
+  ipAddress             String?
+  userAgent             String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @default(now()) @updatedAt
+
+  order                 Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer              User?                  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  refunds               Refund[]
+  disputes              Dispute[]
+  events                PaymentEvent[]
+  reconciliations       ReconciliationRecord[]
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([razorpayOrderId])
+  @@index([razorpayPaymentId])
+  @@index([status])
+  @@index([verificationStatus])
+  @@index([fulfilmentStatus])
+  @@index([refundStatus])
+  @@index([disputeStatus])
+  @@index([reconciliationStatus])
+  @@index([createdAt])
+}
+
+model Refund {
+  id                  String    @id @default(uuid())
+  orderId             String
+  paymentId           String?
+  razorpayRefundId    String?   @unique
+  amount              Float
+  currency            String    @default("INR")
+  reason              String?
+  status              String    @default("COMPLETED") // REQUESTED, PENDING_APPROVAL, SUBMITTED, PROCESSING, COMPLETED, FAILED, REJECTED
+  requestedBy         String?
+  approvedBy          String?
+  rejectedBy          String?
+  rejectionReason     String?
+  accessRevoked       Boolean   @default(true)
+  licenceRevoked      Boolean   @default(true)
+  failureReason       String?
+  submittedAt         DateTime?
+  completedAt         DateTime? @default(now())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+
+  order               Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment             Payment?  @relation(fields: [paymentId], references: [id])
+
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([razorpayRefundId])
+  @@index([status])
+}
+
+model PaymentEvent {
+  id              String    @id @default(uuid())
+  externalEventId String?   @unique
+  paymentId       String?
+  orderId         String?
+  eventType       String    // payment.captured, payment.failed, order.paid, refund.created, refund.processed, refund.failed, dispute.created, dispute.won, dispute.lost
+  rawPayload      String    // Raw JSON string payload
+  payloadHash     String?
+  signatureValid  Boolean   @default(false)
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  status          String    @default("RECEIVED") // RECEIVED, SIGNATURE_FAILED, STORED, PROCESSING, PROCESSED, DUPLICATE, FAILED, DEAD_LETTER, REPLAYED
+  retryCount      Int       @default(0)
+  failureReason   String?
+  replayedBy      String?
+  replayedAt      DateTime?
+
+  payment         Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([externalEventId])
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([eventType])
+  @@index([status])
+}
+
+model Dispute {
+  id                 String    @id @default(uuid())
+  paymentId          String?
+  orderId            String
+  razorpayDisputeId  String?   @unique
+  amount             Float
+  currency           String    @default("INR")
+  reason             String?
+  status             String    @default("UNDER_REVIEW") // CREATED, UNDER_REVIEW, EVIDENCE_PENDING, EVIDENCE_SUBMITTED, WON, LOST, CLOSED
+  deadlineAt         DateTime?
+  evidenceStatus     String    @default("PENDING") // PENDING, ASSEMBLED, SUBMITTED, ACCEPTED
+  evidenceData       Json?
+  assignedTo         String?
+  outcome            String?
+  accessSuspended    Boolean   @default(false)
+  resolvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+
+  payment            Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  order              Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([razorpayDisputeId])
+  @@index([status])
+}
+
+model Settlement {
+  id                     String    @id @default(uuid())
+  razorpaySettlementId   String    @unique
+  settlementDate         DateTime
+  grossAmount            Float
+  feeAmount              Float     @default(0)
+  taxAmount              Float     @default(0)
+  refundAdjustment       Float     @default(0)
+  netAmount              Float
+  bankReference          String?
+  status                 String    @default("SETTLED") // CREATED, PENDING, SETTLED, FAILED
+  capturedPaymentsCount  Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @default(now()) @updatedAt
+
+  @@index([razorpaySettlementId])
+  @@index([status])
+}
+
+model ReconciliationRecord {
+  id                   String    @id @default(uuid())
+  internalRecordType   String    @default("PAYMENT") // PAYMENT, REFUND, ORDER
+  internalRecordId     String
+  externalRecordType   String    @default("RAZORPAY_PAYMENT")
+  externalRecordId     String
+  expectedAmount       Float
+  actualAmount         Float
+  difference           Float     @default(0)
+  status               String    @default("MATCHED") // UNMATCHED, MATCHED, AMOUNT_MISMATCH, CURRENCY_MISMATCH, DUPLICATE, MISSING_GATEWAY_RECORD, MISSING_INTERNAL_RECORD, RESOLVED
+  differenceReason     String?
+  resolvedBy           String?
+  resolvedAt           DateTime?
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now()) @updatedAt
+
+  payment              Payment?  @relation(fields: [internalRecordId], references: [id], onDelete: Cascade)
+
+  @@index([internalRecordId])
+  @@index([externalRecordId])
+  @@index([status])
+}
+
+model GatewaySetting {
+  id                      String    @id @default(uuid())
+  gatewayName             String    @unique @default("RAZORPAY")
+  keyId                   String?
+  keySecretMasked         String?
+  webhookSecretMasked     String?
+  currency                String    @default("INR")
+  captureMode             String    @default("AUTO") // AUTO, MANUAL
+  environment             String    @default("LIVE") // TEST, LIVE
+  retryPolicyMaxAttempts  Int       @default(5)
+  reconciliationSchedule  String    @default("DAILY")
+  notificationEmails      String?
+  updatedBy               String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @default(now()) @updatedAt
+
+  @@index([gatewayName])
+}
+
+
+model OrderNote {
+  id          String   @id @default(uuid())
+  orderId     String
+  authorId    String?
+  authorName  String?  @default("Admin")
+  authorEmail String?  @default("admin@kdw.com")
+  noteType    String   @default("INTERNAL") // INTERNAL, CUSTOMER_VISIBLE, SYSTEM
+  content     String
+  visibility  String   @default("PRIVATE") // PRIVATE, SHARED
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model OrderTimelineEvent {
+  id          String   @id @default(uuid())
+  orderId     String
+  eventType   String   // ORDER_CREATED, PAYMENT_ATTEMPTED, PAYMENT_CAPTURED, FULFILMENT_STARTED, ENTITLEMENT_GRANTED, LICENCE_ISSUED, EMAIL_SENT, DOWNLOAD_ATTEMPTED, ACCESS_EXTENDED, DOWNLOAD_RESET, ACCESS_REVOKED, REFUND_PROCESSED, DISPUTE_OPENED, NOTE_ADDED
+  actorType   String   @default("SYSTEM") // SYSTEM, ADMIN, CUSTOMER, WEBHOOK
+  actorName   String?
+  actorEmail  String?
+  status      String   @default("SUCCESS") // SUCCESS, PENDING, FAILED, WARNING
+  description String
+  referenceId String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([eventType])
+}
+
+model OrderAuditLog {
+  id          String   @id @default(uuid())
+  orderId     String
+  actorId     String?
+  actorEmail  String?
+  actorRole   String?  @default("SUPER_ADMIN")
+  action      String   // REFUND_CREATED, ACCESS_REVOKED, ACCESS_EXTENDED, DOWNLOAD_RESET, LICENCE_REVOKED, LICENCE_REISSUED, FULFILMENT_RETRIED, NOTE_ADDED, EXPORTED
+  oldValue    Json?
+  newValue    Json?
+  reason      String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model LicenceKey {
+  id              String    @id @default(uuid())
+  orderId         String
+  orderItemId     String?
+  productId       String?
+  bundleId        String?
+  customerId      String?
+  keyMasked       String
+  keyHash         String?
+  licenceType     String    @default("COMMERCIAL")
+  status          String    @default("ACTIVE") // ACTIVE, EXPIRED, SUSPENDED, REVOKED
+  activationLimit Int       @default(1)
+  activationCount Int       @default(0)
+  domainLimit     Int       @default(1)
+  activeDomains   Json?
+  expiresAt       DateTime?
+  issuedAt        DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  order           Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem       OrderItem? @relation(fields: [orderItemId], references: [id])
+
+  @@index([orderId])
+  @@index([keyMasked])
+}
+
+model DownloadHistory {
+  id            String    @id @default(uuid())
+  orderId       String
+  productId     String?
+  bundleId      String?
+  customerId    String?
+  downloadToken String?
+  result        String    @default("SUCCESS") // SUCCESS, FAILED
+  failureReason String?
+  ipAddress     String?
+  userAgent     String?
+  downloadedAt  DateTime  @default(now())
+
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
 }
 
 model Purchase {
@@ -245,14 +685,245 @@ model Blog {
 }
 
 model Coupon {
-  id            String    @id @default(uuid())
-  code          String    @unique
-  discountType  String // "PERCENTAGE" or "FIXED"
-  discountValue Float
-  expiryDate    DateTime?
-  usageLimit    Int?
-  usedCount     Int       @default(0)
-  status        String    @default("ACTIVE")
+  id                      String              @id @default(uuid())
+  code                    String              @unique
+  internalName            String?
+  description             String?
+  discountType            String              // PERCENTAGE, FIXED, PRODUCT_SPECIFIC, CATEGORY_SPECIFIC, BUNDLE_SPECIFIC, FIRST_ORDER, CUSTOMER_SEGMENT, AFFILIATE, FREE_PRODUCT
+  discountValue           Float
+  maxDiscountAmount       Float?
+  currency                String              @default("INR")
+  minOrderValue           Float?              @default(0)
+  eligibleProducts        String?             // JSON string or comma-separated product IDs
+  excludedProducts        String?
+  eligibleCategories      String?
+  eligibleCustomerSegments String?
+  eligibleBundles         String?
+  freeProductId           String?
+  freeProductEntitlementMode String?          @default("LIFETIME_ACCESS")
+  affiliateId             String?
+  referralSource          String?
+  commissionRate          Float?
+  startAt                 DateTime?
+  endAt                   DateTime?
+  totalUsageLimit         Int?
+  usedCount               Int                 @default(0)
+  perCustomerLimit        Int?                @default(1)
+  perEmailLimit           Int?                @default(1)
+  perOrderLimit           Int?                @default(1)
+  perDayLimit             Int?
+  campaignBudget          Float?
+  stackingPolicy          String              @default("EXCLUSIVE") // EXCLUSIVE, COMBINABLE_WITH_OFFERS, HIGHEST_DISCOUNT, BUNDLE_ONLY
+  campaignId              String?
+  internalNote            String?
+  status                  String              @default("ACTIVE") // DRAFT, SCHEDULED, ACTIVE, PAUSED, EXHAUSTED, EXPIRED, DISABLED
+  createdBy               String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @default(now()) @updatedAt
+
+  campaign                Campaign?           @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  redemptions             CouponRedemption[]
+  abuseLogs               CouponAbuseLog[]
+
+  @@index([code])
+  @@index([status])
+  @@index([discountType])
+  @@index([campaignId])
+}
+
+model CouponRedemption {
+  id              String    @id @default(uuid())
+  couponId        String
+  orderId         String?
+  customerId      String?
+  guestEmail      String?
+  discountAmount  Float
+  status          String    @default("RESERVED") // RESERVED, REDEEMED, RELEASED, REVERSED, EXPIRED
+  reservedAt      DateTime  @default(now())
+  redeemedAt      DateTime?
+  releasedAt      DateTime?
+  reversedAt      DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  coupon          Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  order           Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customer        User?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([couponId])
+  @@index([orderId])
+  @@index([customerId])
+  @@index([guestEmail])
+  @@index([status])
+}
+
+model CouponAbuseLog {
+  id          String   @id @default(uuid())
+  couponId    String
+  customerId  String?
+  guestEmail  String?
+  ipAddress   String?
+  abuseType   String   // RAPID_SUBMISSIONS, MULTIPLE_ACCOUNTS, INELIGIBLE_SEGMENT, PHONE_MISMATCH, EXCEEDED_LIMIT
+  severity    String   @default("LOW") // LOW, MEDIUM, HIGH, BLOCKED
+  details     String?
+  createdAt   DateTime @default(now())
+
+  coupon      Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  customer    User?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([couponId])
+  @@index([customerId])
+  @@index([guestEmail])
+}
+
+model Offer {
+  id                String      @id @default(uuid())
+  name              String
+  slug              String?     @unique
+  offerType         String      // SALE_PRICE, CATEGORY_SALE, BUNDLE_OFFER, BUY_MORE, TIME_LIMITED, CUSTOMER_SPECIFIC, UPGRADE_OFFER
+  discountType      String      @default("PERCENTAGE") // PERCENTAGE, FIXED, FLAT_PRICE, BUY_X_GET_Y
+  discountValue     Float
+  productIds        String?     // JSON string
+  categoryIds       String?
+  bundleIds         String?
+  customerSegment   String?
+  buyQuantity       Int?
+  getQuantity       Int?
+  freeProductId     String?
+  minOrderValue     Float?      @default(0)
+  startAt           DateTime?
+  endAt             DateTime?
+  priority          Int         @default(1) // 1=Product Sale, 2=Bundle, 3=Coupon, 4=Cart
+  stackingPolicy    String      @default("EXCLUSIVE") // EXCLUSIVE, COMPATIBLE, HIGHEST_PRIORITY
+  displayPlacement  String?     @default("BANNER_AND_PRODUCT")
+  campaignId        String?
+  status            String      @default("ACTIVE") // DRAFT, SCHEDULED, ACTIVE, PAUSED, EXPIRED, DISABLED
+  viewsCount        Int         @default(0)
+  clicksCount       Int         @default(0)
+  ordersCount       Int         @default(0)
+  revenueGenerated  Float       @default(0)
+  discountGiven     Float       @default(0)
+  createdBy         String?
+  approvedBy        String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @default(now()) @updatedAt
+
+  campaign          Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  rules             OfferRule[]
+
+  @@index([status])
+  @@index([offerType])
+  @@index([campaignId])
+}
+
+model OfferRule {
+  id        String   @id @default(uuid())
+  offerId   String
+  ruleType  String   // PRODUCT, CATEGORY, CART_TOTAL, CUSTOMER_TIER, QUANTITY
+  operator  String   // EQUALS, IN, GREATER_THAN, LESS_THAN, NOT_IN
+  value     String
+  action    String   // APPLY_DISCOUNT, ADD_FREE_ITEM, BLOCK
+  createdAt DateTime @default(now())
+
+  offer     Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@index([offerId])
+}
+
+model Campaign {
+  id                  String              @id @default(uuid())
+  name                String
+  campaignType        String              // PRODUCT_LAUNCH, SALE_CAMPAIGN, ABANDONED_CHECKOUT, PRODUCT_UPDATE, REVIEW_REQUEST, REENGAGEMENT, UPGRADE_CAMPAIGN
+  channel             String              @default("EMAIL") // EMAIL, WHATSAPP, MULTI_CHANNEL
+  status              String              @default("DRAFT") // DRAFT, AWAITING_REVIEW, APPROVED, SCHEDULED, RUNNING, PAUSED, COMPLETED, CANCELLED, FAILED
+  audienceSegment     String?
+  audienceCount       Int                 @default(0)
+  suppressedCount     Int                 @default(0)
+  offerId             String?
+  couponId            String?
+  productId           String?
+  landingPageUrl      String?
+  utmCampaign         String?
+  emailSubject        String?
+  emailPreviewText    String?
+  emailFromName       String?
+  emailReplyTo        String?
+  emailBodyHtml       String?
+  emailBodyPlain      String?
+  whatsAppTemplateName String?
+  whatsAppLanguage    String?             @default("en")
+  whatsAppParameters  Json?
+  frequencyLimitDays  Int?                @default(3)
+  startAt             DateTime?
+  endAt               DateTime?
+  sentCount           Int                 @default(0)
+  deliveredCount      Int                 @default(0)
+  openedCount         Int                 @default(0)
+  clickedCount        Int                 @default(0)
+  convertedOrdersCount Int                @default(0)
+  revenueGenerated    Float               @default(0)
+  unsubscribedCount   Int                 @default(0)
+  bouncedCount        Int                 @default(0)
+  ownerId             String?
+  approvedBy          String?
+  approvedAt          DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @default(now()) @updatedAt
+
+  coupons             Coupon[]
+  offers              Offer[]
+  recipients          CampaignRecipient[]
+
+  @@index([status])
+  @@index([campaignType])
+  @@index([channel])
+}
+
+model CampaignRecipient {
+  id                  String    @id @default(uuid())
+  campaignId          String
+  customerId          String?
+  email               String?
+  phone               String?
+  channel             String    @default("EMAIL") // EMAIL, WHATSAPP
+  eligibilityStatus   String    @default("ELIGIBLE") // ELIGIBLE, SUPPRESSED, INVALID
+  suppressionReason   String?
+  deliveryStatus      String    @default("QUEUED") // QUEUED, SENT, DELIVERED, BOUNCED, OPENED, CLICKED, CONVERTED, FAILED
+  providerMessageId   String?
+  sentAt              DateTime?
+  deliveredAt         DateTime?
+  openedAt            DateTime?
+  clickedAt           DateTime?
+  convertedOrderId    String?
+  convertedRevenue    Float?    @default(0)
+  failureReason       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+
+  campaign            Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer            User?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([customerId])
+  @@index([email])
+  @@index([deliveryStatus])
+}
+
+model SuppressionEntry {
+  id          String   @id @default(uuid())
+  customerId  String?
+  channel     String   @default("ALL") // EMAIL, WHATSAPP, ALL
+  identifier  String   // email or phone
+  reason      String   // UNSUBSCRIBED, HARD_BOUNCE, SPAM_COMPLAINT, MANUAL_BLOCK, OPT_OUT
+  source      String?  @default("SYSTEM")
+  createdAt   DateTime @default(now())
+
+  customer    User?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([identifier])
+  @@index([channel])
+  @@index([customerId])
 }
 
 model SiteSettings {
@@ -269,42 +940,192 @@ model SiteSettings {
 }
 
 model Bundle {
-  id            String    @id @default(uuid())
-  title         String
-  slug          String    @unique
-  description   String
-  price         Float
-  originalPrice Float
-  discount      Float     @default(0)
-  coverImage    String
-  rating        Float     @default(5.0)
-  itemsIncluded Int       @default(0)
-  status        String    @default("ACTIVE")
-  featured      Boolean   @default(false)
-  sku           String?
-  stock         Int?
-  minStock      Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String                @id @default(uuid())
+  bundleCode            String?               @unique
+  title                 String
+  slug                  String                @unique
+  shortDescription      String?
+  description           String
+  bundleType            String                @default("CURATED") // CURATED, CATEGORY, TIERED, BUILD_YOUR_OWN, SUBSCRIPTION
+  price                 Float
+  originalPrice         Float
+  discount              Float                 @default(0)
+  discountPercent       Float                 @default(0)
+  currency              String                @default("INR")
+  coverImage            String
+  previewImages         Json?
+  rating                Float                 @default(5.0)
+  itemsIncluded         Int                   @default(0)
+  status                String                @default("ACTIVE") // DRAFT, SCHEDULED, PUBLISHED, ACTIVE, ARCHIVED
+  featured              Boolean               @default(false)
+  sku                   String?
+  stock                 Int?
+  minStock              Int                   @default(0)
+  deliveryMode          String                @default("MULTI_PRODUCT") // MULTI_PRODUCT, BUNDLE_LINK, BOTH
+  googleDriveLink       String?
+  googleDriveFileId     String?
+  bundleZipSize         String?
+  categoryId            String?
+  tags                  String?
+  brand                 String?               @default("KDW Originals")
+  pricingPolicy         String?               @default("FLAT_DISCOUNT")
+  entitlementMode       String?               @default("LIFETIME_ACCESS")
+  licenceMode           String?               @default("BUNDLE_UNIFIED")
+  licenceType           String                @default("COMMERCIAL") // PERSONAL, COMMERCIAL, AGENCY
+  licenceTerms          String?
+  licenceDomains        Int?                  @default(1)
+  licenceActivations    Int?                  @default(1)
+  licenceClientProjects Int?                  @default(5)
+  licenceRedistribution Boolean               @default(false)
+  updatePolicy          String                @default("MINOR_INCLUDED") // MINOR_INCLUDED, LIFETIME, TIME_LIMITED, FIXED
+  currentVersion        String                @default("1.0.0")
+  refundPolicy          String                @default("FULL_ONLY") // FULL_ONLY, DOWNLOAD_MANUAL_REVIEW, NO_REFUND_AFTER_DOWNLOAD
+  taxCategory           String?               @default("DIGITAL_GOODS_18")
+  offerStartAt          DateTime?
+  offerEndAt            DateTime?
+  publishedAt           DateTime?
+  publishScheduledAt    DateTime?
+  archivedAt            DateTime?
+  seoTitle              String?
+  seoDescription        String?
+  seoKeywords           String?
+  canonicalUrl          String?
+  ogImage               String?
+  faqs                  Json?
+  requirements          Json?
+  storefrontContent     Json?
+  salesCount            Int                   @default(0)
+  revenue               Float                 @default(0)
+  refundCount           Int                   @default(0)
+  refundRate            Float                 @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-  products      Product[]
-  orderItems    OrderItem[]
-  purchases     Purchase[]
+  category              Category?             @relation(fields: [categoryId], references: [id])
+  products              Product[]             // Legacy direct relation
+  bundleItems           BundleItem[]          // Detailed ordered component items
+  versions              BundleVersion[]       // Bundle version releases
+  entitlements          BundleEntitlement[]   // Parent entitlements
+  componentEntitlements ComponentEntitlement[] // Component entitlements
+  auditLogs             BundleAuditLog[]      // Administrative audit logs
+  orderItems            OrderItem[]
+  purchases             Purchase[]
+  digitalDeliveries     DigitalDelivery[]
 }
 
 model Review {
-  id           String   @id @default(uuid())
-  productId    String
-  customerName String
-  rating       Int      @default(5)
-  title        String
-  comment      String
-  status       String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  images       String?  // JSON serialized string array
-  videos       String?  // JSON serialized string array
-  createdAt    DateTime @default(now())
+  id                  String            @id @default(uuid())
+  productId           String
+  productVersion      String?           @default("1.0.0")
+  orderId             String?
+  customerId          String?
+  customerName        String
+  customerEmail       String?
+  rating              Int               @default(5)
+  title               String
+  comment             String
+  pros                String?
+  cons                String?
+  verifiedPurchase    Boolean           @default(false)
+  verificationMethod  String?           // PAID_ORDER_ENTITLEMENT, ORDER_TOKEN, MANUAL
+  status              String            @default("PENDING") // SUBMITTED, PENDING, APPROVED, PUBLISHED, REJECTED, HIDDEN, REPORTED, UNDER_INVESTIGATION, REMOVED
+  riskScore           String?           @default("NORMAL") // NORMAL, SUSPICIOUS, SPAM_FLAGGED, PROFANITY_FLAGGED
+  reportCount         Int               @default(0)
+  moderationReason    String?
+  moderatedBy         String?
+  moderatedAt         DateTime?
+  publishedAt         DateTime?
+  hiddenAt            DateTime?
+  images              String?           // JSON serialized string array
+  videos              String?           // JSON serialized string array
+  isIncentivized      Boolean           @default(false)
+  incentiveDetails    String?
+  guestReviewToken    String?           @unique
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @default(now()) @updatedAt
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product             Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order               Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customer            User?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  reports             ReviewReport[]
+  replies             ReviewReply[]
+  revisions           ReviewRevision[]
+
+  @@index([productId])
+  @@index([orderId])
+  @@index([customerId])
+  @@index([status])
+  @@index([rating])
+  @@index([verifiedPurchase])
+}
+
+model ReviewReport {
+  id            String    @id @default(uuid())
+  reviewId      String
+  reporterId    String?
+  reporterEmail String?
+  reason        String    // SPAM, PROFANITY, IRRELEVANT, PERSONAL_INFO, COMPETITOR_PROMO, FAKE_REVIEW, OTHER
+  details       String?
+  status        String    @default("OPEN") // OPEN, RESOLVED, DISMISSED
+  resolution    String?
+  resolvedBy    String?
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  review        Review    @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@index([status])
+}
+
+model ReviewReply {
+  id          String   @id @default(uuid())
+  reviewId    String
+  authorId    String?
+  authorName  String   @default("KDW Official Support")
+  authorRole  String   @default("SUPPORT_AGENT") // SUPPORT_AGENT, STORE_MANAGER, ADMIN
+  body        String
+  status      String   @default("PUBLISHED") // PUBLISHED, DRAFT, HIDDEN
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  review      Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
+model ReviewRevision {
+  id        String   @id @default(uuid())
+  reviewId  String
+  rating    Int
+  title     String
+  comment   String
+  editedBy  String?
+  createdAt DateTime @default(now())
+
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
+model ReviewRequest {
+  id            String    @id @default(uuid())
+  orderId       String
+  productId     String
+  customerId    String?
+  customerEmail String
+  scheduledFor  DateTime  @default(now())
+  status        String    @default("SCHEDULED") // SCHEDULED, SENT, OPENED, CLICKED, REVIEW_SUBMITTED, UNSUBSCRIBED, FAILED
+  sentAt        DateTime?
+  token         String    @unique
+  createdAt     DateTime  @default(now())
+
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([status])
 }
 
 model SupportTicket {
@@ -448,5 +1269,378 @@ model ProductFile {
 
   @@index([productId])
   @@index([driveFileId])
+}
+
+model CategoryRedirect {
+  id           String   @id @default(uuid())
+  oldPath      String   @unique
+  newPath      String
+  redirectType String   @default("301_PERMANENT")
+  reason       String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  isActive     Boolean  @default(true)
+}
+
+model CategoryRule {
+  id               String   @id @default(uuid())
+  name             String
+  conditionField   String   // productType, tags, name, description
+  operator         String   // EQUALS, CONTAINS, STARTS_WITH
+  conditionValue   String
+  targetCategoryId String
+  isPrimary        Boolean  @default(true)
+  priority         Int      @default(0)
+  status           String   @default("ACTIVE") // ACTIVE, DRAFT, DISABLED
+  executionCount   Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model DigitalDelivery {
+  id                 String                @id @default(uuid())
+  orderId            String
+  productId          String?
+  bundleId           String?
+  customerId         String?
+  customerEmail      String
+  deliveryType       String                @default("GOOGLE_DRIVE")
+  deliveryLink       String?
+  bundleProductCount Int                   @default(1)
+  deliveryStatus     String                @default("SENT") // PENDING, PROCESSING, SENT, FAILED, RESENT
+  emailStatus        String                @default("SENT") // PENDING, SENT, FAILED
+  sentAt             DateTime?             @default(now())
+  lastAttemptAt      DateTime?             @default(now())
+  failureReason      String?
+  paymentVerifiedAt  DateTime?             @default(now())
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  order              Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product            Product?              @relation(fields: [productId], references: [id])
+  bundle             Bundle?               @relation(fields: [bundleId], references: [id])
+  items              DigitalDeliveryItem[]
+
+  @@index([orderId])
+  @@index([customerEmail])
+  @@index([orderId, productId])
+  @@index([orderId, bundleId])
+}
+
+model DigitalDeliveryItem {
+  id             String          @id @default(uuid())
+  deliveryId     String
+  productId      String
+  productName    String
+  deliveryLink   String
+  displayOrder   Int             @default(0)
+  deliveryStatus String          @default("SENT")
+  createdAt      DateTime        @default(now())
+
+  delivery       DigitalDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId])
+  @@index([productId])
+}
+
+model BundleItem {
+  id                     String    @id @default(uuid())
+  bundleId               String
+  productId              String
+  displayOrder           Int       @default(0)
+  referencePriceSnapshot Float     @default(0)
+  versionSnapshot        String?   @default("1.0.0")
+  licencePolicySnapshot  String?   @default("COMMERCIAL")
+  accessPolicySnapshot   String?   @default("LIFETIME")
+  isRequired             Boolean   @default(true)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  bundle                 Bundle    @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  product                Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleId, productId])
+  @@index([bundleId])
+  @@index([productId])
+}
+
+model BundleVersion {
+  id                 String    @id @default(uuid())
+  bundleId           String
+  versionNumber      String    // e.g. "1.1.0"
+  bundleFileId       String?
+  bundleDriveLink    String?
+  releaseNotes       String?
+  compatibilityNotes String?
+  componentSnapshot  Json?
+  eligibilityPolicy  String    @default("ALL_PREVIOUS_BUYERS") // ALL_PREVIOUS_BUYERS, BUYERS_AFTER_DATE, COMMERCIAL_ONLY, SPECIFIC_ORDERS
+  status             String    @default("PUBLISHED") // DRAFT, PUBLISHED, DEPRECATED
+  publishedAt        DateTime? @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  bundle             Bundle    @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleId, versionNumber])
+  @@index([bundleId])
+}
+
+model BundleEntitlement {
+  id                    String                 @id @default(uuid())
+  bundleId              String
+  customerId            String
+  orderId               String
+  orderItemId           String?
+  status                String                 @default("ACTIVE") // ACTIVE, REVOKED, EXPIRED
+  licenceType           String                 @default("COMMERCIAL")
+  licenceKey            String?
+  accessExpiresAt       DateTime?
+  downloadLimit         Int                    @default(10)
+  downloadCount         Int                    @default(0)
+  secureDownloadToken   String?                @unique
+  tokenExpiresAt        DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  bundle                Bundle                 @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  customer              User                   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order                 Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem             OrderItem?             @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  componentEntitlements ComponentEntitlement[]
+
+  @@index([bundleId])
+  @@index([customerId])
+  @@index([orderId])
+}
+
+model ComponentEntitlement {
+  id                  String            @id @default(uuid())
+  parentEntitlementId String
+  bundleId            String
+  productId           String
+  customerId          String
+  orderId             String
+  orderItemId         String?
+  productVersion      String            @default("1.0.0")
+  licenceType         String            @default("COMMERCIAL")
+  downloadLimit       Int               @default(10)
+  downloadCount       Int               @default(0)
+  accessExpiresAt     DateTime?
+  status              String            @default("ACTIVE") // ACTIVE, REVOKED, EXPIRED
+  secureDownloadToken String?           @unique
+  tokenExpiresAt      DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  parentEntitlement   BundleEntitlement @relation(fields: [parentEntitlementId], references: [id], onDelete: Cascade)
+  bundle              Bundle            @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  product             Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  customer            User              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem           OrderItem?        @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
+  @@index([parentEntitlementId])
+  @@index([bundleId])
+  @@index([productId])
+  @@index([customerId])
+}
+
+model BundleAuditLog {
+  id            String   @id @default(uuid())
+  bundleId      String
+  actorId       String?
+  actorEmail    String?
+  action        String   // CREATED, UPDATED, VERSION_PUBLISHED, PRICING_CHANGED, COMPONENT_ADDED, COMPONENT_REMOVED, LINK_RESENT, DOWNLOAD_RESET, ACCESS_REVOKED
+  previousState Json?
+  newState      Json?
+  reason        String?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
+
+  bundle        Bundle   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  actor         User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([bundleId])
+}
+
+model CustomerConsent {
+  id                 String    @id @default(uuid())
+  customerId         String
+  consentType        String    // TRANSACTIONAL_EMAIL, MARKETING_EMAIL, WHATSAPP_MARKETING, PRODUCT_UPDATES, REVIEW_REQUESTS, ANALYTICS_COOKIES, PERSONALIZATION, SMS_COMMUNICATION
+  status             String    @default("OPTED_IN") // NOT_REQUESTED, OPTED_IN, OPTED_OUT, WITHDRAWN, SUPPRESSED, INVALID
+  source             String?   @default("CHECKOUT") // CHECKOUT, REGISTRATION, PROFILE, PREFERENCES, BANNER
+  consentTextVersion String?   @default("1.0")
+  method             String?   @default("EXPLICIT_CHECKBOX")
+  ipAddress          String?
+  userAgent          String?
+  withdrawnAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+
+  customer           User      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([consentType])
+  @@index([status])
+}
+
+model CustomerTag {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  color       String?  @default("indigo")
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  mappings    CustomerTagMapping[]
+
+  @@index([name])
+}
+
+model CustomerTagMapping {
+  id           String   @id @default(uuid())
+  customerId   String
+  tagId        String
+  assignedBy   String?  @default("Admin")
+  assignedById String?
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  customer     User        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag          CustomerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, tagId])
+  @@index([customerId])
+  @@index([tagId])
+}
+
+model CustomerSegment {
+  id                 String    @id @default(uuid())
+  name               String
+  slug               String    @unique
+  description        String?
+  type               String    @default("DYNAMIC") // DYNAMIC, STATIC
+  conditions         Json      // Query criteria
+  staticCustomerIds  Json?
+  status             String    @default("ACTIVE") // ACTIVE, INACTIVE
+  owner              String?   @default("Admin")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+
+  @@index([slug])
+}
+
+model CustomerNote {
+  id          String   @id @default(uuid())
+  customerId  String
+  authorId    String?
+  authorName  String?  @default("Admin")
+  authorEmail String?
+  noteType    String   @default("INTERNAL") // INTERNAL, SUPPORT, BILLING, COMPLIANCE
+  content     String
+  createdAt   DateTime @default(now())
+
+  customer    User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model CustomerTimelineEvent {
+  id          String   @id @default(uuid())
+  customerId  String
+  eventType   String   // CUSTOMER_CREATED, EMAIL_VERIFIED, ORDER_CREATED, PAYMENT_COMPLETED, ENTITLEMENT_CREATED, ACCESS_DELIVERED, DOWNLOAD_SUCCESS, DOWNLOAD_FAILED, LICENCE_ACTIVATED, LICENCE_EXTENDED, LICENCE_RESET, REFUND_COMPLETED, TICKET_OPENED, TICKET_RESOLVED, TAG_ADDED, TAG_REMOVED, CONSENT_GRANTED, CONSENT_WITHDRAWN, CUSTOMER_BLOCKED, CUSTOMER_UNBLOCKED, GUEST_CLAIMED, MERGED, EXPORT_GENERATED, DATA_REQUEST_PROCESSED, ANONYMIZED
+  actorType   String   @default("SYSTEM") // SYSTEM, ADMIN, CUSTOMER, WEBHOOK
+  actorName   String?
+  actorEmail  String?
+  status      String   @default("SUCCESS") // SUCCESS, PENDING, FAILED, WARNING
+  description String
+  referenceId String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  customer    User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([eventType])
+}
+
+model CustomerAuditLog {
+  id          String   @id @default(uuid())
+  customerId  String
+  actorId     String?
+  actorEmail  String?
+  actorRole   String?  @default("SUPER_ADMIN")
+  action      String   // EDIT, BLOCK, UNBLOCK, MERGE, EXPORT, DELETE, ANONYMIZE, TAG_CHANGE, CONSENT_CHANGE, GUEST_CLAIM, ACCESS_CHANGE
+  oldValue    Json?
+  newValue    Json?
+  reason      String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  customer    User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([action])
+}
+
+model CustomerDataRequest {
+  id              String    @id @default(uuid())
+  customerId      String
+  requestType     String    // ACCESS, CORRECTION, DELETION, RESTRICTION, PORTABILITY, CONSENT_WITHDRAWAL, MARKETING_UNSUBSCRIBE, ACCOUNT_CLOSURE
+  status          String    @default("SUBMITTED") // SUBMITTED, IN_REVIEW, PROCESSING, COMPLETED, REJECTED
+  reason          String?
+  requestedBy     String
+  processedBy     String?
+  resolutionNotes String?
+  exportFileUrl   String?
+  exportExpiresAt DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  customer        User      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([requestType])
+  @@index([status])
+}
+
+model CustomerAlias {
+  id               String   @id @default(uuid())
+  masterCustomerId String
+  mergedCustomerId String
+  mergedEmail      String
+  mergedPhone      String?
+  mergedAt         DateTime @default(now())
+  mergeReason      String?
+  actorId          String?
+  actorEmail       String?
+
+  @@index([masterCustomerId])
+  @@index([mergedCustomerId])
+  @@index([mergedEmail])
+}
+
+model AbandonedCheckout {
+  id                  String    @id @default(uuid())
+  customerId          String?
+  customerEmail       String
+  customerName        String?
+  customerPhone       String?
+  cartData            Json
+  totalAmount         Float
+  status              String    @default("ABANDONED") // ABANDONED, RECOVERED, EXPIRED
+  recoveryEmailSent   Boolean   @default(false)
+  recoveryEmailSentAt DateTime?
+  recoveredAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+
+  customer            User?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([customerEmail])
+  @@index([status])
 }
 

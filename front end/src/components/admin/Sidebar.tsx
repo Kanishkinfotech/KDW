@@ -6,7 +6,7 @@ import {
   Star, Download, LineChart, FileText, LifeBuoy, Bell, 
   Plug, Settings, Activity, Database, ShieldCheck, 
   Cpu, Webhook, LogOut, ChevronLeft, ChevronRight, X, HardDrive,
-  PlusCircle, Clock, AlertCircle, CheckCircle2, Calendar, Archive, Tag as TagIcon, GitBranch
+  PlusCircle, Clock, AlertCircle, CheckCircle2, Calendar, Archive, Tag as TagIcon, GitBranch, Flame
 } from 'lucide-react';
 
 const clsx = (...classes: (string | undefined | null | false)[]) => classes.filter(Boolean).join(' ');
@@ -41,40 +41,38 @@ const navigationGroups: NavGroup[] = [
     group: 'Products',
     items: [
       { name: 'All Products', href: '/admin/products', icon: Package, exact: true },
-      { name: 'Add Product', href: '/admin/products/new', icon: PlusCircle },
-      { name: 'Drafts', href: '/admin/products?status=draft', icon: Clock },
-      { name: 'Pending Review', href: '/admin/products?status=pending_review', icon: AlertCircle },
-      { name: 'Published', href: '/admin/products?status=published', icon: CheckCircle2 },
-      { name: 'Scheduled', href: '/admin/products?status=scheduled', icon: Calendar },
-      { name: 'Archived', href: '/admin/products?status=archived', icon: Archive },
     ]
   },
   {
-    group: 'Catalog',
+    group: 'Bundles & Packages',
+    items: [
+      { name: 'All Bundles', href: '/admin/bundles', icon: Layers, exact: true },
+    ]
+  },
+  {
+    group: 'Catalog & Structure',
     items: [
       { name: 'Categories', href: '/admin/categories', icon: FolderTree },
-      { name: 'Tags', href: '/admin/tags', icon: TagIcon },
-      { name: 'Bundles', href: '/admin/bundles', icon: Layers },
       { name: 'Product Files', href: '/admin/product-files', icon: HardDrive },
-      { name: 'Product Versions', href: '/admin/product-versions', icon: GitBranch },
       { name: 'Licence Types', href: '/admin/licence-types', icon: ShieldCheck },
-      { name: 'Attributes', href: '/admin/attributes', icon: Cpu },
     ]
   },
   {
     group: 'Sales & Fulfillment',
     items: [
       { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
+      { name: 'Digital Deliveries', href: '/admin/digital-deliveries', icon: HardDrive },
       { name: 'Customers', href: '/admin/customers', icon: Users },
       { name: 'Payments', href: '/admin/payments', icon: CreditCard },
-      { name: 'Coupons & Offers', href: '/admin/coupons', icon: Ticket },
+      { name: 'Coupons', href: '/admin/coupons', icon: Ticket },
+      { name: 'Offers & Promotions', href: '/admin/offers', icon: Flame },
     ]
   },
   {
     group: 'Engagement & Fulfillment',
     items: [
       { name: 'Marketing Campaigns', href: '/admin/campaigns', icon: Megaphone },
-      { name: 'Review Management', href: '/admin/reviews', icon: Star },
+      { name: 'Reviews & Ratings', href: '/admin/reviews', icon: Star },
       { name: 'Download Management', href: '/admin/downloads', icon: Download },
       { name: 'Reports & Analytics', href: '/admin/analytics', icon: LineChart },
       { name: 'Content', href: '/admin/content', icon: FileText },

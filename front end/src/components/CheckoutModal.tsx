@@ -180,14 +180,19 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
       }
 
       if (orderData.paymentMode === 'mock') {
-        setPaymentState('waiting');
-        setTimeout(() => {
-          verifyPaymentOnServer(
+        const confirmTest = window.confirm(
+          `[TEST MODE ACTIVATED]\n\nRazorpay Gateway is in simulation mode.\nWould you like to complete this test transaction of ${formatCurrency(finalTotal)}?`
+        );
+        if (confirmTest) {
+          setPaymentState('verifying');
+          await verifyPaymentOnServer(
             orderData.razorpayOrderId,
             'pay_mock_' + Date.now(),
             'sig_mock_dummy'
           );
-        }, 1500);
+        } else {
+          setPaymentState('idle');
+        }
         return;
       }
 
@@ -206,11 +211,11 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
           );
         },
         prefill: {
-          name: 'Customer',
-          email: 'customer@example.com',
+          name: user?.name || 'Customer',
+          email: deliveryEmail || user?.email || 'customer@example.com',
           contact: ''
         },
-        theme: { color: '#2563EB' },
+        theme: { color: '#7C3AED' },
         modal: {
           ondismiss: function() {
             setPaymentState('idle');
@@ -218,15 +223,26 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
         }
       };
 
-      if (!options.key) {
-        throw new Error("Razorpay Key ID is not configured in the frontend environment.");
+      if (!options.key || options.key === 'dummy_key_id') {
+        const confirmTest = window.confirm(
+          `[TEST MODE ACTIVATED]\n\nRazorpay Gateway is in simulation mode.\nWould you like to complete this test transaction of ${formatCurrency(finalTotal)}?`
+        );
+        if (confirmTest) {
+          setPaymentState('verifying');
+          await verifyPaymentOnServer(
+            orderData.razorpayOrderId,
+            'pay_mock_' + Date.now(),
+            'sig_mock_dummy'
+          );
+        } else {
+          setPaymentState('idle');
+        }
+        return;
       }
-
-
 
       const rzp = new (window as any).Razorpay(options);
       rzp.on('payment.failed', function (response: any) {
-        setError(response.error.description);
+        setError(response.error?.description || 'Payment failed');
         setPaymentState('idle');
       });
       rzp.open();
