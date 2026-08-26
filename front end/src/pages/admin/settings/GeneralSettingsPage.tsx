@@ -1,0 +1,334 @@
+import React, { useState, useEffect } from 'react';
+import { toast } from 'react-hot-toast';
+import { Store, Building, Phone, Globe, Palette, Shield } from 'lucide-react';
+import { SettingsLayout } from '../../../components/admin/settings/SettingsLayout';
+
+export default function GeneralSettingsPage() {
+  const [settings, setSettings] = useState<any>({});
+  const [initialSettings, setInitialSettings] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/settings/admin/general', { credentials: 'include' });
+      const json = await res.json();
+      if (json.success) {
+        setSettings(json.data);
+        setInitialSettings(json.data);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load general settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const handleChange = (field: string, value: any) => {
+    setSettings((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  const isDirty = JSON.stringify(settings) !== JSON.stringify(initialSettings);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/settings/admin/general', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(settings)
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success('General settings saved successfully');
+        setInitialSettings(settings);
+      } else {
+        toast.error(json.message || 'Failed to save settings');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Server error saving general settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsLayout
+      title="General Settings"
+      subtitle="Configure store identity, legal business entity details, multi-department contact points, localization, and branding."
+      isDirty={isDirty}
+      onSave={handleSave}
+      onReset={() => setSettings(initialSettings)}
+      isSaving={saving}
+      onRefresh={fetchSettings}
+      isLoading={loading}
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 1. Store Identity */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Store className="w-4 h-4 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-900">Store Identity</h3>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Store Name *</label>
+              <input
+                type="text"
+                value={settings.store_name || ''}
+                onChange={e => handleChange('store_name', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Short Description</label>
+              <textarea
+                rows={2}
+                value={settings.store_description || ''}
+                onChange={e => handleChange('store_description', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Primary Website URL *</label>
+              <input
+                type="url"
+                value={settings.primary_website_url || ''}
+                onChange={e => handleChange('primary_website_url', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Support Email</label>
+                <input
+                  type="email"
+                  value={settings.support_email || ''}
+                  onChange={e => handleChange('support_email', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">No-Reply Email</label>
+                <input
+                  type="email"
+                  value={settings.no_reply_email || ''}
+                  onChange={e => handleChange('no_reply_email', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Legal Business & GST Details */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Building className="w-4 h-4 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-900">Legal Business & Invoicing</h3>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Legal Business Name</label>
+              <input
+                type="text"
+                value={settings.legal_business_name || ''}
+                onChange={e => handleChange('legal_business_name', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Registered Business Address</label>
+              <input
+                type="text"
+                value={settings.business_address || ''}
+                onChange={e => handleChange('business_address', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">GSTIN Number</label>
+                <input
+                  type="text"
+                  value={settings.gst_number || ''}
+                  onChange={e => handleChange('gst_number', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">PAN Number</label>
+                <input
+                  type="text"
+                  value={settings.pan_number || ''}
+                  onChange={e => handleChange('pan_number', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">State / Province</label>
+                <input
+                  type="text"
+                  value={settings.business_state || ''}
+                  onChange={e => handleChange('business_state', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Invoice Prefix</label>
+                <input
+                  type="text"
+                  value={settings.invoice_prefix || ''}
+                  onChange={e => handleChange('invoice_prefix', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Department Contacts */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Phone className="w-4 h-4 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-900">Department Contact Points</h3>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Support Phone</label>
+                <input
+                  type="text"
+                  value={settings.contact_phone || ''}
+                  onChange={e => handleChange('contact_phone', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">WhatsApp Business</label>
+                <input
+                  type="text"
+                  value={settings.whatsapp_number || ''}
+                  onChange={e => handleChange('whatsapp_number', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Finance & Billing Email</label>
+                <input
+                  type="email"
+                  value={settings.finance_email || ''}
+                  onChange={e => handleChange('finance_email', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Privacy & GDPR Email</label>
+                <input
+                  type="email"
+                  value={settings.privacy_email || ''}
+                  onChange={e => handleChange('privacy_email', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Business Operating Hours</label>
+              <input
+                type="text"
+                value={settings.business_hours || ''}
+                onChange={e => handleChange('business_hours', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Localization & Regional Standards */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Globe className="w-4 h-4 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-900">Localization & Regional Standards</h3>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Default Timezone</label>
+                <select
+                  value={settings.default_timezone || 'Asia/Kolkata'}
+                  onChange={e => handleChange('default_timezone', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium bg-white"
+                >
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST +5:30)</option>
+                  <option value="UTC">UTC (+0:00)</option>
+                  <option value="America/New_York">America/New_York (EST)</option>
+                </select>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Date Format</label>
+                <select
+                  value={settings.date_format || 'DD MMM YYYY'}
+                  onChange={e => handleChange('date_format', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium bg-white"
+                >
+                  <option value="DD MMM YYYY">DD MMM YYYY (27 Aug 2026)</option>
+                  <option value="YYYY-MM-DD">YYYY-MM-DD (2026-08-27)</option>
+                  <option value="MM/DD/YYYY">MM/DD/YYYY (08/27/2026)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Time Format</label>
+                <select
+                  value={settings.time_format || '24-hour'}
+                  onChange={e => handleChange('time_format', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium bg-white"
+                >
+                  <option value="24-hour">24-hour (14:30)</option>
+                  <option value="12-hour">12-hour (02:30 PM)</option>
+                </select>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Number Formatting</label>
+                <select
+                  value={settings.number_format || 'INDIAN_LAKHS'}
+                  onChange={e => handleChange('number_format', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium bg-white"
+                >
+                  <option value="INDIAN_LAKHS">Indian Lakhs (₹1,50,000.00)</option>
+                  <option value="INTERNATIONAL">International (150,000.00)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </SettingsLayout>
+  );
+}

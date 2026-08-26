@@ -55,10 +55,25 @@ import digitalDeliveryRoutes from './routes/digitalDeliveryRoutes';
 import orderRoutes from './routes/orderRoutes';
 import customerRoutes from './routes/customerRoutes';
 import accountCustomerRoutes from './routes/accountCustomerRoutes';
+import adminDownloadManagementRoutes from './routes/adminDownloadManagementRoutes';
+import adminReportsRoutes from './routes/adminReportsRoutes';
+import contentRoutes from './routes/contentRoutes';
+import systemRoutes from './routes/systemRoutes';
+import storefrontContentRoutes from './routes/storefrontContentRoutes';
+import cacheRoutes from './routes/cacheRoutes';
+import userStaffRoutes from './routes/userStaffRoutes';
+import automationRoutes from './routes/automationRoutes';
+import { handleIncomingWebhook } from './controllers/automation/automationWebhookController';
 
 // Apply CSRF protection to all API routes
 app.use('/api', csrfProtection);
 
+app.use('/api/admin/cache', cacheRoutes);
+app.use('/api/admin/users', userStaffRoutes);
+app.use('/api/admin/content', contentRoutes);
+app.use('/api/content', storefrontContentRoutes);
+app.use('/api/admin/downloads', adminDownloadManagementRoutes);
+app.use('/api/admin/reports', adminReportsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -77,13 +92,17 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/digital-delivery', digitalDeliveryRoutes);
 app.use('/api/bundles', bundleRoutes);
 app.use('/api/reviews', reviewRoutes);
-app.use('/api/purchases', purchaseRoutes);
 app.use('/api/support', supportRoutes);
-app.use('/api/upload', uploadRoutes);
+app.use('/api/admin/support', supportRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/admin/settings', settingsRoutes);
+app.use('/api/system', systemRoutes);
+app.use('/api/admin/system', systemRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/offers', offerRoutes);
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/admin/automation', automationRoutes);
+app.post('/api/webhooks/:provider', handleIncomingWebhook);
 
 // Basic health check route
 app.get('/api/health', (req, res) => {

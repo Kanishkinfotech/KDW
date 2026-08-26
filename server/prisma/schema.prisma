@@ -67,6 +67,16 @@ model User {
   campaignRecipients    CampaignRecipient[]
   suppressions          SuppressionEntry[]
   couponAbuseLogs       CouponAbuseLog[]
+  digitalEntitlements   DigitalEntitlement[]
+  downloadLogs          DownloadLog[]
+  downloadFailures      DownloadFailure[]
+  loginLogs             CustomerLoginLog[]
+  sessions              CustomerSession[]
+  guestClaims           GuestOrderClaim[]
+  securityEvents        CustomerSecurityEvent[]
+  customerRequests      CustomerRequest[]
+  supportSatisfactions  SupportSatisfaction[]
+  staffProfile          StaffProfile?
 
   @@index([customerCode])
   @@index([customerType])
@@ -76,15 +86,16 @@ model User {
 }
 
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  permissions String
-  isSystem    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  name               String   @unique
+  description        String?
+  permissions        String
+  isSystem           Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  users       User[]
+  users              User[]
+  permissionMappings RolePermissionMapping[]
 }
 
 model Category {
@@ -210,6 +221,11 @@ model Product {
   digitalDeliveries     DigitalDelivery[]
   deliveryItems         DigitalDeliveryItem[]
   componentEntitlements ComponentEntitlement[]
+  digitalEntitlements   DigitalEntitlement[]
+  downloadLogs          DownloadLog[]
+  downloadFailures      DownloadFailure[]
+  fileHealths           ProductFileHealth[]
+  supportTickets        SupportTicket[]
 }
 
 model Order {
@@ -281,6 +297,10 @@ model Order {
   reviews               Review[]
   couponRedemptions     CouponRedemption[]
   reviewRequests        ReviewRequest[]
+  digitalEntitlements   DigitalEntitlement[]
+  downloadLogs          DownloadLog[]
+  downloadFailures      DownloadFailure[]
+  guestClaims           GuestOrderClaim[]
 
   @@index([orderNumber])
   @@index([customerId])
@@ -317,6 +337,7 @@ model OrderItem {
   bundleEntitlements     BundleEntitlement[]
   componentEntitlements  ComponentEntitlement[]
   licenceKeys            LicenceKey[]
+  digitalEntitlements    DigitalEntitlement[]
 }
 
 model Payment {
@@ -592,6 +613,7 @@ model LicenceKey {
 
   order           Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderItem       OrderItem? @relation(fields: [orderItemId], references: [id])
+  digitalEntitlements DigitalEntitlement[]
 
   @@index([orderId])
   @@index([keyMasked])
@@ -1011,6 +1033,7 @@ model Bundle {
   orderItems            OrderItem[]
   purchases             Purchase[]
   digitalDeliveries     DigitalDelivery[]
+  digitalEntitlements   DigitalEntitlement[]
 }
 
 model Review {
@@ -1129,37 +1152,203 @@ model ReviewRequest {
 }
 
 model SupportTicket {
-  id               String   @id @default(uuid())
-  ticketNumber     String   @unique
-  userId           String
-  orderId          String?
-  category         String
-  priority         String   @default("Normal")
-  subject          String
-  description      String
-  status           String   @default("Open")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                      String                  @id @default(uuid())
+  ticketNumber            String                  @unique
+  userId                  String?
+  customerEmail           String?
+  customerName            String?
+  isGuest                 Boolean                 @default(false)
+  orderId                 String?
+  productId               String?
+  entitlementId           String?
+  licenseId               String?
+  type                    String                  @default("GENERAL") // DOWNLOAD_ISSUE, LICENCE_ISSUE, REFUND_REQUEST, PAYMENT_QUERY, PRODUCT_QUESTION, CONTACT_QUERY, CUSTOMER_REQUEST, TECHNICAL_ISSUE
+  category                String                  @default("General")
+  subcategory             String?
+  priority                String                  @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW, PLANNED
+  status                  String                  @default("NEW") // NEW, OPEN, IN_PROGRESS, WAITING_FOR_CUSTOMER, RESOLVED, CLOSED, UNASSIGNED, ESCALATED, PENDING_REFUND, PENDING_FINANCE, PENDING_CATALOG, DUPLICATE, SPAM, REOPENED
+  source                  String                  @default("PORTAL") // WEB_CONTACT, PRODUCT_PAGE, CHECKOUT, ACCOUNT, GUEST_PURCHASE, EMAIL, AUTOMATED_ALERT
+  subject                 String
+  description             String
+  assignedToId            String?
+  assignedToName          String?
+  assignedToRole          String?
+  firstResponseAt         DateTime?
+  resolvedAt              DateTime?
+  closedAt                DateTime?
+  reopenedAt              DateTime?
+  slaStatus               String                  @default("HEALTHY") // HEALTHY, WARNING, CRITICAL, BREACHED, COMPLETED
+  slaFirstResponseDueAt   DateTime?
+  slaResolutionDueAt      DateTime?
+  slaPausedTotalMinutes   Int                     @default(0)
+  tags                    String?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
 
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  order            Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  messages         SupportMessage[]
+  user                    User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order                   Order?                  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  product                 Product?                @relation(fields: [productId], references: [id], onDelete: SetNull)
+  messages                SupportMessage[]
+  events                  SupportTicketEvent[]
+  slaRecord               SupportSlaRecord?
+  customerRequest         CustomerRequest?
+  satisfaction            SupportSatisfaction?
+
+  @@index([status])
+  @@index([priority])
+  @@index([type])
+  @@index([assignedToId])
+  @@index([userId])
+  @@index([orderId])
+  @@index([productId])
+  @@index([createdAt])
+  @@index([slaStatus])
 }
 
 model SupportMessage {
-  id         String   @id @default(uuid())
-  ticketId   String
-  senderId   String
-  senderType String   @default("CUSTOMER") // "CUSTOMER" or "ADMIN"
-  message    String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                String          @id @default(uuid())
+  ticketId          String
+  senderId          String?
+  senderType        String          @default("CUSTOMER") // CUSTOMER, AGENT, SYSTEM
+  senderName        String?
+  senderEmail       String?
+  message           String
+  visibility        String          @default("CUSTOMER") // CUSTOMER, INTERNAL_NOTE
+  channel           String          @default("PORTAL") // WEB, EMAIL, PORTAL
+  attachmentsJson   Json?
+  sentAt            DateTime        @default(now())
+  deliveredAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
-  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  sender     User          @relation(fields: [senderId], references: [id])
+  ticket            SupportTicket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender            User?           @relation(fields: [senderId], references: [id], onDelete: SetNull)
 
   @@index([ticketId, createdAt])
+  @@index([visibility])
   @@index([senderId])
+}
+
+model SupportTicketEvent {
+  id          String        @id @default(uuid())
+  ticketId    String
+  eventType   String        // CREATED, STATUS_CHANGE, PRIORITY_CHANGE, ASSIGNED, ESCALATED, REPLY_SENT, NOTE_ADDED, SLA_BREACH, DOWNLOAD_RESET, TOKEN_GENERATED, EXPIRY_EXTENDED, LICENCE_RESET, REFUND_REQUESTED, REFUND_APPROVED, REFUND_REJECTED, RESOLVED, REOPENED, CLOSED
+  actorId     String?
+  actorName   String?
+  actorRole   String?
+  oldValue    String?
+  newValue    String?
+  reason      String?
+  ipAddress   String?
+  createdAt   DateTime      @default(now())
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@index([eventType])
+}
+
+model SupportSlaRecord {
+  id                          String        @id @default(uuid())
+  ticketId                    String        @unique
+  priority                    String        @default("MEDIUM")
+  firstResponseTargetMinutes  Int           @default(120)
+  resolutionTargetMinutes     Int           @default(1440)
+  firstResponseDueAt          DateTime?
+  resolutionDueAt             DateTime?
+  firstResponseCompletedAt    DateTime?
+  resolutionCompletedAt       DateTime?
+  isFirstResponseBreached     Boolean       @default(false)
+  isResolutionBreached        Boolean       @default(false)
+  isPaused                    Boolean       @default(false)
+  pausedAt                    DateTime?
+  totalPausedMinutes          Int           @default(0)
+  createdAt                   DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
+
+  ticket                      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([isFirstResponseBreached])
+  @@index([isResolutionBreached])
+}
+
+model CustomerRequest {
+  id                    String        @id @default(uuid())
+  customerId            String?
+  ticketId              String        @unique
+  requestType           String        // EMAIL_CHANGE, GUEST_ORDER_CLAIM, DATA_EXPORT, DATA_DELETION, LICENCE_TRANSFER, ACCESS_EXTENSION, MARKETING_UNSUBSCRIBE
+  verificationStatus    String        @default("PENDING") // PENDING, VERIFIED, FAILED
+  verificationMethod    String?       // LOGIN, EMAIL_LINK, ORDER_VERIFICATION
+  status                String        @default("NEW") // NEW, IDENTITY_VERIFICATION_PENDING, UNDER_REVIEW, WAITING_FOR_CUSTOMER, APPROVED, REJECTED, COMPLETED, CLOSED
+  dataAccessedJson      Json?
+  actionTaken           String?
+  handledById           String?
+  handledByName         String?
+  rejectionReason       String?
+  requestedAt           DateTime      @default(now())
+  completedAt           DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  ticket                SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer              User?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([requestType])
+  @@index([status])
+  @@index([verificationStatus])
+}
+
+model SupportSatisfaction {
+  id            String        @id @default(uuid())
+  ticketId      String        @unique
+  customerId    String?
+  customerEmail String?
+  orderId       String?
+  rating        Int           // 1 to 5
+  comment       String?
+  isSatisfied   Boolean       @default(true) // rating >= 4
+  submittedAt   DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+
+  ticket        SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer      User?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([rating])
+  @@index([isSatisfied])
+}
+
+model CannedResponse {
+  id            String        @id @default(uuid())
+  name          String
+  category      String        @default("GENERAL") // GENERAL, DOWNLOAD, LICENCE, REFUND, PAYMENT, DATA_REQUEST
+  body          String
+  variablesJson Json?
+  status        String        @default("ACTIVE") // ACTIVE, INACTIVE, PENDING_REVIEW, ARCHIVED
+  version       Int           @default(1)
+  createdById   String?
+  createdByName String?
+  approvedById  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([category])
+  @@index([status])
+}
+
+model SupportCategoryConfig {
+  id                    String    @id @default(uuid())
+  name                  String
+  slug                  String    @unique
+  description           String?
+  defaultPriority       String    @default("MEDIUM")
+  defaultRoutingRole    String    @default("SUPPORT_AGENT")
+  slaResponseMinutes    Int       @default(120)
+  slaResolutionMinutes  Int       @default(1440)
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 model AuditLog {
@@ -1643,4 +1832,1527 @@ model AbandonedCheckout {
   @@index([customerEmail])
   @@index([status])
 }
+
+model DigitalEntitlement {
+  id               String            @id @default(uuid())
+  orderId          String
+  orderItemId      String?
+  customerId       String?
+  customerEmail    String
+  productId        String?
+  bundleId         String?
+  productVersion   String            @default("1.0.0")
+  licenceId        String?
+  status           String            @default("ACTIVE") // PENDING, ACTIVE, PARTIALLY_DOWNLOADED, DOWNLOADED, EXPIRED, REVOKED, SUSPENDED
+  downloadLimit    Int               @default(5)
+  downloadCount    Int               @default(0)
+  accessExpiresAt  DateTime?
+  lastDownloadedAt DateTime?
+  revokedAt        DateTime?
+  revocationReason String?
+  revokedBy        String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  order            Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem        OrderItem?        @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  customer         User?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  product          Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  bundle           Bundle?           @relation(fields: [bundleId], references: [id], onDelete: SetNull)
+  licence          LicenceKey?       @relation(fields: [licenceId], references: [id], onDelete: SetNull)
+
+  tokens           DownloadToken[]
+  logs             DownloadLog[]
+  failures         DownloadFailure[]
+  overrides        DownloadOverride[]
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([customerEmail])
+  @@index([productId])
+  @@index([bundleId])
+  @@index([status])
+  @@index([accessExpiresAt])
+}
+
+model DownloadToken {
+  id            String             @id @default(uuid())
+  entitlementId String
+  tokenHash     String             @unique
+  secureToken   String             @unique
+  status        String             @default("ACTIVE") // ACTIVE, USED, EXPIRED, REVOKED, EXHAUSTED
+  expiresAt     DateTime
+  lastUsedAt    DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime           @default(now())
+
+  entitlement   DigitalEntitlement @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+
+  @@index([entitlementId])
+  @@index([tokenHash])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model DownloadLog {
+  id              String              @id @default(uuid())
+  entitlementId   String?
+  customerId      String?
+  customerEmail   String?
+  orderId         String?
+  productId       String?
+  productName     String
+  productVersion  String?             @default("1.0.0")
+  tokenId         String?
+  eventType       String              @default("download_completed") // token_created, token_opened, download_started, download_completed, download_failed, token_expired, limit_reached, access_revoked, file_stream_failed
+  result          String              @default("SUCCESS") // SUCCESS, FAILED
+  failureReason   String?
+  failureCategory String?
+  bytesStreamed   BigInt?             @default(0)
+  durationMs      Int?                @default(0)
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime            @default(now())
+
+  entitlement     DigitalEntitlement? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+  customer        User?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  order           Order?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  product         Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([entitlementId])
+  @@index([customerId])
+  @@index([productId])
+  @@index([orderId])
+  @@index([result])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model DownloadFailure {
+  id              String              @id @default(uuid())
+  productId       String?
+  productName     String
+  productVersion  String?             @default("1.0.0")
+  driveFileId     String?
+  customerId      String?
+  customerEmail   String?
+  entitlementId   String?
+  orderId         String?
+  failureCategory String              // Invalid token, Expired token, Revoked token, Missing entitlement, Unpaid order, Refunded order, Expired access, Limit reached, Blocked customer, Drive file missing, Drive permission denied, Drive quota exceeded, Unsupported file, Network interruption, Stream timeout, Unknown error
+  priority        String              @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  errorMessage    String
+  errorCode       String?
+  attemptCount    Int                 @default(1)
+  firstFailedAt   DateTime            @default(now())
+  lastFailedAt    DateTime            @default(now())
+  isResolved      Boolean             @default(false)
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  resolutionNotes String?
+
+  entitlement     DigitalEntitlement? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+  customer        User?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  order           Order?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  product         Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([productId])
+  @@index([customerId])
+  @@index([failureCategory])
+  @@index([priority])
+  @@index([isResolved])
+  @@index([lastFailedAt])
+}
+
+model ProductFileHealth {
+  id               String   @id @default(uuid())
+  productId        String
+  productVersion   String?  @default("1.0.0")
+  driveFileId      String
+  fileName         String
+  fileSize         String?
+  mimeType         String?
+  isAccessible     Boolean  @default(true)
+  isRestricted     Boolean  @default(true)
+  permissionStatus String   @default("VALID") // VALID, PERMISSION_DENIED, FILE_NOT_FOUND, RATE_LIMITED
+  lastTestedAt     DateTime @default(now())
+  testStatus       String   @default("HEALTHY") // HEALTHY, DEGRADED, CRITICAL
+  errorMessage     String?
+  latencyMs        Int?     @default(120)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([driveFileId])
+  @@index([testStatus])
+  @@index([lastTestedAt])
+}
+
+model DownloadOverride {
+  id             String             @id @default(uuid())
+  entitlementId  String
+  adminId        String
+  adminEmail     String
+  overrideType   String             // EXTEND_ACCESS, RESET_DOWNLOAD_COUNT, CHANGE_DOWNLOAD_LIMIT, ASSIGN_NEW_VERSION, RESTORE_ACCESS, REVOKE_ACCESS, GENERATE_TOKEN
+  previousValue  Json?
+  newValue       Json?
+  reason         String
+  createdAt      DateTime           @default(now())
+
+  entitlement    DigitalEntitlement @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+
+  @@index([entitlementId])
+  @@index([overrideType])
+  @@index([createdAt])
+}
+
+model ExportJob {
+  id           String    @id @default(uuid())
+  reportType   String    // sales, revenue, product_performance, download_failures, reviews, refunds, customers, licences, dispute_evidence
+  format       String    @default("CSV") // CSV, XLSX, PDF
+  filters      Json?
+  status       String    @default("COMPLETED") // PENDING, PROCESSING, COMPLETED, FAILED
+  fileUrl      String?
+  fileName     String
+  fileSize     String?
+  expiresAt    DateTime
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  downloadedAt DateTime?
+
+  @@index([reportType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CustomerLoginLog {
+  id            String    @id @default(uuid())
+  userId        String?
+  email         String
+  eventType     String    @default("login_success") // login_success, login_failure, password_reset_request, password_reset_completed, email_verification_sent, email_verified, session_revoked, suspicious_activity
+  result        String    @default("SUCCESS") // SUCCESS, FAILED
+  failureReason String?   // Invalid password, Unknown email, Unverified email, Account blocked, Too many attempts, Expired session, Suspicious request
+  ipAddress     String?
+  userAgent     String?
+  device        String?   // Desktop (Windows), Mobile (iOS), etc.
+  location      String?   // Mumbai, IN (Masked)
+  isSuspicious  Boolean   @default(false)
+  riskLevel     String    @default("LOW") // LOW, MEDIUM, HIGH, BLOCKED, CLEARED
+  createdAt     DateTime  @default(now())
+
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([eventType])
+  @@index([result])
+  @@index([isSuspicious])
+  @@index([createdAt])
+}
+
+model CustomerSession {
+  id               String    @id @default(uuid())
+  userId           String
+  sessionTokenHash String    @unique
+  device           String?
+  ipAddress        String?
+  location         String?
+  isRevoked        Boolean   @default(false)
+  revokedAt        DateTime?
+  revokedBy        String?
+  expiresAt        DateTime
+  lastSeenAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionTokenHash])
+  @@index([isRevoked])
+  @@index([expiresAt])
+}
+
+model GuestOrderClaim {
+  id          String    @id @default(uuid())
+  guestEmail  String
+  orderId     String
+  userId      String
+  status      String    @default("CLAIMED") // CLAIMED, PENDING_VERIFICATION, REJECTED
+  ipAddress   String?
+  claimedAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([guestEmail])
+  @@index([userId])
+  @@index([orderId])
+  @@index([claimedAt])
+}
+
+model CustomerSecurityEvent {
+  id              String    @id @default(uuid())
+  userId          String?
+  email           String
+  eventType       String    // brute_force, multi_account_ip, rapid_guest_claims, country_anomaly, high_risk_reset
+  severity        String    @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  status          String    @default("OPEN") // OPEN, ACKNOWLEDGED, RESOLVED, DISMISSED
+  description     String
+  metadata        Json?
+  ipAddress       String?
+  createdAt       DateTime  @default(now())
+  acknowledgedAt  DateTime?
+  acknowledgedBy  String?
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  resolutionNotes String?
+
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([severity])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReportAlert {
+  id                 String    @id @default(uuid())
+  category           String    // CUSTOMER, LOGIN, BUY_ANALYSIS, COUPON, DOWNLOAD
+  alertType          String    // unresolved_download_failure, access_after_refund, unclaimed_guest_order, repeated_login_failures, multiple_accounts_one_ip, suspicious_claim, coupon_budget_exceeded, coupon_abuse_pattern, coupon_high_refund_rate, paid_without_entitlement, drive_permission_error, drive_file_missing, version_failure_spike
+  severity           String    @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  status             String    @default("OPEN") // OPEN, ACKNOWLEDGED, RESOLVED, DISMISSED
+  title              String
+  description        String
+  affectedEntityId   String?
+  affectedEntityType String?  // User, Order, Product, Coupon, DownloadToken
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  acknowledgedAt     DateTime?
+  acknowledgedBy     String?
+  resolvedAt         DateTime?
+  resolvedBy         String?
+  resolutionNotes    String?
+
+  @@index([category])
+  @@index([alertType])
+  @@index([severity])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// CONTENT MANAGEMENT MODULE MODELS
+// ============================================================================
+
+model ContentPage {
+  id                  String    @id @default(uuid())
+  title               String
+  slug                String    @unique
+  summary             String?
+  contentJson         Json?     // Structured Blocks (Hero, Text, Intro, FeatureList, CTA, FAQ, Video, etc.)
+  template            String    @default("STANDARD") // STANDARD, LANDING, POLICY, CONTACT, SUPPORT, COMPARISON, CAMPAIGN, FAQ_LANDING
+  status              String    @default("DRAFT") // DRAFT, PENDING_REVIEW, APPROVED, SCHEDULED, PUBLISHED, UPDATED, ARCHIVED, REJECTED
+  authorId            String?
+  authorName          String?   @default("Content Editor")
+  reviewerId          String?
+  reviewerName        String?
+  rejectionReason     String?
+  featuredImage       String?
+  isPolicyPage        Boolean   @default(false)
+  policyOwner         String?
+  effectiveDate       DateTime?
+  reviewDate          DateTime?
+  revisionNumber      Int       @default(1)
+  scheduledAt         DateTime?
+  publishedAt         DateTime?
+  seoTitle            String?
+  seoDescription      String?
+  canonicalUrl        String?
+  ogTitle             String?
+  ogDescription       String?
+  ogImage             String?
+  noindex             Boolean   @default(false)
+  includeInSitemap    Boolean   @default(true)
+  structuredData      Json?
+  viewsCount          Int       @default(0)
+  uniqueVisitorsCount Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([status])
+  @@index([template])
+  @@index([scheduledAt])
+  @@index([publishedAt])
+}
+
+model BlogPost {
+  id                     String    @id @default(uuid())
+  title                  String
+  slug                   String    @unique
+  excerpt                String?
+  contentJson            Json?     // Structured Article Blocks (Heading, Paragraph, Image, Gallery, Video, Code, Quote, Checklist, Comparison, CTA, ProductCard, etc.)
+  authorId               String?
+  authorName             String?   @default("Editorial Team")
+  categoryId             String?
+  categoryName           String?
+  tags                   Json?     // Array of tag names / slugs
+  coverImage             String?
+  readingTimeMinutes     Int       @default(5)
+  status                 String    @default("DRAFT") // DRAFT, PENDING_REVIEW, APPROVED, SCHEDULED, PUBLISHED, UPDATED, ARCHIVED, REJECTED
+  rejectionReason        String?
+  reviewerId             String?
+  reviewerName           String?
+  isFeatured             Boolean   @default(false)
+  featuredOrder          Int       @default(0)
+  featuredStartAt        DateTime?
+  featuredEndAt          DateTime?
+  relatedProductIds      Json?     // Array of product IDs for attribution
+  relatedCategoryIds     Json?
+  relatedBundleIds       Json?
+  relatedCouponIds       Json?
+  relatedFaqIds          Json?
+  scheduledAt            DateTime?
+  publishedAt            DateTime?
+  seoTitle               String?
+  seoDescription         String?
+  canonicalUrl           String?
+  ogTitle                String?
+  ogDescription          String?
+  ogImage                String?
+  noindex                Boolean   @default(false)
+  includeInSitemap       Boolean   @default(true)
+  viewsCount             Int       @default(0)
+  uniqueVisitorsCount    Int       @default(0)
+  readingTimeAvgSeconds  Int       @default(0)
+  scrollDepthAvgPercent  Int       @default(0)
+  productClicksCount     Int       @default(0)
+  addToCartCount         Int       @default(0)
+  purchasesCount         Int       @default(0)
+  revenueAttributed      Float     @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  category               BlogCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([slug])
+  @@index([status])
+  @@index([categoryId])
+  @@index([isFeatured])
+  @@index([scheduledAt])
+  @@index([publishedAt])
+}
+
+model BlogCategory {
+  id             String     @id @default(uuid())
+  name           String     @unique
+  slug           String     @unique
+  description    String?
+  seoTitle       String?
+  seoDescription String?
+  displayOrder   Int        @default(0)
+  status         String     @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  posts          BlogPost[]
+
+  @@index([slug])
+}
+
+model BlogTag {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  color       String?  @default("blue")
+  createdAt   DateTime @default(now())
+
+  @@index([slug])
+}
+
+model BlogAuthor {
+  id          String   @id @default(uuid())
+  userId      String?
+  name        String
+  slug        String   @unique
+  avatar      String?
+  bio         String?
+  roleTitle   String?  @default("Content Writer")
+  socialLinks Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+}
+
+model ContentFaq {
+  id                  String    @id @default(uuid())
+  question            String
+  answer              String
+  scopeType           String    @default("GLOBAL") // GLOBAL, PRODUCT, CATEGORY, CAMPAIGN
+  productId           String?
+  categoryName        String?
+  campaignName        String?
+  tags                Json?
+  displayOrder        Int       @default(0)
+  status              String    @default("PUBLISHED") // DRAFT, PENDING_REVIEW, APPROVED, PUBLISHED, OUTDATED, EXPIRED, ARCHIVED
+  isOutdated          Boolean   @default(false)
+  outdatedReason      String?
+  authorId            String?
+  authorName          String?   @default("Support Team")
+  reviewerId          String?
+  lastReviewedAt      DateTime? @default(now())
+  expiresAt           DateTime?
+  viewsCount          Int       @default(0)
+  helpfulCount        Int       @default(0)
+  unhelpfulCount      Int       @default(0)
+  supportTicketsCount Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([scopeType])
+  @@index([productId])
+  @@index([status])
+  @@index([isOutdated])
+}
+
+model ContentBanner {
+  id                 String    @id @default(uuid())
+  name               String
+  placement          String    @default("HOMEPAGE_HERO") // HOMEPAGE_HERO, HOMEPAGE_PROMO_STRIP, CATEGORY_HEADER, PRODUCT_PAGE, CHECKOUT_OFFER, DASHBOARD_NOTICE, BLOG_CTA, FOOTER_PROMO, MOBILE_ONLY
+  desktopImage       String
+  tabletImage        String?
+  mobileImage        String?
+  altText            String
+  headline           String?
+  supportingText     String?
+  ctaLabel           String?
+  ctaUrl             String?
+  productId          String?
+  categoryId         String?
+  offerId            String?
+  campaignId         String?
+  priority           Int       @default(1)
+  audience           String    @default("ALL") // ALL, GUEST_ONLY, LOGGED_IN, VIP
+  status             String    @default("ACTIVE") // DRAFT, SCHEDULED, ACTIVE, PAUSED, EXPIRED, ARCHIVED
+  startAt            DateTime?
+  endAt              DateTime?
+  impressionsCount   Int       @default(0)
+  uniqueViewersCount Int       @default(0)
+  clicksCount        Int       @default(0)
+  conversionsCount   Int       @default(0)
+  revenueAttributed  Float     @default(0)
+  couponUsesCount    Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([placement])
+  @@index([status])
+  @@index([priority])
+  @@index([startAt])
+  @@index([endAt])
+}
+
+model CustomerFeedback {
+  id                     String    @id @default(uuid())
+  customerId             String?
+  customerName           String?
+  customerEmail          String?
+  orderId                String?
+  orderNumber            String?
+  productId              String?
+  productName            String?
+  productVersion         String?   @default("1.0.0")
+  feedbackType           String    @default("GENERAL_FEEDBACK") // PRODUCT_REVIEW, FEATURE_REQUEST, BUG_REPORT, DOWNLOAD_ISSUE, LICENCE_ISSUE, REFUND_FEEDBACK, GENERAL_FEEDBACK, CUSTOMER_SATISFACTION
+  rating                 Int?      @default(5)
+  title                  String
+  message                String
+  attachmentUrl          String?
+  status                 String    @default("NEW") // NEW, OPEN, UNDER_REVIEW, WAITING_FOR_CUSTOMER, PLANNED, IN_PROGRESS, RESOLVED, CLOSED, REJECTED, DUPLICATE
+  priority               String    @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  priorityOverrideReason String?
+  assignedToId           String?
+  assignedToName         String?
+  tags                   Json?
+  source                 String    @default("STOREFRONT") // SUPPORT, CHECKOUT, DOWNLOAD_PORTAL, EMAIL, STOREFRONT
+  isPublicReview         Boolean   @default(false)
+  moderationStatus       String    @default("PENDING") // PENDING, APPROVED, REJECTED, REPORTED
+  moderationReason       String?
+  internalNotes          Json?     // [{ author: "Staff", date: "...", note: "..." }]
+  replies                Json?     // [{ sender: "Support", message: "...", sentAt: "..." }]
+  resolvedAt             DateTime?
+  resolvedBy             String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([feedbackType])
+  @@index([status])
+  @@index([priority])
+  @@index([isPublicReview])
+  @@index([customerId])
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model ContentRevision {
+  id                 String    @id @default(uuid())
+  contentType        String    // PAGE, BLOG, FAQ, POLICY, TEMPLATE
+  contentId          String
+  versionNumber      Int
+  contentSnapshot    Json
+  changedById        String?
+  changedByName      String?   @default("Administrator")
+  changeSummary      String?
+  statusSnapshot     String?
+  isPublishedVersion Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  publishedAt        DateTime?
+
+  @@index([contentType, contentId])
+  @@index([versionNumber])
+  @@index([createdAt])
+}
+
+model ContentRedirect {
+  id            String    @id @default(uuid())
+  oldPath       String    @unique
+  newPath       String
+  redirectType  String    @default("301") // 301, 302
+  reason        String?   @default("Slug change migration")
+  status        String    @default("ACTIVE") // ACTIVE, DISABLED
+  hitsCount     Int       @default(0)
+  createdById   String?
+  createdByName String?   @default("System")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([oldPath])
+  @@index([status])
+}
+
+model ContentTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  contentType String   @default("PAGE") // PAGE, BLOG, POLICY, LANDING
+  layoutJson  Json     // Block structure template
+  isDefault   Boolean  @default(false)
+  status      String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+  @@index([contentType])
+}
+
+model MediaAsset {
+  id              String    @id @default(uuid())
+  fileName        String
+  originalName    String
+  fileType        String    @default("IMAGE") // IMAGE, VIDEO, DOCUMENT, ICON, ATTACHMENT
+  mimeType        String
+  fileSize        Int       @default(0) // bytes
+  dimensions      String?   // e.g. "1920x1080"
+  url             String
+  thumbnailUrl    String?
+  altText         String?
+  caption         String?
+  folder          String    @default("general") // general, products, blogs, banners, feedback
+  uploadedById    String?
+  uploadedByName  String?   @default("Staff")
+  usageReferences Json?     // [{ type: "PAGE", id: "...", title: "..." }]
+  isUsed          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([folder])
+  @@index([fileType])
+  @@index([isUsed])
+  @@index([createdAt])
+}
+
+model NavigationMenu {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  location  String   @default("HEADER_PRIMARY") // HEADER_PRIMARY, HEADER_SECONDARY, FOOTER_COL_1, FOOTER_COL_2, FOOTER_COL_3, MOBILE_DRAWER
+  itemsJson Json     // [{ label: "Home", url: "/", target: "_self", children: [] }]
+  status    String   @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([location])
+}
+
+// ==========================================
+// SETTINGS & CONFIGURATION MASTER MODULE
+// ==========================================
+
+model SystemSetting {
+  id            String    @id @default(uuid())
+  key           String    @unique
+  value         String    // JSON stringified value or plain text
+  group         String    // GENERAL, STORE, CURRENCY, TAX, CHECKOUT, DOWNLOAD, EMAIL, SECURITY, PRIVACY, LEGAL, INTEGRATION
+  dataType      String    @default("STRING") // STRING, NUMBER, BOOLEAN, JSON, SECRET
+  isSecret      Boolean   @default(false)
+  scope         String    @default("GLOBAL") // GLOBAL, STOREFRONT, ADMIN
+  version       Int       @default(1)
+  description   String?
+  updatedById   String?
+  updatedByName String?   @default("System")
+  changeReason  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([group])
+  @@index([key])
+  @@index([scope])
+}
+
+model SettingVersion {
+  id            String    @id @default(uuid())
+  settingKey    String
+  group         String
+  oldValue      String?
+  newValue      String
+  versionNumber Int
+  changedById   String?
+  changedByName String?   @default("Administrator")
+  changeReason  String?
+  environment   String    @default("PRODUCTION") // PRODUCTION, DEVELOPMENT, TEST
+  createdAt     DateTime  @default(now())
+
+  @@index([settingKey])
+  @@index([group])
+  @@index([createdAt])
+}
+
+model SettingAuditLog {
+  id            String    @id @default(uuid())
+  actorId       String?
+  actorName     String?   @default("System")
+  actorRole     String?   @default("ADMIN")
+  action        String    // UPDATED, ROTATED, ROLLED_BACK, TESTED, PUBLISHED
+  settingKey    String?
+  group         String
+  details       String?
+  ipAddress     String?
+  userAgent     String?
+  environment   String    @default("PRODUCTION")
+  createdAt     DateTime  @default(now())
+
+  @@index([group])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model LegalDocument {
+  id               String                 @id @default(uuid())
+  slug             String                 @unique // terms-of-service, refund-policy, digital-delivery-policy, licence-policy, privacy-policy, cookie-policy, copyright-policy, support-policy
+  name             String
+  category         String                 @default("LEGAL") // LEGAL, POLICY, COMPLIANCE
+  currentVersion   Int                    @default(1)
+  publishedVersion Int?
+  status           String                 @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, PUBLISHED, ARCHIVED
+  effectiveDate    DateTime?
+  publishedAt      DateTime?
+  createdById      String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  versions         LegalDocumentVersion[]
+  acceptances      PolicyAcceptanceRecord[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+model LegalDocumentVersion {
+  id            String         @id @default(uuid())
+  documentId    String
+  versionNumber Int
+  title         String
+  content       String         // Markdown or HTML content
+  summary       String?
+  status        String         @default("DRAFT") // DRAFT, IN_REVIEW, APPROVED, PUBLISHED, ARCHIVED
+  authorId      String?
+  authorName    String?        @default("Legal Administrator")
+  reviewerId    String?
+  reviewerName  String?
+  changeLog     String?
+  effectiveDate DateTime?
+  publishedAt   DateTime?
+  createdAt     DateTime       @default(now())
+
+  document      LegalDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@index([status])
+}
+
+model PolicyAcceptanceRecord {
+  id            String         @id @default(uuid())
+  documentSlug  String
+  documentId    String?
+  versionNumber Int
+  customerId    String?
+  customerEmail String
+  orderId       String?
+  sessionId     String?
+  ipAddress     String?
+  userAgent     String?
+  acceptedAt    DateTime       @default(now())
+
+  document      LegalDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([documentSlug, versionNumber])
+  @@index([customerEmail])
+  @@index([orderId])
+  @@index([acceptedAt])
+}
+
+model CustomerConsentRecord {
+  id            String    @id @default(uuid())
+  customerId    String?
+  customerEmail String
+  purpose       String    // TRANSACTIONAL_EMAIL, MARKETING_EMAIL, WHATSAPP_MARKETING, PRODUCT_UPDATES, REVIEW_REQUESTS, ANALYTICS, COOKIES
+  status        String    @default("GRANTED") // GRANTED, REVOKED
+  textVersion   String?   @default("1.0.0")
+  channel       String    @default("WEB") // WEB, CHECKOUT, ACCOUNT, EMAIL
+  source        String?
+  ipAddress     String?
+  grantedAt     DateTime  @default(now())
+  revokedAt     DateTime?
+
+  @@index([customerEmail, purpose])
+  @@index([status])
+}
+
+model DataRetentionRule {
+  id                 String    @id @default(uuid())
+  entityType         String    @unique // CUSTOMER_PROFILE, LOGIN_LOG, DOWNLOAD_LOG, SUPPORT_TICKET, MARKETING_CONSENT, PAYMENT_RECORD, AUDIT_LOG, EXPORT_FILE
+  retentionPeriodDays Int      @default(365)
+  actionOnExpiry     String    @default("ANONYMIZE") // DELETE, ANONYMIZE, ARCHIVE
+  status             String    @default("ACTIVE") // ACTIVE, DISABLED
+  lastRunAt          DateTime?
+  updatedAt          DateTime  @updatedAt
+
+  @@index([entityType])
+}
+
+// ==========================================
+// SYSTEM MANAGEMENT & INFRASTRUCTURE MONITORING
+// ==========================================
+
+model SystemErrorLog {
+  id              String    @id @default(uuid())
+  errorCode       String    // e.g. DRIVE_PERMISSION_DENIED, RAZORPAY_SIGNATURE_MISMATCH, DB_CONNECTION_TIMEOUT, EMAIL_BOUNCE
+  severity        String    @default("ERROR") // DEBUG, INFO, WARNING, ERROR, CRITICAL, SECURITY
+  service         String    // API, DATABASE, PAYMENT, WEBHOOK, DOWNLOAD, EMAIL, WORKER, STORAGE, AUTH
+  environment     String    @default("PRODUCTION") // PRODUCTION, DEVELOPMENT, TEST
+  requestId       String?
+  traceId         String?
+  actorId         String?
+  actorName       String?
+  customerId      String?
+  customerEmail   String?
+  orderId         String?
+  productId       String?
+  message         String
+  stackTrace      String?
+  endpoint        String?
+  status          String    @default("UNRESOLVED") // UNRESOLVED, ACKNOWLEDGED, INVESTIGATING, RESOLVED, SUPPRESSED
+  assignedOwner   String?
+  assignedOwnerId String?
+  occurrenceCount Int       @default(1)
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([service])
+  @@index([severity])
+  @@index([status])
+  @@index([errorCode])
+  @@index([lastSeenAt])
+}
+
+model SystemLoginLog {
+  id               String    @id @default(uuid())
+  userType         String    @default("CUSTOMER") // ADMIN, STAFF, CUSTOMER
+  userId           String?
+  email            String
+  userName         String?
+  eventType        String    // LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT, SESSION_REVOKED, PASSWORD_RESET, MFA_CHALLENGE, MFA_FAILED, ACCOUNT_LOCKED
+  result           String    @default("SUCCESS") // SUCCESS, FAILED, BLOCKED
+  failureReason    String?
+  ipAddress        String?
+  userAgent        String?
+  deviceHash       String?
+  sessionHash      String?
+  isSuspicious     Boolean   @default(false)
+  suspiciousReason String?
+  createdAt        DateTime  @default(now())
+
+  @@index([userType])
+  @@index([email])
+  @@index([eventType])
+  @@index([result])
+  @@index([isSuspicious])
+  @@index([createdAt])
+}
+
+model SystemApiLog {
+  id                String    @id @default(uuid())
+  requestId         String    @unique
+  method            String    // GET, POST, PUT, PATCH, DELETE
+  endpoint          String
+  statusCode        Int
+  latencyMs         Int
+  actorId           String?
+  actorRole         String?
+  ipAddress         String?
+  userAgent         String?
+  responseSizeBytes Int?      @default(0)
+  errorCode         String?
+  errorMessage      String?
+  createdAt         DateTime  @default(now())
+
+  @@index([endpoint])
+  @@index([statusCode])
+  @@index([createdAt])
+  @@index([latencyMs])
+}
+
+model SystemWebhookLog {
+  id               String    @id @default(uuid())
+  provider         String    // RAZORPAY, RESEND, WHATSAPP, GOOGLE_DRIVE
+  externalEventId  String?
+  eventType        String    // e.g. payment.captured, order.paid, email.delivered, email.bounced
+  signatureValid   Boolean   @default(true)
+  status           String    @default("PROCESSED") // RECEIVED, SIGNATURE_FAILED, PROCESSING, PROCESSED, DUPLICATE, FAILED, RETRYING, DEAD_LETTER, REPLAYED
+  retryCount       Int       @default(0)
+  maxRetries       Int       @default(3)
+  payloadJson      Json?
+  responseBody     String?
+  errorMessage     String?
+  relatedOrderId   String?
+  relatedPaymentId String?
+  processedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([provider])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SystemBackgroundJob {
+  id                String    @id @default(uuid())
+  jobType           String    // FULFILMENT, EMAIL_DELIVERY, WHATSAPP_DELIVERY, REFUND_PROCESSING, REPORT_GENERATION, BACKUP_VERIFICATION, DRIVE_HEALTH_CHECK, REVIEW_MODERATION, CUSTOMER_EXPORT, DATA_CLEANUP
+  queue             String    @default("DEFAULT") // DEFAULT, HIGH_PRIORITY, BULK, MAINTENANCE
+  status            String    @default("QUEUED") // QUEUED, RUNNING, COMPLETED, FAILED, RETRYING, DEAD_LETTER, CANCELLED
+  payloadJson       Json?
+  resultJson        Json?
+  errorMessage      String?
+  stackTrace        String?
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(3)
+  relatedResourceId String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  failedAt          DateTime?
+  createdById       String?
+  createdByName     String?   @default("System Worker")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([queue])
+  @@index([status])
+  @@index([jobType])
+  @@index([createdAt])
+}
+
+model SystemBackup {
+  id                 String    @id @default(uuid())
+  backupType         String    // FULL_DATABASE, CONFIGURATION, DRIVE_FILE_MAPPING, AUDIT_ARCHIVE
+  storagePath        String
+  filename           String
+  sizeBytes          BigInt    @default(0)
+  checksumSha256     String
+  encryptionStatus   String    @default("ENCRYPTED") // ENCRYPTED, PLAINTEXT
+  status             String    @default("COMPLETED") // PENDING, IN_PROGRESS, COMPLETED, FAILED, VERIFIED
+  verificationStatus String    @default("UNVERIFIED") // UNVERIFIED, PASSED, FAILED
+  verificationNotes  String?
+  recordsCount       Int       @default(0)
+  retentionUntil     DateTime?
+  isAutomatic        Boolean   @default(false)
+  createdById        String?
+  createdByName      String?   @default("System Backup Engine")
+  startedAt          DateTime  @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  restoreTests       SystemRestoreTest[]
+
+  @@index([backupType])
+  @@index([status])
+  @@index([verificationStatus])
+  @@index([createdAt])
+}
+
+model SystemRestoreTest {
+  id                     String        @id @default(uuid())
+  backupId               String
+  environment            String        @default("SANDBOX_TEST") // SANDBOX_TEST, DRY_RUN
+  status                 String        @default("PASSED") // IN_PROGRESS, PASSED, FAILED, WARNING
+  restoreDurationSeconds Float         @default(0.0)
+  tablesValidated        Int           @default(0)
+  recordsCountValidated  Int           @default(0)
+  sampleOrderVerified    Boolean       @default(true)
+  sampleProductVerified  Boolean       @default(true)
+  rpoResultMinutes       Float         @default(0.0)
+  rtoResultSeconds       Float         @default(0.0)
+  issuesReport           String?
+  performedById          String?
+  performedByName        String?       @default("System Automated Tester")
+  startedAt              DateTime      @default(now())
+  completedAt            DateTime?
+
+  backup                 SystemBackup  @relation(fields: [backupId], references: [id], onDelete: Cascade)
+
+  @@index([backupId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model SystemIncident {
+  id                    String    @id @default(uuid())
+  incidentNumber        String    @unique // e.g. INC-2026-001
+  title                 String
+  severity              String    @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  service               String    // API, DATABASE, RAZORPAY, EMAIL, GOOGLE_DRIVE, STORAGE, AUTH, WORKERS
+  status                String    @default("ACTIVE") // ACTIVE, INVESTIGATING, MITIGATED, RESOLVED, POSTMORTEM
+  affectedCustomersCount Int       @default(0)
+  summary               String?
+  rootCause             String?
+  actionsTaken          String?
+  postmortemReport      String?
+  ownerId               String?
+  ownerName             String?   @default("Unassigned")
+  startedAt             DateTime  @default(now())
+  detectedAt            DateTime  @default(now())
+  mitigatedAt           DateTime?
+  resolvedAt            DateTime?
+  createdById           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([status])
+  @@index([severity])
+  @@index([service])
+  @@index([createdAt])
+}
+
+model SystemMonitoringAlert {
+  id                 String    @id @default(uuid())
+  alertType          String    // API_ERROR_SPIKE, LATENCY_BREACH, DATABASE_CONN_SPIKE, WEBHOOK_DELAY, QUEUE_BACKLOG, DOWNLOAD_FAILURE_SPIKE, BACKUP_OVERDUE, DISK_SPACE_WARNING, SUSPICIOUS_LOGINS, FAILED_TRANSACTIONS
+  severity           String    @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  source             String    // API, DATABASE, RAZORPAY, DRIVE, WORKER, BACKUP, AUTH
+  status             String    @default("OPEN") // OPEN, ACKNOWLEDGED, INVESTIGATING, SNOOZED, RESOLVED
+  title              String
+  message            String
+  metricValue        String?
+  thresholdValue     String?
+  occurrenceCount    Int       @default(1)
+  firstDetectedAt    DateTime  @default(now())
+  lastDetectedAt     DateTime  @default(now())
+  acknowledgedAt     DateTime?
+  resolvedAt         DateTime?
+  ownerId            String?
+  ownerName          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status])
+  @@index([severity])
+  @@index([source])
+  @@index([lastDetectedAt])
+}
+
+model SystemThresholdRule {
+  id                 String    @id @default(uuid())
+  metricKey          String    @unique // e.g. api_5xx_rate, api_p95_latency, queue_oldest_job_mins, download_failure_rate, db_conn_percent, backup_age_hours
+  metricName         String
+  category           String    // API, DATABASE, QUEUE, DOWNLOAD, PAYMENT, BACKUP
+  warningThreshold   Float
+  criticalThreshold  Float
+  unit               String    // %, ms, min, hours
+  comparisonOperator String    @default("GREATER_THAN") // GREATER_THAN, LESS_THAN
+  isEnabled          Boolean   @default(true)
+  updatedByName      String?   @default("System")
+  updatedAt          DateTime  @updatedAt
+
+  @@index([category])
+  @@index([metricKey])
+}
+
+// ==========================================
+// CACHE MANAGEMENT & TEMPORARY DATA STORE
+// ==========================================
+
+model CacheEntry {
+  id              String    @id @default(uuid())
+  key             String    @unique
+  namespace       String    // e.g. kdw:prod:product, kdw:prod:category, kdw:prod:search
+  environment     String    @default("PRODUCTION") // PRODUCTION, STAGING, TEST
+  valueType       String    @default("JSON") // JSON, STRING, NUMBER, BUFFER
+  sizeBytes       Int       @default(0)
+  ttlSeconds      Int       @default(600)
+  expiresAt       DateTime
+  isRebuildable   Boolean   @default(true)
+  sourceOfTruth   String    @default("PostgreSQL")
+  hitCount        Int       @default(0)
+  missCount       Int       @default(0)
+  lastAccessedAt  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([namespace])
+  @@index([environment])
+  @@index([expiresAt])
+}
+
+model CacheNamespaceConfig {
+  id                    String    @id @default(uuid())
+  namespace             String    @unique // e.g. kdw:prod:product
+  environment           String    @default("PRODUCTION")
+  defaultTtlSeconds     Int       @default(600)
+  maxStalenessSeconds   Int       @default(600)
+  rebuildSource         String    @default("PostgreSQL:Product")
+  invalidationTriggers  String    // JSON array of event names
+  status                String    @default("ACTIVE") // ACTIVE, PAUSED, WARMING
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([namespace])
+  @@index([environment])
+}
+
+model CacheInvalidationEvent {
+  id                String    @id @default(uuid())
+  eventType         String    // PRODUCT_UPDATED, CATEGORY_UPDATED, PRICE_CHANGED, PROMO_EXPIRED
+  namespace         String
+  keyPattern        String
+  triggerSource     String    @default("PostgreSQL_TRIGGER")
+  affectedEntityId  String?
+  status            String    @default("COMPLETED") // COMPLETED, FAILED, PENDING, RETRYING
+  retryCount        Int       @default(0)
+  maxRetries        Int       @default(3)
+  failureReason     String?
+  createdAt         DateTime  @default(now())
+  processedAt       DateTime?
+
+  @@index([namespace])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CacheMaintenanceLog {
+  id            String    @id @default(uuid())
+  action        String    // CLEAR_ALL, CLEAR_NAMESPACE, CLEAR_KEY, REBUILD, WARM, EXPIRED_CLEANUP, MEMORY_CLEANUP, QUEUE_CLEANUP
+  actorId       String?
+  actorName     String?   @default("Administrator")
+  actorRole     String?   @default("SUPER_ADMIN")
+  namespace     String?
+  keysAffected  Int       @default(0)
+  reason        String?
+  durationMs    Int       @default(0)
+  result        String    @default("SUCCESS") // SUCCESS, FAILED, PARTIAL
+  createdAt     DateTime  @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ==========================================
+// ADMIN USERS, STAFF, ROLES & GOVERNANCE
+// ==========================================
+
+model StaffProfile {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  department         String    @default("MANAGEMENT") // MANAGEMENT, CATALOG, FINANCE, SUPPORT, MARKETING, CONTENT, SECURITY, ENGINEERING
+  team               String    @default("CORE") // CORE, SUPPORT_TIER_1, SUPPORT_TIER_2, FINANCE_OPS, GROWTH
+  managerId          String?
+  timezone           String    @default("Asia/Kolkata")
+  phone              String?
+  employeeReference  String?   @unique
+  mfaEnabled         Boolean   @default(false)
+  mfaSecretMasked    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([department])
+  @@index([team])
+}
+
+model SystemPermission {
+  id          String    @id @default(uuid())
+  code        String    @unique // e.g. product.read, product.publish, refund.approve, customer.export
+  resource    String    // PRODUCT, ORDER, PAYMENT, REFUND, CUSTOMER, DOWNLOAD, LICENCE, CAMPAIGN, CONTENT, REVIEW, SETTINGS, CACHE, SYSTEM, ADMIN, AUDIT
+  action      String    // READ, CREATE, UPDATE, PUBLISH, APPROVE, DELETE, EXPORT, MANAGE
+  riskLevel   String    @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  description String
+  createdAt   DateTime  @default(now())
+
+  roleMappings RolePermissionMapping[]
+
+  @@index([resource])
+  @@index([riskLevel])
+}
+
+model RolePermissionMapping {
+  id           String           @id @default(uuid())
+  roleId       String
+  permissionId String
+  scopeType    String           @default("ALL") // ALL, STORE, CATEGORY, ASSIGNED_ONLY, OWN_TICKETS
+  scopeValue   String?
+
+  role         Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   SystemPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId, scopeType])
+  @@index([roleId])
+  @@index([permissionId])
+}
+
+model TemporaryPermissionGrant {
+  id             String    @id @default(uuid())
+  userId         String
+  userEmail      String
+  permissionCode String
+  scope          String    @default("ALL")
+  startsAt       DateTime  @default(now())
+  expiresAt      DateTime
+  reason         String
+  approvedById   String?
+  approvedByName String?   @default("Super Admin")
+  status         String    @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId])
+  @@index([permissionCode])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model StaffInvitation {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  roleName      String    @default("Support Agent")
+  department    String    @default("SUPPORT")
+  team          String    @default("CORE")
+  tokenHash     String    @unique
+  invitedById   String?
+  invitedByName String?   @default("Super Admin")
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  status        String    @default("PENDING") // PENDING, ACCEPTED, EXPIRED, REVOKED
+  createdAt     DateTime  @default(now())
+
+  @@index([email])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model AdminSession {
+  id              String    @id @default(uuid())
+  userId          String
+  userEmail       String
+  userName        String
+  sessionHash     String    @unique
+  ipAddress       String?
+  userAgent       String?
+  deviceReference String?
+  mfaVerified     Boolean   @default(false)
+  expiresAt       DateTime
+  lastActiveAt    DateTime  @default(now())
+  revokedAt       DateTime?
+  isRevoked       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([userEmail])
+  @@index([isRevoked])
+  @@index([lastActiveAt])
+}
+
+model AccessReviewRecord {
+  id                        String    @id @default(uuid())
+  reviewDate                DateTime  @default(now())
+  reviewerId                String?
+  reviewerName              String    @default("Chief Security Auditor")
+  targetUserId              String
+  targetUserEmail           String
+  targetUserRole            String
+  sensitivePermissionsCount Int       @default(0)
+  lastLoginAt               DateTime?
+  recommendation            String    @default("MAINTAIN_ACCESS") // MAINTAIN_ACCESS, REDUCE_PERMISSIONS, SUSPEND_ACCOUNT, ENROLL_MFA
+  actionTaken               String    @default("APPROVED_NO_CHANGE") // APPROVED_NO_CHANGE, PERMISSIONS_REDUCED, USER_SUSPENDED
+  notes                     String?
+  createdAt                 DateTime  @default(now())
+
+  @@index([targetUserId])
+  @@index([reviewDate])
+}
+
+model StaffActivityLog {
+  id                String    @id @default(uuid())
+  actorId           String?
+  actorName         String    @default("Staff")
+  actorEmail        String
+  actorRole         String    @default("ADMIN")
+  action            String    // e.g. USER_SUSPENDED, PERMISSION_GRANTED, CACHE_PURGED, ROLE_UPDATED
+  resourceType      String    // CACHE, USER, ROLE, PERMISSION, SESSION, INVITATION
+  resourceId        String?
+  result            String    @default("SUCCESS") // SUCCESS, DENIED, FAILED, CANCELLED
+  riskLevel         String    @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  previousValueSafe String?
+  newValueSafe      String?
+  reason            String?
+  ipAddress         String?
+  userAgent         String?
+  requestId         String?
+  createdAt         DateTime  @default(now())
+
+  @@index([actorEmail])
+  @@index([action])
+  @@index([resourceType])
+  @@index([riskLevel])
+  @@index([createdAt])
+}
+
+// ==========================================
+// WORKFLOW AUTOMATION & DURABLE EVENT ENGINE
+// ==========================================
+
+model AutomationRule {
+  id              String           @id @default(uuid())
+  name            String
+  description     String?
+  category        String           @default("ORDER") // ORDER, EMAIL, CUSTOMER, DOWNLOAD, LICENCE, CUSTOM
+  triggerEvent    String           // e.g. order.paid, customer.email_verified, download.failed, license.issued
+  conditionJson   String           @default("[]") // JSON array of condition clauses
+  actionJson      String           @default("[]") // JSON array of action step definitions
+  status          String           @default("ACTIVE") // ACTIVE, PAUSED, DRAFT, ARCHIVED
+  version         Int              @default(1)
+  executionCount  Int              @default(0)
+  lastExecutedAt  DateTime?
+  createdBy       String?          @default("System")
+  updatedBy       String?          @default("System")
+  isTemplate      Boolean          @default(false)
+  templateKey     String?          @unique
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  runs            AutomationRun[]
+
+  @@index([category])
+  @@index([triggerEvent])
+  @@index([status])
+}
+
+model AutomationRun {
+  id               String                 @id @default(uuid())
+  workflowId       String
+  workflowName     String
+  triggerEventId   String?
+  triggerEventType String
+  status           String                 @default("QUEUED") // QUEUED, RUNNING, COMPLETED, FAILED, RETRYING, CANCELLED, DEAD_LETTER, REPLAYED
+  customerEmail    String?
+  customerId       String?
+  orderId          String?
+  productId        String?
+  startedAt        DateTime               @default(now())
+  completedAt      DateTime?
+  durationMs       Int                    @default(0)
+  attemptCount     Int                    @default(1)
+  maxAttempts      Int                    @default(3)
+  errorCode        String?
+  errorMessage     String?
+  isDryRun         Boolean                @default(false)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  workflow         AutomationRule         @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  steps            AutomationRunStep[]
+  jobs             AutomationJob[]
+  deadLetterJobs   AutomationDeadLetterJob[]
+
+  @@index([workflowId])
+  @@index([status])
+  @@index([triggerEventType])
+  @@index([orderId])
+  @@index([customerEmail])
+  @@index([createdAt])
+}
+
+model AutomationRunStep {
+  id           String        @id @default(uuid())
+  runId        String
+  stepOrder    Int           @default(1)
+  stepType     String        // TRIGGER, CONDITION, DELAY, ACTION, BRANCH
+  actionType   String?       // CREATE_ENTITLEMENT, ISSUE_LICENCE, SEND_EMAIL, ADD_TAG, CREATE_TICKET, NOTIFY_ADMIN, DRIVE_HEALTH_CHECK, REVOKE_ACCESS
+  status       String        @default("QUEUED") // QUEUED, RUNNING, COMPLETED, FAILED, SKIPPED
+  startedAt    DateTime      @default(now())
+  completedAt  DateTime?
+  durationMs   Int           @default(0)
+  resultJson   String?
+  errorMessage String?
+  createdAt    DateTime      @default(now())
+
+  run          AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([status])
+}
+
+model AutomationJob {
+  id           String        @id @default(uuid())
+  runId        String
+  queue        String        @default("DEFAULT") // HIGH_PRIORITY, DEFAULT, BULK, DELAYED, MAINTENANCE
+  status       String        @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, RETRYING, DEAD_LETTER, CANCELLED
+  priority     String        @default("NORMAL") // HIGH, NORMAL, LOW
+  attempts     Int           @default(0)
+  maxAttempts  Int           @default(3)
+  nextRetryAt  DateTime?
+  lockedAt     DateTime?
+  completedAt  DateTime?
+  payloadJson  String?
+  lastError    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  run          AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([queue])
+  @@index([status])
+  @@index([nextRetryAt])
+}
+
+model AutomationDeadLetterJob {
+  id              String        @id @default(uuid())
+  jobId           String?
+  runId           String
+  workflowId      String
+  workflowName    String
+  originalEventId String?
+  eventType       String
+  payloadJson     String?
+  failureReason   String
+  attemptCount    Int           @default(3)
+  firstFailedAt   DateTime      @default(now())
+  lastFailedAt    DateTime      @default(now())
+  replayStatus    String        @default("UNREPLAYED") // UNREPLAYED, REPLAYED, CANCELLED, RESOLVED
+  replayedBy      String?
+  replayedAt      DateTime?
+  createdAt       DateTime      @default(now())
+
+  run             AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@index([replayStatus])
+  @@index([createdAt])
+}
+
+model AutomationEventRecord {
+  id           String    @id @default(uuid())
+  eventId      String    @unique
+  eventType    String    // order.paid, order.created, customer.email_verified, download.failed, license.issued
+  source       String    @default("INTERNAL_SERVICE") // ORDER_SERVICE, PAYMENT_WEBHOOK, CUSTOMER_SERVICE, DOWNLOAD_SERVICE, LICENCE_SERVICE, SUPPORT_SERVICE, SYSTEM_CRON
+  resourceType String    // ORDER, PAYMENT, CUSTOMER, DOWNLOAD, LICENCE, TICKET
+  resourceId   String?
+  payloadJson  String?
+  status       String    @default("RECEIVED") // RECEIVED, PROCESSING, PROCESSED, DUPLICATE, FAILED
+  occurredAt   DateTime  @default(now())
+  receivedAt   DateTime  @default(now())
+  processedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([eventType])
+  @@index([status])
+  @@index([resourceId])
+  @@index([occurredAt])
+}
+
+model AutomationSchedule {
+  id             String    @id @default(uuid())
+  name           String
+  workflowId     String
+  scheduleType   String    @default("RECURRING_CRON") // ONE_TIME, RECURRING_CRON, DELAYED, BUSINESS_HOURS
+  cronExpression String?   // e.g. 0 * * * * or 0 9 * * 1-5
+  nextExecutionAt DateTime?
+  lastExecutionAt DateTime?
+  status         String    @default("ACTIVE") // ACTIVE, PAUSED, COMPLETED
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([workflowId])
+  @@index([status])
+  @@index([nextExecutionAt])
+}
+
+model AutomationWebhookEndpoint {
+  id               String    @id @default(uuid())
+  name             String
+  url              String
+  secretMasked     String?
+  secretHash       String?
+  direction        String    @default("OUTGOING") // INCOMING, OUTGOING
+  provider         String    @default("CUSTOM") // RAZORPAY, RESEND, WHATSAPP, CUSTOM
+  subscribedEvents String    @default("[]") // JSON array of event names
+  status           String    @default("ACTIVE") // ACTIVE, DISABLED
+  retryCount       Int       @default(0)
+  failureCount     Int       @default(0)
+  lastDeliveryAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([provider])
+  @@index([status])
+}
+
+model AutomationIdempotencyKey {
+  id             String    @id @default(uuid())
+  idempotencyKey String    @unique // e.g. order.paid:ORD-1234:create-entitlement
+  actionType     String    // CREATE_ENTITLEMENT, ISSUE_LICENCE, SEND_EMAIL, REFUND
+  resourceType   String    // ORDER, CUSTOMER, PRODUCT
+  resourceId     String
+  status         String    @default("COMPLETED") // PENDING, COMPLETED, FAILED
+  responseJson   String?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+
+  @@index([idempotencyKey])
+  @@index([expiresAt])
+}
+
+
+
+
+
 

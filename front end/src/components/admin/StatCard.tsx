@@ -5,10 +5,11 @@ interface StatCardProps {
   value: string | number;
   change?: string;
   changeType?: 'positive' | 'negative' | 'neutral';
+  description?: string;
   icon: React.ElementType;
 }
 
-export default function StatCard({ title, value, change, changeType, icon: Icon }: StatCardProps) {
+export default function StatCard({ title, value, change, changeType, description, icon: Icon }: StatCardProps) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-4">
@@ -30,6 +31,11 @@ export default function StatCard({ title, value, change, changeType, icon: Icon 
               {change}
             </span>
             <span className="text-xs text-slate-600 font-medium">vs last month</span>
+          </div>
+        )}
+        {description && (
+          <div className="text-xs text-slate-500 font-medium mt-1.5 line-clamp-1">
+            {description}
           </div>
         )}
       </div>
