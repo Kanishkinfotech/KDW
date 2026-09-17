@@ -2,25 +2,23 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function countAll() {
-  const users = await prisma.user.count();
-  const products = await prisma.product.count();
-  const bundles = await prisma.bundle.count();
-  const categories = await prisma.category.count();
-  const orders = await prisma.order.count();
-  const payments = await prisma.purchase.count();
-  const supportTickets = await prisma.supportTicket.count();
-  const faqs = await prisma.fAQ.count();
+  const products = await prisma.product.findMany({
+    select: { id: true, name: true, slug: true, price: true, categoryId: true, subcategoryId: true, createdAt: true },
+    orderBy: { createdAt: 'asc' }
+  });
+  const categories = await prisma.category.findMany({
+    select: { id: true, name: true, slug: true, parentId: true, _count: { select: { products: true, children: true } } },
+    orderBy: { createdAt: 'asc' }
+  });
 
-  console.log(`BEFORE IMPLEMENTATION\n`);
-  console.log(`Users: ${users}`);
-  console.log(`Products: ${products}`);
-  console.log(`Bundles: ${bundles}`);
-  console.log(`Categories: ${categories}`);
-  console.log(`Orders: ${orders}`);
-  console.log(`Payments (Purchases): ${payments}`);
-  console.log(`SupportTickets: ${supportTickets}`);
-  console.log(`FAQs: ${faqs}`);
+  const bundles = await prisma.bundle.findMany({
+    include: { products: { select: { id: true, name: true } } }
+  });
+  console.log('BUNDLES:', bundles.map(b => ({ id: b.id, title: b.title, productCount: b.products.length })));
   
+  const orderItems = await prisma.orderItem.findMany({ select: { productId: true } });
+  console.log('ORDER ITEM PRODUCT IDS:', orderItems.map(o => o.productId));
+
   await prisma.$disconnect();
 }
 

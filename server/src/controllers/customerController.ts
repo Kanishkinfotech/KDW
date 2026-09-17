@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { prisma } from '../database/db';
 import { CustomerService } from '../services/customerService';
+import { sendGeneralEmail, sendAbandonedCartRecoveryEmail } from '../utils/emailService';
 
 const getActor = (req: Request) => {
   const user = (req as any).user || {};
@@ -30,8 +32,15 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
       maxSpent,
       minOrders,
       tag,
+      dateRange,
       startDate,
       endDate,
+      activity, // 'regular', 'irregular', 'all'
+      returningDays, // '1d', '2d', '3d', '7d', '30d', 'custom', 'all'
+      returningMode = 'recency', // 'recency', 'gap'
+      guestFilter, // 'all', 'paid', 'zero_orders', 'has_phone'
+      unverifiedAge, // '24h', '7d', '30d', 'stale'
+      unverifiedHasOrders, // 'true', 'false'
       sortBy = 'newest'
     } = req.query;
 
@@ -43,25 +52,96 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
       isMerged: false // Exclude previously merged records
     };
 
-    // 1. View filter shortcuts
+    // Calculate Date Range Filter (Supports '1d', 'today', '7d', '1w', '30d', 'custom', or explicit startDate/endDate)
+    const now = Date.now();
+    let dateFilter: any = null;
+
+    if (dateRange === '1d' || dateRange === 'today') {
+      dateFilter = { gte: new Date(now - 24 * 60 * 60 * 1000) };
+    } else if (dateRange === '7d' || dateRange === '1w') {
+      dateFilter = { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) };
+    } else if (dateRange === '30d' || dateRange === '1m') {
+      dateFilter = { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) };
+    } else if (dateRange === 'custom' || startDate || endDate) {
+      dateFilter = {};
+      if (startDate) dateFilter.gte = new Date(startDate as string);
+      if (endDate) {
+        const end = new Date(endDate as string);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.lte = end;
+      }
+    }
+
+    // 1. Regular vs Irregular Activity Filter
+    if (activity === 'regular') {
+      where.lastLoginAt = { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) };
+    } else if (activity === 'irregular') {
+      where.OR = [
+        { lastLoginAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } },
+        { lastLoginAt: null }
+      ];
+    }
+
+    // 2. View filter shortcuts
     if (view) {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       switch (view) {
         case 'new':
-          where.createdAt = { gte: thirtyDaysAgo };
+          where.createdAt = dateFilter || { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) };
           break;
-        case 'returning':
-          where.orders = { some: {} }; // refined in count logic
+        case 'returning': {
+          let recencyInterval = '';
+          if (returningDays === '1d') {
+            recencyInterval = `AND max("createdAt") >= NOW() - INTERVAL '1 day'`;
+          } else if (returningDays === '2d') {
+            recencyInterval = `AND max("createdAt") >= NOW() - INTERVAL '2 days'`;
+          } else if (returningDays === '3d') {
+            recencyInterval = `AND max("createdAt") >= NOW() - INTERVAL '3 days'`;
+          } else if (returningDays === '7d' || returningDays === '1w') {
+            recencyInterval = `AND max("createdAt") >= NOW() - INTERVAL '7 days'`;
+          } else if (returningDays === '30d' || returningDays === '1m') {
+            recencyInterval = `AND max("createdAt") >= NOW() - INTERVAL '30 days'`;
+          }
+
+          const returningRows: any = await prisma.$queryRawUnsafe(`
+            SELECT "customerId" 
+            FROM "Order" 
+            WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+            GROUP BY "customerId" 
+            HAVING count(id) >= 2 ${recencyInterval}
+          `);
+          const returningIds = returningRows.map((r: any) => r.customerId).filter(Boolean);
+          where.id = { in: returningIds };
           break;
+        }
         case 'guest':
           where.customerType = 'GUEST';
+          if (guestFilter === 'paid') {
+            where.orders = { some: { paymentStatus: { in: ['PAID', 'CAPTURED'] } } };
+          } else if (guestFilter === 'zero_orders') {
+            where.orders = { none: { paymentStatus: { in: ['PAID', 'CAPTURED'] } } };
+          } else if (guestFilter === 'has_phone') {
+            where.mobile = { not: null };
+          }
           break;
         case 'unverified':
           where.emailVerified = false;
           where.customerType = 'ACCOUNT';
+          if (unverifiedAge === '24h') {
+            where.createdAt = { gte: new Date(now - 24 * 60 * 60 * 1000) };
+          } else if (unverifiedAge === '7d') {
+            where.createdAt = { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) };
+          } else if (unverifiedAge === '30d') {
+            where.createdAt = { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) };
+          } else if (unverifiedAge === 'stale') {
+            where.createdAt = { lt: new Date(now - 30 * 24 * 60 * 60 * 1000) };
+          }
+          if (unverifiedHasOrders === 'true') {
+            where.orders = { some: { paymentStatus: { in: ['PAID', 'CAPTURED'] } } };
+          }
           break;
         case 'blocked':
           where.status = 'BLOCKED';
+          if (blockScope) where.blockScope = blockScope;
           break;
         case 'high_value':
           where.fraudRisk = { in: ['LOW', 'MEDIUM'] };
@@ -69,32 +149,9 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
       }
     }
 
-    // 2. Direct filter params
-    if (customerType) where.customerType = String(customerType).toUpperCase();
-    if (emailVerified !== undefined && emailVerified !== '') {
-      where.emailVerified = String(emailVerified) === 'true';
-    }
-    if (status) where.status = String(status).toUpperCase();
-    if (blockScope) where.blockScope = String(blockScope).toUpperCase();
-
-    // 3. Tag Filter
-    if (tag) {
-      where.customerTags = {
-        some: {
-          tag: { name: String(tag).toLowerCase() }
-        }
-      };
-    }
-
-    // 4. Date Range
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(startDate as string);
-      if (endDate) {
-        const end = new Date(endDate as string);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
-      }
+    // Apply dateFilter if view is not 'new' but dateFilter was provided
+    if (view !== 'new' && dateFilter) {
+      where.createdAt = dateFilter;
     }
 
     // 5. Multi-Identifier Search
@@ -140,7 +197,18 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
       countVerified,
       countUnverified,
       countBlocked,
-      countNew
+      countNew30d,
+      countNew7d,
+      countNew1d,
+      returningQueryResult,
+      returning1dResult,
+      returning2dResult,
+      returning3dResult,
+      returning7dResult,
+      returning30dResult,
+      regularCountResult,
+      guestPaidResult,
+      guestZeroResult
     ] = await Promise.all([
       prisma.user.findMany({
         where,
@@ -171,7 +239,8 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
           },
           orders: {
             where: { paymentStatus: { in: ['PAID', 'CAPTURED'] } },
-            select: { totalAmount: true }
+            select: { id: true, orderNumber: true, totalAmount: true, createdAt: true },
+            orderBy: { createdAt: 'asc' }
           },
           consents: {
             select: { consentType: true, status: true }
@@ -195,18 +264,219 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
           createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
           isMerged: false
         }
+      }),
+      prisma.user.count({
+        where: {
+          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+          isMerged: false
+        }
+      }),
+      prisma.user.count({
+        where: {
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          isMerged: false
+        }
+      }),
+      prisma.$queryRaw`
+        SELECT count(DISTINCT "customerId")::int as count 
+        FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2
+        ) as returning_sub
+      `,
+      prisma.$queryRaw`
+        SELECT count(*)::int as count FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2 AND max("createdAt") >= NOW() - INTERVAL '1 day'
+        ) as sub1d
+      `,
+      prisma.$queryRaw`
+        SELECT count(*)::int as count FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2 AND max("createdAt") >= NOW() - INTERVAL '2 days'
+        ) as sub2d
+      `,
+      prisma.$queryRaw`
+        SELECT count(*)::int as count FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2 AND max("createdAt") >= NOW() - INTERVAL '3 days'
+        ) as sub3d
+      `,
+      prisma.$queryRaw`
+        SELECT count(*)::int as count FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2 AND max("createdAt") >= NOW() - INTERVAL '7 days'
+        ) as sub7d
+      `,
+      prisma.$queryRaw`
+        SELECT count(*)::int as count FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2 AND max("createdAt") >= NOW() - INTERVAL '30 days'
+        ) as sub30d
+      `,
+      prisma.user.count({
+        where: {
+          isMerged: false,
+          lastLoginAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+        }
+      }),
+      prisma.user.count({
+        where: {
+          customerType: 'GUEST',
+          isMerged: false,
+          orders: { some: { paymentStatus: { in: ['PAID', 'CAPTURED'] } } }
+        }
+      }),
+      prisma.user.count({
+        where: {
+          customerType: 'GUEST',
+          isMerged: false,
+          orders: { none: { paymentStatus: { in: ['PAID', 'CAPTURED'] } } }
+        }
       })
     ]);
 
-    // Format customers with calculated total spend (CLV)
-    const formattedCustomers = customers.map(c => {
-      const totalSpent = (c.orders || []).reduce((sum, o) => sum + o.totalAmount, 0);
+    const countReturning = (returningQueryResult as any)[0]?.count || 0;
+    const countReturning1d = (returning1dResult as any)[0]?.count || 0;
+    const countReturning2d = (returning2dResult as any)[0]?.count || 0;
+    const countReturning3d = (returning3dResult as any)[0]?.count || 0;
+    const countReturning7d = (returning7dResult as any)[0]?.count || 0;
+    const countReturning30d = (returning30dResult as any)[0]?.count || 0;
+    const countRegular = regularCountResult || 0;
+    const countIrregular = Math.max(0, countAll - countRegular);
+    const countGuestPaid = guestPaidResult || 0;
+    const countGuestZeroOrders = guestZeroResult || 0;
+
+    // Format customers with calculated total spend (CLV), returningData & activityStatus
+    let formattedCustomers = customers.map(c => {
+      const paidOrders = c.orders || [];
+      const totalSpent = paidOrders.reduce((sum: number, o: any) => sum + o.totalAmount, 0);
+      const isReturning = paidOrders.length >= 2;
+
+      let lastReturnedDaysAgo: number | null = null;
+      let lastReturnedLabel: string | null = null;
+      let lastReturnGapDays: number | null = null;
+      let returnGapLabel: string | null = null;
+      let avgReturnGapDays: number | null = null;
+      let firstOrderAt: Date | null = null;
+      let lastOrderAt: Date | null = null;
+
+      if (paidOrders.length > 0) {
+        firstOrderAt = paidOrders[0].createdAt;
+        lastOrderAt = paidOrders[paidOrders.length - 1].createdAt;
+      }
+
+      if (isReturning && lastOrderAt) {
+        const lastOrderTime = new Date(lastOrderAt).getTime();
+        const daysAgo = (now - lastOrderTime) / (1000 * 60 * 60 * 24);
+        lastReturnedDaysAgo = Math.round(daysAgo * 10) / 10;
+        if (daysAgo < 1) {
+          lastReturnedLabel = 'Returned today';
+        } else if (daysAgo < 2) {
+          lastReturnedLabel = 'Returned 1 day ago';
+        } else if (daysAgo < 7) {
+          lastReturnedLabel = `Returned ${Math.floor(daysAgo)}d ago`;
+        } else {
+          lastReturnedLabel = `Returned ${Math.floor(daysAgo)}d ago`;
+        }
+
+        const prevOrderAt = paidOrders[paidOrders.length - 2].createdAt;
+        const gapDays = (new Date(lastOrderAt).getTime() - new Date(prevOrderAt).getTime()) / (1000 * 60 * 60 * 24);
+        lastReturnGapDays = Math.round(gapDays * 10) / 10;
+        if (gapDays < 1) {
+          returnGapLabel = 'Returned same day';
+        } else if (gapDays < 2) {
+          returnGapLabel = 'Returned after 1 day';
+        } else {
+          returnGapLabel = `Returned after ${Math.round(gapDays)} days`;
+        }
+
+        let totalGap = 0;
+        for (let i = 1; i < paidOrders.length; i++) {
+          totalGap += (new Date(paidOrders[i].createdAt).getTime() - new Date(paidOrders[i - 1].createdAt).getTime()) / (1000 * 60 * 60 * 24);
+        }
+        avgReturnGapDays = Math.round((totalGap / (paidOrders.length - 1)) * 10) / 10;
+      }
+
+      // Regular vs Irregular Activity Status based on login telemetry
+      let daysSinceLastLogin: number | null = null;
+      let activityStatus: 'REGULAR' | 'IRREGULAR' = 'IRREGULAR';
+      let activitySummary = 'Infrequent visitor';
+
+      if (c.lastLoginAt) {
+        const loginDaysAgo = (now - new Date(c.lastLoginAt).getTime()) / (1000 * 60 * 60 * 24);
+        daysSinceLastLogin = Math.round(loginDaysAgo * 10) / 10;
+        if (loginDaysAgo <= 7) {
+          activityStatus = 'REGULAR';
+          if (loginDaysAgo < 1) {
+            activitySummary = 'Active today (Regular)';
+          } else if (loginDaysAgo < 2) {
+            activitySummary = 'Active 1d ago (Regular)';
+          } else {
+            activitySummary = `Active ${Math.floor(loginDaysAgo)}d ago (Regular)`;
+          }
+        } else {
+          activityStatus = 'IRREGULAR';
+          activitySummary = `Inactive for ${Math.floor(loginDaysAgo)}d (Irregular)`;
+        }
+      } else {
+        activityStatus = 'IRREGULAR';
+        activitySummary = 'Never logged in (Irregular)';
+      }
+
       return {
         ...c,
+        _count: {
+          ...c._count,
+          orders: paidOrders.length
+        },
         totalSpent,
-        paidOrdersCount: c.orders.length
+        paidOrdersCount: paidOrders.length,
+        activityStatus,
+        activitySummary,
+        daysSinceLastLogin,
+        returningData: {
+          isReturning,
+          orderCount: paidOrders.length,
+          firstOrderAt,
+          lastOrderAt,
+          lastReturnedDaysAgo,
+          lastReturnedLabel,
+          lastReturnGapDays,
+          returnGapLabel,
+          avgReturnGapDays
+        }
       };
     });
+
+    // In-memory sorting for aggregate fields if requested
+    if (sortBy === 'highest_spend') {
+      formattedCustomers = formattedCustomers.sort((a, b) => b.totalSpent - a.totalSpent);
+    } else if (sortBy === 'lowest_spend') {
+      formattedCustomers = formattedCustomers.sort((a, b) => a.totalSpent - b.totalSpent);
+    } else if (sortBy === 'most_orders') {
+      formattedCustomers = formattedCustomers.sort((a, b) => b.paidOrdersCount - a.paidOrdersCount);
+    } else if (sortBy === 'fewest_orders') {
+      formattedCustomers = formattedCustomers.sort((a, b) => a.paidOrdersCount - b.paidOrdersCount);
+    }
 
     res.json({
       success: true,
@@ -219,9 +489,21 @@ export const getAdminCustomers = async (req: Request, res: Response, next: NextF
       },
       counters: {
         all: countAll,
-        new: countNew,
-        returning: Math.max(0, countAll - countNew),
+        new: countNew30d,
+        new_1d: countNew1d,
+        new_7d: countNew7d,
+        new_30d: countNew30d,
+        returning: countReturning,
+        returning_1d: countReturning1d,
+        returning_2d: countReturning2d,
+        returning_3d: countReturning3d,
+        returning_7d: countReturning7d,
+        returning_30d: countReturning30d,
+        regular: countRegular,
+        irregular: countIrregular,
         guest: countGuest,
+        guest_paid: countGuestPaid,
+        guest_zero_orders: countGuestZeroOrders,
         verified: countVerified,
         unverified: countUnverified,
         blocked: countBlocked,
@@ -247,7 +529,8 @@ export const getCustomerAnalytics = async (req: Request, res: Response, next: Ne
       verifiedCustomers,
       blockedCustomers,
       paidOrdersAgg,
-      refundedOrdersCount
+      refundedOrdersCount,
+      returningQueryResult
     ] = await Promise.all([
       prisma.user.count({ where: { isMerged: false } }),
       prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo }, isMerged: false } }),
@@ -259,12 +542,22 @@ export const getCustomerAnalytics = async (req: Request, res: Response, next: Ne
         _sum: { totalAmount: true },
         _count: { id: true }
       }),
-      prisma.order.count({ where: { paymentStatus: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] } } })
+      prisma.order.count({ where: { paymentStatus: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] } } }),
+      prisma.$queryRaw`
+        SELECT count(DISTINCT "customerId")::int as count 
+        FROM (
+          SELECT "customerId" 
+          FROM "Order" 
+          WHERE "paymentStatus" IN ('PAID', 'CAPTURED') AND "customerId" IS NOT NULL 
+          GROUP BY "customerId" 
+          HAVING count(id) >= 2
+        ) as returning_sub
+      `
     ]);
 
     const totalRevenue = paidOrdersAgg._sum.totalAmount || 0;
     const averageCustomerValue = totalCustomers > 0 ? Math.round(totalRevenue / totalCustomers) : 0;
-    const returningCustomers = Math.max(0, totalCustomers - newCustomers);
+    const returningCustomers = (returningQueryResult as any)[0]?.count || 0;
     const repeatPurchaseRate = totalCustomers > 0 ? Math.round((returningCustomers / totalCustomers) * 100) : 0;
 
     res.json({
@@ -564,7 +857,108 @@ export const unblockCustomer = async (req: Request, res: Response, next: NextFun
 };
 
 // ============================================================================
-// 7. MANAGE CUSTOMER TAGS (Add / Remove with Audit Trail)
+// 7. VERIFY CUSTOMER & RESEND VERIFICATION
+// ============================================================================
+export const verifyCustomer = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const actor = getActor(req);
+
+    const customer = await prisma.user.findUnique({ where: { id } });
+    if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        emailVerified: true,
+        emailVerifiedAt: new Date()
+      }
+    });
+
+    await prisma.$transaction([
+      prisma.customerAuditLog.create({
+        data: {
+          customerId: id,
+          actorId: actor.id,
+          actorEmail: actor.email,
+          actorRole: actor.role,
+          action: 'VERIFY',
+          reason: `Manually verified by admin ${actor.name}`
+        }
+      }),
+      prisma.customerTimelineEvent.create({
+        data: {
+          customerId: id,
+          eventType: 'EMAIL_VERIFIED',
+          actorType: 'ADMIN',
+          actorName: actor.name,
+          actorEmail: actor.email,
+          status: 'SUCCESS',
+          description: `Customer email manually verified by ${actor.name}`
+        }
+      })
+    ]);
+
+    res.json({ success: true, message: 'Customer email successfully verified.', customer: updated });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resendCustomerVerification = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const actor = getActor(req);
+
+    const customer = await prisma.user.findUnique({ where: { id } });
+    if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}&email=${encodeURIComponent(customer.email)}`;
+
+    try {
+      await sendGeneralEmail({
+        to: customer.email,
+        subject: 'Verify your KDW Account Email',
+        intent: 'SECURITY',
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+            <h2>Verify Your Email Address</h2>
+            <p>Hi ${customer.name},</p>
+            <p>Please click the button below to verify your email address and activate all account download privileges:</p>
+            <p style="margin: 24px 0;">
+              <a href="${verifyUrl}" style="background-color: #5b21b6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                Verify Email Address
+              </a>
+            </p>
+            <p style="color: #64748b; font-size: 12px;">If you did not request this verification, you can safely ignore this email.</p>
+          </div>
+        `
+      });
+    } catch (mailErr: any) {
+      console.warn('[CustomerController] Email verification dispatch note:', mailErr.message);
+    }
+
+    await prisma.customerTimelineEvent.create({
+      data: {
+        customerId: id,
+        eventType: 'VERIFICATION_RESENT',
+        actorType: 'ADMIN',
+        actorName: actor.name,
+        actorEmail: actor.email,
+        status: 'SUCCESS',
+        description: `Verification link dispatched to ${customer.email} by ${actor.name}`
+      }
+    });
+
+    res.json({ success: true, message: `Verification email dispatched to ${customer.email}` });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================================
+// 8. MANAGE CUSTOMER TAGS (Add / Remove with Audit Trail)
 // ============================================================================
 export const addCustomerTag = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -662,7 +1056,7 @@ export const removeCustomerTag = async (req: Request, res: Response, next: NextF
 };
 
 // ============================================================================
-// 8. UPDATE CONSENT REGISTRY
+// 9. UPDATE CONSENT REGISTRY
 // ============================================================================
 export const updateCustomerConsent = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -708,7 +1102,7 @@ export const updateCustomerConsent = async (req: Request, res: Response, next: N
 };
 
 // ============================================================================
-// 9. ADD CUSTOMER INTERNAL NOTE
+// 10. ADD & DELETE CUSTOMER INTERNAL NOTE
 // ============================================================================
 export const addCustomerNote = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -748,24 +1142,108 @@ export const addCustomerNote = async (req: Request, res: Response, next: NextFun
   }
 };
 
+export const deleteCustomerNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const noteId = String(req.params.noteId);
+    const actor = getActor(req);
+
+    await prisma.customerNote.deleteMany({
+      where: { id: noteId, customerId: id }
+    });
+
+    await prisma.customerTimelineEvent.create({
+      data: {
+        customerId: id,
+        eventType: 'NOTE_DELETED',
+        actorType: 'ADMIN',
+        actorName: actor.name,
+        actorEmail: actor.email,
+        description: `Internal note removed by ${actor.name}`
+      }
+    });
+
+    res.json({ success: true, message: 'Note successfully removed.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================================================
-// 10. DUPLICATE DETECTION & ATOMIC MERGE
+// 11. DUPLICATE DETECTION & ATOMIC MERGE
 // ============================================================================
 export const detectDuplicateCustomers = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Find all customers with matching normalized email, phone, or guest checkouts
     const duplicates = await prisma.$queryRaw`
       SELECT 
         u1.id as "masterId", u1.name as "masterName", u1.email as "masterEmail", u1."customerType" as "masterType", u1."createdAt" as "masterCreatedAt",
         u2.id as "duplicateId", u2.name as "duplicateName", u2.email as "duplicateEmail", u2."customerType" as "duplicateType", u2."createdAt" as "duplicateCreatedAt",
-        'MATCHING_NORMALIZED_EMAIL' as "matchSignal"
+        CASE 
+          WHEN LOWER(TRIM(u1.email)) = LOWER(TRIM(u2.email)) THEN 'MATCHING_NORMALIZED_EMAIL'
+          WHEN u1.mobile IS NOT NULL AND u1.mobile != '' AND u1.mobile = u2.mobile THEN 'MATCHING_PHONE_NUMBER'
+          WHEN REPLACE(LOWER(SPLIT_PART(u1.email, '@', 1)), '.', '') = REPLACE(LOWER(SPLIT_PART(u2.email, '@', 1)), '.', '') 
+               AND SPLIT_PART(u1.email, '@', 2) = SPLIT_PART(u2.email, '@', 2) THEN 'MATCHING_GMAIL_ALIAS'
+          ELSE 'SIMILAR_PROFILE'
+        END as "matchSignal"
       FROM "User" u1
-      JOIN "User" u2 ON LOWER(TRIM(u1.email)) = LOWER(TRIM(u2.email)) AND u1.id != u2.id
+      JOIN "User" u2 ON u1.id != u2.id AND (
+        LOWER(TRIM(u1.email)) = LOWER(TRIM(u2.email)) OR
+        (u1.mobile IS NOT NULL AND u1.mobile != '' AND u1.mobile = u2.mobile) OR
+        (REPLACE(LOWER(SPLIT_PART(u1.email, '@', 1)), '.', '') = REPLACE(LOWER(SPLIT_PART(u2.email, '@', 1)), '.', '') 
+         AND SPLIT_PART(u1.email, '@', 2) = SPLIT_PART(u2.email, '@', 2))
+      )
       WHERE u1."isMerged" = false AND u2."isMerged" = false AND u1."createdAt" <= u2."createdAt"
       LIMIT 50
     `;
 
     res.json({ success: true, duplicates });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const searchCustomers = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const where: any = { isMerged: false };
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { customerCode: { contains: q, mode: 'insensitive' } },
+        { id: { contains: q, mode: 'insensitive' } },
+        { mobile: { contains: q, mode: 'insensitive' } }
+      ];
+    }
+
+    const customers = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        customerCode: true,
+        name: true,
+        email: true,
+        mobile: true,
+        customerType: true,
+        status: true,
+        createdAt: true,
+        orders: {
+          where: { paymentStatus: { in: ['PAID', 'CAPTURED'] } },
+          select: { totalAmount: true }
+        }
+      },
+      take: 20,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      customers: customers.map(c => ({
+        ...c,
+        totalSpent: c.orders.reduce((sum, o) => sum + o.totalAmount, 0),
+        paidOrdersCount: c.orders.length
+      }))
+    });
   } catch (error) {
     next(error);
   }
@@ -788,7 +1266,7 @@ export const executeCustomerMerge = async (req: Request, res: Response, next: Ne
 };
 
 // ============================================================================
-// 11. PRIVACY DATA REQUESTS & ANONYMIZATION (GDPR)
+// 12. PRIVACY DATA REQUESTS & ANONYMIZATION (GDPR)
 // ============================================================================
 export const getDataRequests = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -834,54 +1312,261 @@ export const processDataRequest = async (req: Request, res: Response, next: Next
 };
 
 // ============================================================================
-// 12. ABANDONED CHECKOUTS
+// 13. ABANDONED CHECKOUTS & RECOVERY
 // ============================================================================
 export const getAbandonedCheckouts = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const checkouts = await prisma.abandonedCheckout.findMany({
-      include: {
-        customer: { select: { id: true, customerCode: true, name: true, email: true } }
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100
+    const { status, search } = req.query;
+    const baseExclusions = {
+      NOT: [
+        { customerEmail: { startsWith: 'test_telemetry_' } },
+        { customerEmail: { contains: 'dummy' } },
+        { customerName: { contains: 'Telemetry Test' } }
+      ]
+    };
+
+    const where: any = { ...baseExclusions };
+    if (status && status !== 'all' && status !== 'ALL') {
+      where.status = String(status).toUpperCase();
+    }
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      where.AND = [
+        baseExclusions,
+        {
+          OR: [
+            { customerEmail: { contains: q, mode: 'insensitive' } },
+            { customerName: { contains: q, mode: 'insensitive' } },
+            { customerPhone: { contains: q, mode: 'insensitive' } }
+          ]
+        }
+      ];
+    }
+
+    const [checkouts, totalAbandoned, totalRecovered, totalSum] = await Promise.all([
+      prisma.abandonedCheckout.findMany({
+        where,
+        include: {
+          customer: { select: { id: true, customerCode: true, name: true, email: true, mobile: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100
+      }),
+      prisma.abandonedCheckout.count({ where: { status: 'ABANDONED', ...baseExclusions } }),
+      prisma.abandonedCheckout.count({ where: { status: 'RECOVERED', ...baseExclusions } }),
+      prisma.abandonedCheckout.aggregate({
+        where: { status: 'ABANDONED', ...baseExclusions },
+        _sum: { totalAmount: true }
+      })
+    ]);
+
+    res.json({
+      success: true,
+      checkouts,
+      metrics: {
+        abandonedCount: totalAbandoned,
+        recoveredCount: totalRecovered,
+        totalAbandonedRevenue: totalSum._sum.totalAmount || 0
+      }
     });
-    res.json({ success: true, checkouts });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteAbandonedCheckout = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    await prisma.abandonedCheckout.delete({ where: { id } });
+    res.json({ success: true, message: 'Abandoned checkout removed successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const recoverAbandonedCheckout = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const actor = getActor(req);
+
+    const checkout = await prisma.abandonedCheckout.findUnique({
+      where: { id },
+      include: { customer: true }
+    });
+
+    if (!checkout) return res.status(404).json({ success: false, message: 'Abandoned checkout not found' });
+
+    const targetEmail = checkout.customerEmail || checkout.customer?.email;
+    if (!targetEmail) return res.status(400).json({ success: false, message: 'Recipient email not found on checkout record' });
+
+    // Send Highly Attractive, Persuasive Cart Recovery Email via emailService
+    try {
+      const cartItems = Array.isArray(checkout.cartData) ? checkout.cartData : [];
+      await sendAbandonedCartRecoveryEmail({
+        recipientEmail: targetEmail,
+        customerName: checkout.customerName || checkout.customer?.name || 'Valued Creator',
+        checkoutId: checkout.id,
+        cartItems,
+        totalAmount: checkout.totalAmount,
+        discountCode: 'RECOVER10'
+      });
+    } catch (mailErr: any) {
+      console.warn('[CustomerController] Recovery email dispatch note:', mailErr.message);
+    }
+
+    const updated = await prisma.abandonedCheckout.update({
+      where: { id },
+      data: {
+        recoveryEmailSent: true,
+        recoveryEmailSentAt: new Date()
+      }
+    });
+
+    if (checkout.customerId) {
+      await prisma.customerTimelineEvent.create({
+        data: {
+          customerId: checkout.customerId,
+          eventType: 'RECOVERY_EMAIL_SENT',
+          actorType: 'ADMIN',
+          actorName: actor.name,
+          actorEmail: actor.email,
+          status: 'SUCCESS',
+          description: `Cart recovery email dispatched by ${actor.name}`
+        }
+      });
+    }
+
+    res.json({ success: true, message: `Recovery email dispatched to ${targetEmail}`, checkout: updated });
   } catch (error) {
     next(error);
   }
 };
 
 // ============================================================================
-// 13. GLOBAL CUSTOMER ACTIVITY STREAM
+// 14. GLOBAL CUSTOMER ACTIVITY STREAM
 // ============================================================================
 export const getCustomerActivityStream = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const events = await prisma.customerTimelineEvent.findMany({
-      include: {
-        customer: { select: { id: true, customerCode: true, name: true, email: true } }
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100
+    const { category, search, dateRange, startDate, endDate } = req.query;
+
+    const where: any = {};
+
+    // 1. Category Filter
+    if (category && category !== 'all') {
+      switch (category) {
+        case 'orders':
+          where.eventType = { in: ['ORDER_CREATED', 'PAYMENT_COMPLETED', 'REFUND_COMPLETED'] };
+          break;
+        case 'auth':
+          where.eventType = { in: ['CUSTOMER_LOGIN', 'CUSTOMER_SESSION'] };
+          break;
+        case 'account':
+          where.eventType = { in: ['CUSTOMER_CREATED', 'EMAIL_VERIFIED', 'TAG_ADDED', 'TAG_REMOVED', 'GUEST_CLAIMED', 'MERGED'] };
+          break;
+        case 'security':
+          where.eventType = { in: ['CUSTOMER_BLOCKED', 'CUSTOMER_UNBLOCKED', 'SECURITY_ALERT'] };
+          break;
+      }
+    }
+
+    // 2. Date Range Filter
+    const now = Date.now();
+    if (dateRange === 'today' || dateRange === '1d') {
+      where.createdAt = { gte: new Date(now - 24 * 60 * 60 * 1000) };
+    } else if (dateRange === '7d' || dateRange === '1w') {
+      where.createdAt = { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) };
+    } else if (dateRange === '30d' || dateRange === '1m') {
+      where.createdAt = { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) };
+    } else if (dateRange === 'custom' || startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate as string);
+      if (endDate) {
+        const end = new Date(endDate as string);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    // 3. Search Filter
+    if (search && String(search).trim() !== '') {
+      const q = String(search).trim();
+      where.OR = [
+        { description: { contains: q, mode: 'insensitive' } },
+        { eventType: { contains: q, mode: 'insensitive' } },
+        { referenceId: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+        { customer: { email: { contains: q, mode: 'insensitive' } } },
+        { customer: { customerCode: { contains: q, mode: 'insensitive' } } }
+      ];
+    }
+
+    const [events, countAll, countOrders, countAuth, countAccount, countSecurity] = await Promise.all([
+      prisma.customerTimelineEvent.findMany({
+        where,
+        include: {
+          customer: { select: { id: true, customerCode: true, name: true, email: true, status: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100
+      }),
+      prisma.customerTimelineEvent.count(),
+      prisma.customerTimelineEvent.count({ where: { eventType: { in: ['ORDER_CREATED', 'PAYMENT_COMPLETED', 'REFUND_COMPLETED'] } } }),
+      prisma.customerTimelineEvent.count({ where: { eventType: { in: ['CUSTOMER_LOGIN', 'CUSTOMER_SESSION'] } } }),
+      prisma.customerTimelineEvent.count({ where: { eventType: { in: ['CUSTOMER_CREATED', 'EMAIL_VERIFIED', 'TAG_ADDED', 'TAG_REMOVED', 'GUEST_CLAIMED', 'MERGED'] } } }),
+      prisma.customerTimelineEvent.count({ where: { eventType: { in: ['CUSTOMER_BLOCKED', 'CUSTOMER_UNBLOCKED', 'SECURITY_ALERT'] } } })
+    ]);
+
+    res.json({
+      success: true,
+      events,
+      counters: {
+        all: countAll,
+        orders: countOrders,
+        auth: countAuth,
+        account: countAccount,
+        security: countSecurity
+      }
     });
-    res.json({ success: true, events });
   } catch (error) {
     next(error);
   }
 };
 
 // ============================================================================
-// 14. EXPORT CUSTOMERS (CSV Engine with Audit Logging)
+// 15. EXPORT CUSTOMERS (CSV Engine with Audit Logging)
 // ============================================================================
 export const exportCustomers = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { view, startDate, endDate } = req.query;
+    const { view, startDate, endDate, search } = req.query;
     const actor = getActor(req);
 
     const where: any = { isMerged: false };
+
+    if (view) {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      if (view === 'new') where.createdAt = { gte: thirtyDaysAgo };
+      if (view === 'guest') where.customerType = 'GUEST';
+      if (view === 'unverified') {
+        where.emailVerified = false;
+        where.customerType = 'ACCOUNT';
+      }
+      if (view === 'blocked') where.status = 'BLOCKED';
+    }
+
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate as string);
       if (endDate) where.createdAt.lte = new Date(endDate as string);
+    }
+
+    if (search && String(search).trim() !== '') {
+      const q = String(search).trim();
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { mobile: { contains: q, mode: 'insensitive' } },
+        { customerCode: { contains: q, mode: 'insensitive' } }
+      ];
     }
 
     const customers = await prisma.user.findMany({
@@ -893,16 +1578,18 @@ export const exportCustomers = async (req: Request, res: Response, next: NextFun
       take: 1000
     });
 
-    await prisma.customerAuditLog.create({
-      data: {
-        customerId: customers[0]?.id || 'bulk',
-        actorId: actor.id,
-        actorEmail: actor.email,
-        actorRole: actor.role,
-        action: 'EXPORT',
-        reason: `Customers export downloaded (${customers.length} rows)`
-      }
-    });
+    if (customers.length > 0) {
+      await prisma.customerAuditLog.create({
+        data: {
+          customerId: customers[0]?.id || 'bulk',
+          actorId: actor.id,
+          actorEmail: actor.email,
+          actorRole: actor.role,
+          action: 'EXPORT',
+          reason: `Customers export downloaded (${customers.length} rows)`
+        }
+      });
+    }
 
     const csvRows = [
       ['Customer Code', 'Name', 'Email', 'Phone', 'Customer Type', 'Status', 'Email Verified', 'Paid Orders', 'Total Spent (INR)', 'Created Date'].join(',')

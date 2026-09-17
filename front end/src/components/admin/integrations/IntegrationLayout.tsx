@@ -1,0 +1,116 @@
+import React from 'react';
+import { NavLink } from 'react-router-dom';
+import {
+  CreditCard,
+  Mail,
+  MessageCircle,
+  Radio,
+  RefreshCw,
+  Save
+} from 'lucide-react';
+
+interface IntegrationLayoutProps {
+  title: string;
+  subtitle?: string;
+  children?: React.ReactNode;
+  onRefresh?: () => void;
+  isLoading?: boolean;
+  isDirty?: boolean;
+  onSave?: () => void;
+  isSaving?: boolean;
+}
+
+export const IntegrationLayout: React.FC<IntegrationLayoutProps> = ({
+  title,
+  subtitle,
+  children,
+  onRefresh,
+  isLoading,
+  isDirty,
+  onSave,
+  isSaving
+}) => {
+  const navItems = [
+    { name: 'Email SMTP', href: '/admin/integrations/email-smtp', icon: Mail },
+    { name: 'WhatsApp API', href: '/admin/integrations/whatsapp-api', icon: MessageCircle }
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50 border border-sky-200 rounded-2xl p-6 shadow-xs text-slate-900">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+              <Radio className="w-3.5 h-3.5 text-blue-600" />
+              Third-Party Integrations
+            </span>
+            <span className="text-xs text-slate-500 font-medium">Standalone Operational Services</span>
+          </div>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="text-sm text-slate-600 mt-0.5 max-w-2xl">
+              {subtitle}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition border border-slate-200 shadow-2xs flex items-center gap-2 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-blue-500' : ''}`} />
+              Refresh
+            </button>
+          )}
+
+          {onSave && (
+            <button
+              onClick={onSave}
+              disabled={isSaving || !isDirty}
+              className={`px-4 py-2 text-xs font-semibold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-2xs ${
+                isDirty
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+              }`}
+            >
+              <Save className="w-3.5 h-3.5" />
+              {isSaving ? 'Saving...' : 'Save Settings'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Navigation Submenu Tabs */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-800">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-blue-500/10 text-blue-600 border border-blue-500/30 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent'
+                }`
+              }
+            >
+              <Icon className="w-4 h-4" />
+              <span>{item.name}</span>
+            </NavLink>
+          );
+        })}
+      </div>
+
+      {children}
+    </div>
+  );
+};
+export default IntegrationLayout;

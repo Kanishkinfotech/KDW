@@ -1,377 +1,463 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, Download, MoreVertical, Edit2, Users, Eye, Shield, Trash2, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
-import { exportToCSV } from '../../utils/csvExport';
+import {
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Check,
+  X,
+  RefreshCw,
+  UserCheck,
+  Sliders,
+  AlertCircle,
+  HelpCircle,
+  Info
+} from 'lucide-react';
+import Button from '../../components/Button';
+import { useAuth } from '../../context/AuthContext';
+
+interface PermissionDef {
+  code: string;
+  resource: string;
+  action: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  description?: string;
+}
+
+interface StaffUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  isActive: boolean;
+  permissions: string[];
+  effectivePermissions: string[];
+}
+
+interface PermissionsCatalogData {
+  roles: string[];
+  permissions: PermissionDef[];
+  roleDefaults: Record<string, string[]>;
+}
 
 export default function AdminRoles() {
-  const [roles, setRoles] = useState<any[]>([]);
+  const { user: currentAuthUser } = useAuth();
+  const userRoleNormalized = (currentAuthUser?.role || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const isSuperAdmin = userRoleNormalized === 'super_admin' || userRoleNormalized === 'admin';
+
+  const [activeTab, setActiveTab] = useState<'matrix' | 'overrides'>('matrix');
+  const [catalog, setCatalog] = useState<PermissionsCatalogData | null>(null);
+  const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  // Modals state
-  const [activeModal, setActiveModal] = useState<'view' | 'edit' | 'users' | null>(null);
-  const [selectedRole, setSelectedRole] = useState<any>(null);
-  const [roleUsers, setRoleUsers] = useState<any[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Edit form state
-  const [editForm, setEditForm] = useState({
-    name: '',
-    description: '',
-    permissions: [] as string[]
-  });
+  // Override Management
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  const [selectedStaffExtraPermissions, setSelectedStaffExtraPermissions] = useState<string[]>([]);
+  const [saveLoading, setSaveLoading] = useState(false);
 
-  const availablePermissions = [
-    { id: 'view_dashboard', label: 'View Dashboard' },
-    { id: 'manage_users', label: 'Manage Users' },
-    { id: 'manage_products', label: 'Manage Products' },
-    { id: 'manage_orders', label: 'Manage Orders' },
-    { id: 'view_roles', label: 'View Roles' },
-    { id: 'manage_roles', label: 'Manage Roles' },
-    { id: 'manage_support', label: 'Manage Support' },
-    { id: 'manage_coupons', label: 'Manage Coupons' },
-  ];
+  const getAuthHeader = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
-  const fetchRoles = async () => {
+  const loadCatalogAndStaff = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/admin/roles', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.data.success) {
-        setRoles(res.data.roles);
+      const [catalogRes, staffRes] = await Promise.all([
+        axios.get('/api/admin/users/permissions-catalog', {
+          headers: getAuthHeader(),
+          withCredentials: true
+        }),
+        axios.get('/api/admin/users', {
+          headers: getAuthHeader(),
+          withCredentials: true
+        })
+      ]);
+
+      if (catalogRes.data.success) {
+        setCatalog(catalogRes.data.data);
+      }
+      if (staffRes.data.success) {
+        const staff = staffRes.data.data || [];
+        setStaffList(staff);
+        if (staff.length > 0 && !selectedStaffId) {
+          setSelectedStaffId(staff[0].id);
+          setSelectedStaffExtraPermissions(staff[0].permissions || []);
+        }
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to load roles');
+      toast.error(err.response?.data?.message || 'Failed to load permissions catalog');
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedStaffId]);
 
   useEffect(() => {
-    fetchRoles();
-  }, []);
+    loadCatalogAndStaff();
+  }, [loadCatalogAndStaff]);
 
-  const filteredRoles = roles.filter(r => 
-    r.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (r.description && r.description.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
-
-  const handleExport = () => {
-    if (filteredRoles.length === 0) return;
-    const exportData = filteredRoles.map(r => ({
-      ID: r.id,
-      Name: r.name,
-      Description: r.description || '',
-      'Users Count': r.usersCount,
-      'Is System': r.isSystem,
-      'Created At': r.createdAt
-    }));
-    exportToCSV(exportData, 'roles_export');
-  };
-
-  const openEditModal = (role: any) => {
-    setSelectedRole(role);
-    setEditForm({
-      name: role.name,
-      description: role.description || '',
-      permissions: role.permissions || []
-    });
-    setActiveModal('edit');
-  };
-
-  const openUsersModal = async (role: any) => {
-    setSelectedRole(role);
-    setActiveModal('users');
-    setRoleUsers([]);
-    try {
-      const res = await axios.get(`/api/admin/roles/${role.id}/users`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.data.success) {
-        setRoleUsers(res.data.users);
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to load assigned users');
+  // When staff selection changes
+  const handleSelectStaff = (staffId: string) => {
+    setSelectedStaffId(staffId);
+    const target = staffList.find((s) => s.id === staffId);
+    if (target) {
+      setSelectedStaffExtraPermissions(target.permissions || []);
     }
   };
 
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Toggle an extra permission
+  const handleToggleExtraPermission = (code: string) => {
+    if (selectedStaffExtraPermissions.includes(code)) {
+      setSelectedStaffExtraPermissions(selectedStaffExtraPermissions.filter((c) => c !== code));
+    } else {
+      setSelectedStaffExtraPermissions([...selectedStaffExtraPermissions, code]);
+    }
+  };
+
+  // Save Extra Permissions
+  const handleSavePermissions = async () => {
+    if (!selectedStaffId) return;
+
     try {
-      setIsSubmitting(true);
-      const res = await axios.put(`/api/admin/roles/${selectedRole.id}`, editForm, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      setSaveLoading(true);
+      const res = await axios.put(
+        `/api/admin/users/${selectedStaffId}/permissions`,
+        { permissions: selectedStaffExtraPermissions },
+        { headers: getAuthHeader(), withCredentials: true }
+      );
+
       if (res.data.success) {
-        toast.success('Role updated successfully');
-        setActiveModal(null);
-        fetchRoles();
+        toast.success('Staff permissions updated successfully');
+        // Update local list
+        setStaffList((prev) =>
+          prev.map((s) =>
+            s.id === selectedStaffId
+              ? {
+                  ...s,
+                  permissions: res.data.data.permissions,
+                  effectivePermissions: res.data.data.effectivePermissions
+                }
+              : s
+          )
+        );
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to update role');
+      toast.error(err.response?.data?.message || 'Failed to update permissions');
     } finally {
-      setIsSubmitting(false);
+      setSaveLoading(false);
     }
   };
 
-  const handleDelete = async (role: any) => {
-    if (role.isSystem) return toast.error("System roles cannot be deleted.");
-    if (role.usersCount > 0) return toast.error("Cannot delete a role with assigned users.");
-    
-    if (window.confirm(`Are you sure you want to delete the ${role.name} role?`)) {
-      try {
-        const res = await axios.delete(`/api/admin/roles/${role.id}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        });
-        if (res.data.success) {
-          toast.success('Role deleted successfully');
-          fetchRoles();
-        }
-      } catch (err: any) {
-        toast.error(err.response?.data?.message || 'Failed to delete role');
-      }
+  const getRiskBadge = (risk: string) => {
+    switch (risk) {
+      case 'CRITICAL':
+        return (
+          <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-bold rounded-md uppercase">
+            Critical
+          </span>
+        );
+      case 'HIGH':
+        return (
+          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md uppercase">
+            High
+          </span>
+        );
+      case 'MEDIUM':
+        return (
+          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 border border-blue-200 text-[10px] font-bold rounded-md uppercase">
+            Medium
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold rounded-md uppercase">
+            Low
+          </span>
+        );
     }
   };
 
-  const togglePermission = (permId: string) => {
-    setEditForm(prev => {
-      if (prev.permissions.includes('all')) return prev; // Cannot toggle if has 'all'
-      
-      const newPerms = prev.permissions.includes(permId)
-        ? prev.permissions.filter(p => p !== permId)
-        : [...prev.permissions, permId];
-      return { ...prev, permissions: newPerms };
-    });
-  };
+  const selectedStaffMember = staffList.find((s) => s.id === selectedStaffId);
+  const selectedStaffRoleDefaults = catalog?.roleDefaults[selectedStaffMember?.role || ''] || [];
 
   return (
-    <div className="space-y-6 pb-12 animate-fade-in">
+    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6 font-sans">
+      
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Roles & Permissions</h1>
-          <p className="text-slate-500 mt-1">Manage system roles and their access levels.</p>
-        </div>
-        <button onClick={handleExport} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-2 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center gap-2 w-full sm:w-auto justify-center">
-          <Download size={18} />
-          Export Data
-        </button>
-      </div>
-
-      {/* Toolbar */}
-      <div className="bg-white rounded-t-2xl border-x border-t border-slate-200 p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="relative w-full sm:max-w-xs">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
-          <input 
-            type="text"
-            placeholder="Search roles..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          />
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <Shield className="text-primary w-7 h-7" />
+            Roles & Permission Matrix (RBAC)
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Review default role permissions and assign granular per-staff permission overrides.
+          </p>
         </div>
 
-      </div>
-
-      {/* Data Table */}
-      <div className="bg-white rounded-b-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4">Role Name</th>
-                <th className="px-6 py-4">Assigned Users</th>
-                <th className="px-6 py-4">Permissions Level</th>
-                <th className="px-6 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500 animate-pulse">Loading roles...</td></tr>
-              ) : filteredRoles.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
-                    No roles found.
-                  </td>
-                </tr>
-              ) : (
-                filteredRoles.map((role) => (
-                  <tr key={role.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="px-6 py-4 font-bold text-slate-900 flex items-center gap-2">
-                      {role.name}
-                      {role.isSystem && <span title="System Role"><Shield size={14} className="text-primary" /></span>}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {role.usersCount} users
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {role.permissions.includes('all') ? 'Full Access' : `${role.permissions.length} Custom`}
-                    </td>
-                    <td className="px-6 py-4 text-right relative group/menu">
-                      <button className="p-2 text-slate-600 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
-                        <MoreVertical size={16} />
-                      </button>
-                      
-                      {/* Dropdown Menu */}
-                      <div className="absolute right-10 top-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all z-10 flex flex-col overflow-hidden">
-                        <button onClick={() => { setSelectedRole(role); setActiveModal('view'); }} className="flex items-center gap-2 px-4 py-2 text-left hover:bg-slate-50 text-slate-700">
-                          <Eye size={14} /> View Role
-                        </button>
-                        <button onClick={() => openEditModal(role)} className="flex items-center gap-2 px-4 py-2 text-left hover:bg-slate-50 text-slate-700">
-                          <Edit2 size={14} /> Edit Role
-                        </button>
-                        <button onClick={() => openUsersModal(role)} className="flex items-center gap-2 px-4 py-2 text-left hover:bg-slate-50 text-slate-700">
-                          <Users size={14} /> Manage Assigned Users
-                        </button>
-                        {!role.isSystem && (
-                          <button onClick={() => handleDelete(role)} className="flex items-center gap-2 px-4 py-2 text-left hover:bg-danger/5 text-danger border-t border-slate-100">
-                            <Trash2 size={14} /> Delete Role
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        {/* Pagination */}
-        <div className="p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
-          <span>Showing {filteredRoles.length} records</span>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={loadCatalogAndStaff}
+            isLoading={loading}
+            className="flex items-center gap-2 text-xs"
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </Button>
         </div>
       </div>
 
-      {/* Modals */}
-      {activeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-900">
-                {activeModal === 'view' && 'Role Details'}
-                {activeModal === 'edit' && 'Edit Role'}
-                {activeModal === 'users' && 'Assigned Users'}
-              </h2>
-              <button onClick={() => setActiveModal(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
-                <X size={20} />
-              </button>
+      {/* Tabs */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="flex border-b border-slate-200 px-4 pt-3 bg-slate-50/50">
+          <button
+            onClick={() => setActiveTab('matrix')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'matrix'
+                ? 'border-primary text-primary bg-white rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <ShieldCheck size={16} />
+            Role Permission Matrix
+          </button>
+
+          <button
+            onClick={() => setActiveTab('overrides')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all ${
+              activeTab === 'overrides'
+                ? 'border-primary text-primary bg-white rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Sliders size={16} />
+            Staff Permission Overrides
+          </button>
+        </div>
+
+        {/* =================================================================== */}
+        {/* TAB 1: ROLE PERMISSION MATRIX */}
+        {/* =================================================================== */}
+        {activeTab === 'matrix' && (
+          <div className="p-4 sm:p-6 space-y-4 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-slate-500">
+                Shows the built-in system permissions granted automatically to each staff role.
+              </div>
             </div>
 
-            <div className="p-6">
-              {activeModal === 'view' && selectedRole && (
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm text-slate-500 mb-1">Role Name</p>
-                    <p className="font-semibold text-slate-900">{selectedRole.name}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500 mb-1">Description</p>
-                    <p className="text-slate-900">{selectedRole.description || 'No description provided.'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500 mb-2">Permissions</p>
-                    {selectedRole.permissions.includes('all') ? (
-                      <span className="inline-block px-3 py-1 bg-primary/10 text-primary font-medium text-sm rounded-full">Full System Access</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {selectedRole.permissions.map((p: string) => (
-                          <span key={p} className="inline-block px-3 py-1 bg-slate-100 text-slate-700 font-medium text-sm rounded-full">{p}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+            {loading || !catalog ? (
+              <div className="py-20 text-center text-slate-400 flex flex-col items-center justify-center space-y-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-primary" />
+                <p className="text-xs">Loading permission matrix...</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+                    <tr>
+                      <th className="px-4 py-3 sticky left-0 bg-slate-50 z-10 min-w-[200px]">Permission Code</th>
+                      <th className="px-3 py-3 text-center">Risk</th>
+                      {catalog.roles.map((roleKey) => {
+                        const roleLabel =
+                          roleKey === 'super_admin'
+                            ? 'Super Admin'
+                            : roleKey === 'admin'
+                            ? 'Admin'
+                            : roleKey === 'inventory_manager'
+                            ? 'Inventory Manager'
+                            : roleKey.replace(/_/g, ' ');
+                        return (
+                          <th key={roleKey} className="px-3 py-3 text-center capitalize">
+                            {roleLabel}
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {catalog.permissions.map((perm) => (
+                      <tr key={perm.code} className="hover:bg-slate-50/70 transition-colors">
+                        {/* Permission Code & Description */}
+                        <td className="px-4 py-3 sticky left-0 bg-white hover:bg-slate-50/70 z-10 space-y-0.5">
+                          <div className="font-mono font-bold text-slate-900">{perm.code}</div>
+                          {perm.description && (
+                            <div className="text-[11px] text-slate-500">{perm.description}</div>
+                          )}
+                        </td>
 
-              {activeModal === 'edit' && selectedRole && (
-                <form onSubmit={handleEditSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Role Name</label>
-                    <input 
-                      type="text" 
-                      value={editForm.name} 
-                      onChange={e => setEditForm({...editForm, name: e.target.value})}
-                      disabled={selectedRole.isSystem}
-                      className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:bg-slate-50 disabled:text-slate-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Description</label>
-                    <textarea 
-                      value={editForm.description} 
-                      onChange={e => setEditForm({...editForm, description: e.target.value})}
-                      className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      rows={2}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Permissions</label>
-                    {selectedRole.name === 'SUPER_ADMIN' ? (
-                      <div className="p-3 bg-primary/5 text-primary rounded-lg text-sm font-medium">
-                        SUPER_ADMIN role must retain all permissions.
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-48 overflow-y-auto p-2 border border-slate-100 rounded-lg">
-                        {availablePermissions.map(perm => (
-                          <label key={perm.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              checked={editForm.permissions.includes(perm.id) || editForm.permissions.includes('all')}
-                              onChange={() => togglePermission(perm.id)}
-                              disabled={editForm.permissions.includes('all')}
-                              className="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
-                            />
-                            <span className="text-sm font-medium text-slate-700">{perm.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
-                    <button type="button" onClick={() => setActiveModal(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors">
-                      Cancel
-                    </button>
-                    <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-primary text-white font-medium rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
-                      {isSubmitting ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  </div>
-                </form>
-              )}
+                        {/* Risk Level */}
+                        <td className="px-3 py-3 text-center">{getRiskBadge(perm.riskLevel)}</td>
 
-              {activeModal === 'users' && selectedRole && (
-                <div>
-                  <p className="text-sm text-slate-500 mb-4">Users assigned to <strong>{selectedRole.name}</strong></p>
-                  <div className="space-y-3 max-h-64 overflow-y-auto">
-                    {roleUsers.length === 0 ? (
-                      <p className="text-sm text-slate-500 text-center py-4">No users assigned to this role.</p>
-                    ) : (
-                      roleUsers.map(u => (
-                        <div key={u.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-sm uppercase">
-                            {u.name.charAt(0)}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-900">{u.name}</p>
-                            <p className="text-xs text-slate-500">{u.email}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  <div className="pt-4 mt-4 border-t border-slate-100 flex justify-end">
-                    <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors">
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+                        {/* Role Default Grants */}
+                        {catalog.roles.map((roleKey) => {
+                          const hasGrant = catalog.roleDefaults[roleKey]?.includes(perm.code);
+
+                          return (
+                            <td key={roleKey} className="px-3 py-3 text-center">
+                              {hasGrant ? (
+                                <span className="inline-flex items-center justify-center w-5 h-5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-200">
+                                  <Check size={12} strokeWidth={3} />
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* =================================================================== */}
+        {/* TAB 2: STAFF PERMISSION OVERRIDES */}
+        {/* =================================================================== */}
+        {activeTab === 'overrides' && (
+          <div className="p-4 sm:p-6 space-y-6 animate-in fade-in duration-150">
+            {/* Super Admin Notice */}
+            {!isSuperAdmin && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                <AlertCircle size={16} className="text-amber-600 shrink-0" />
+                <span>
+                  <strong>View Only:</strong> Only Super Administrators can configure extra per-staff permission overrides.
+                </span>
+              </div>
+            )}
+
+            {/* Staff Selector */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">Select Staff Member:</label>
+                <select
+                  value={selectedStaffId}
+                  onChange={(e) => handleSelectStaff(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-primary min-w-[280px]"
+                >
+                  {staffList.map((staff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.name} ({staff.email}) — [{staff.role}]
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedStaffMember && (
+                <div className="flex items-center gap-3">
+                  <div className="text-xs text-slate-600">
+                    <div>
+                      Role: <strong className="text-slate-900 uppercase">{selectedStaffMember.role}</strong>
+                    </div>
+                    <div>
+                      Total Effective Permissions:{' '}
+                      <strong className="text-primary font-mono">
+                        {Array.from(new Set([...selectedStaffRoleDefaults, ...selectedStaffExtraPermissions])).length}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {isSuperAdmin && (
+                    <Button
+                      onClick={handleSavePermissions}
+                      isLoading={saveLoading}
+                      className="text-xs flex items-center gap-1.5"
+                    >
+                      <Check size={14} />
+                      Save Permissions
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Permissions List with Role Default vs Extra Badge */}
+            {catalog && selectedStaffMember && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Toggle additional permissions granted on top of the role defaults.</span>
+                  <div className="flex items-center gap-4 text-[11px]">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                      Role Default (Inherited)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 bg-primary rounded-full"></span>
+                      Extra User Grant
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {catalog.permissions.map((perm) => {
+                    const isRoleDefault = selectedStaffRoleDefaults.includes(perm.code);
+                    const isExtraGrant = selectedStaffExtraPermissions.includes(perm.code);
+                    const isEffective = isRoleDefault || isExtraGrant;
+
+                    return (
+                      <div
+                        key={perm.code}
+                        onClick={() => {
+                          if (isSuperAdmin && !isRoleDefault) {
+                            handleToggleExtraPermission(perm.code);
+                          }
+                        }}
+                        className={`p-3.5 rounded-xl border transition-all select-none ${
+                          isRoleDefault
+                            ? 'bg-emerald-50/50 border-emerald-200 cursor-not-allowed opacity-90'
+                            : isExtraGrant
+                            ? 'bg-primary/5 border-primary shadow-xs cursor-pointer'
+                            : isSuperAdmin
+                            ? 'bg-white border-slate-200 hover:border-slate-300 cursor-pointer'
+                            : 'bg-white border-slate-200 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <span className="font-mono text-xs font-bold text-slate-900">{perm.code}</span>
+                          {getRiskBadge(perm.riskLevel)}
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 line-clamp-2 mb-2">{perm.description}</p>
+
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
+                          {isRoleDefault ? (
+                            <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                              <Check size={12} /> Inherited from {selectedStaffMember.role}
+                            </span>
+                          ) : isExtraGrant ? (
+                            <span className="text-primary font-bold flex items-center gap-1">
+                              <Check size={12} /> Extra Granted
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Not Granted</span>
+                          )}
+
+                          {!isRoleDefault && isSuperAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={isExtraGrant}
+                              onChange={() => handleToggleExtraPermission(perm.code)}
+                              className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

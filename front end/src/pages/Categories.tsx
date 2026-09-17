@@ -1,186 +1,256 @@
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useStore } from '../store/useStore';
-import { LayoutGrid, Target, PackageSearch, ArrowRight, ExternalLink, ChevronRight, Layers } from 'lucide-react';
-import SearchBar from '../components/layout/header/SearchBar';
+import { ArrowRight, Layers, Sparkles, FolderArchive, Loader2 } from 'lucide-react';
+import SEO from '../components/SEO';
+import axios from 'axios';
+
+const FALLBACK_CATEGORIES = [
+  {
+    seq: '01',
+    slug: 'Agency Starter Kits',
+    title: 'Agency Starter Kits',
+    description: 'Turnkey client proposals, onboarding agreements, pitch decks, and delivery roadmaps designed for digital marketing and creative agencies.',
+    gradient: 'from-[#4c1d95] via-[#5b21b6] to-[#1e1b4b]',
+    itemCount: '12 Toolkits'
+  },
+  {
+    seq: '02',
+    slug: 'Business Templates',
+    title: 'Business Templates',
+    description: 'Operating documents, financial projection spreadsheets, legal agreement baselines, and commercial governance foundations.',
+    gradient: 'from-[#b45309] via-[#d97706] to-[#451a03]',
+    itemCount: '24 Systems'
+  },
+  {
+    seq: '03',
+    slug: 'Social Media Bundles',
+    title: 'Social Media Bundles',
+    description: 'Content calendar engines, design systems, carousels, caption frameworks, and audience acquisition assets.',
+    gradient: 'from-[#be185d] via-[#e11d48] to-[#4c0519]',
+    itemCount: '18 Packs'
+  },
+  {
+    seq: '04',
+    slug: 'Website Kits',
+    title: 'Website Kits',
+    description: 'Launch-ready page structures, responsive component libraries, conversion flows, and pre-launch QA matrices.',
+    gradient: 'from-[#0369a1] via-[#0284c7] to-[#082f49]',
+    itemCount: '16 Kits'
+  },
+  {
+    seq: '05',
+    slug: 'Automation Workflows',
+    title: 'Automation Workflows',
+    description: 'Event-driven webhook listeners, multi-channel notification dispatchers, lead sync scripts, and CRM triggers.',
+    gradient: 'from-[#047857] via-[#059669] to-[#022c22]',
+    itemCount: '14 Blueprints'
+  }
+];
+
+const GRADIENTS = [
+  'from-[#4c1d95] via-[#5b21b6] to-[#1e1b4b]',
+  'from-[#b45309] via-[#d97706] to-[#451a03]',
+  'from-[#be185d] via-[#e11d48] to-[#4c0519]',
+  'from-[#0369a1] via-[#0284c7] to-[#082f49]',
+  'from-[#047857] via-[#059669] to-[#022c22]',
+  'from-[#3730a3] via-[#4338ca] to-[#1e1b4b]',
+  'from-[#9f1239] via-[#be123c] to-[#4c0519]'
+];
 
 export default function Categories() {
-  const { categories, products } = useStore();
-  
-  // Filter top-level categories (no parentId)
-  const topLevelCategories = categories.filter((c: any) => !c.parentId);
+  const [categories, setCategories] = useState<any[]>(FALLBACK_CATEGORIES);
+  const [totalProducts, setTotalProducts] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoading(true);
+        const [catRes, prodRes] = await Promise.allSettled([
+          axios.get('/api/categories'),
+          axios.get('/api/products?limit=1')
+        ]);
+
+        if (prodRes.status === 'fulfilled' && prodRes.value.data?.total) {
+          setTotalProducts(prodRes.value.data.total);
+        }
+
+        if (catRes.status === 'fulfilled' && catRes.value.data?.success && Array.isArray(catRes.value.data.data) && catRes.value.data.data.length > 0) {
+          // Filter primary categories
+          const primaryOnly = catRes.value.data.data.filter((c: any) => !c.parentId);
+          const mapped = primaryOnly.map((c: any, index: number) => {
+            const count = c._count?.products !== undefined ? c._count.products : (c.count !== undefined ? c.count : (c.products?.length || (c.children?.length ? `${c.children.length} Subcategories` : '')));
+            return {
+              id: c.id,
+              seq: (index + 1).toString().padStart(2, '0'),
+              slug: c.slug || c.name,
+              title: c.name,
+              description: c.description || c.shortDescription || `Curated digital templates and assets for ${c.name}.`,
+              gradient: GRADIENTS[index % GRADIENTS.length],
+              itemCount: typeof count === 'number' ? `${count} Items` : (count || 'Curated Pack'),
+              image: c.image || c.banner,
+              children: c.children || [],
+              featured: Boolean(c.featured)
+            };
+          });
+          mapped.sort((a: any, b: any) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+          if (mapped.length > 0) setCategories(mapped);
+        }
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   return (
-    <div className="min-h-screen pb-20 bg-slate-50/50">
-      
-      {/* SECTION 1: HERO / INTRODUCTION */}
-      <section className="bg-slate-900 pt-24 pb-32 px-6 relative">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-[url('/images/grid-pattern.svg')] opacity-10"></div>
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/20 blur-[120px] rounded-full translate-x-1/2 -translate-y-1/2"></div>
-        </div>
-        
-        <div className="max-w-4xl mx-auto relative z-30 text-center">
-          <span className="inline-block py-1.5 px-4 bg-primary/20 text-primary-light border border-primary/30 rounded-full text-sm font-bold uppercase tracking-wider mb-6">
-            KDW Catalog Hierarchy
-          </span>
-          <h1 className="text-5xl md:text-6xl font-black text-white tracking-tight mb-6">
-            Categories & Subcategories
-          </h1>
-          <p className="text-xl text-slate-300 font-medium mb-10 max-w-2xl mx-auto">
-            Browse through organized digital asset collections, templates, and subcategory workflows.
-          </p>
-          
-          <div className="max-w-xl mx-auto relative mt-8 z-50">
-            <SearchBar variant="hero" />
-          </div>
-        </div>
-      </section>
+    <div className="min-h-screen bg-[#fcfbf9] text-[#171325] py-12 lg:py-16">
+      <SEO 
+        title="Explore Categories | KDW Digital Toolkit" 
+        description="Browse structured categories of templates, bundles, website kits, and automation systems."
+      />
 
-      {/* SHOP ALL CTA */}
-      <div className="max-w-7xl mx-auto px-6 -mt-12 relative z-20 mb-16">
-        <div className="bg-white rounded-3xl p-8 shadow-xl shadow-slate-200/50 border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-5">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
-              <PackageSearch size={32} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Shop All Digital Assets</h2>
-              <p className="text-slate-500 font-medium mt-1">Explore all products across all categories & subcategories.</p>
-            </div>
+      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+        
+        {/* Breadcrumb Trail */}
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+          <Link to="/" className="hover:text-[#5b21b6] transition-colors">Home</Link>
+          <span className="text-slate-300">/</span>
+          <span className="text-[#5b21b6] font-bold">Categories Hub</span>
+        </nav>
+
+        {/* Page Header & All Products CTA Banner */}
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b border-slate-200/80">
+          <div className="space-y-3 max-w-2xl">
+            <span className="text-[10px] font-bold font-sans tracking-[0.2em] uppercase text-[#5b21b6] block">
+              FOCUSED ARCHITECTURE
+            </span>
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-bold text-[#171325] leading-tight">
+              Categorized for intentional work.
+            </h1>
+            <p className="text-sm sm:text-base text-slate-500 font-sans leading-relaxed">
+              Browse our core catalog domains to discover dedicated kits, modular templates, and automation workflows.
+            </p>
           </div>
-          <Link 
+
+          {/* Unified All Products Quick Button */}
+          <Link
             to="/categories/all-products"
-            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-8 py-4 rounded-xl font-bold transition-all hover:scale-105 active:scale-95 shadow-lg shadow-primary/30 w-full md:w-auto justify-center shrink-0"
+            className="inline-flex items-center gap-3 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-[#5b21b6] to-[#7c3aed] hover:from-[#4c1d95] hover:to-[#6d28d9] text-white text-xs font-bold font-sans shadow-md shadow-[#5b21b6]/20 transition-all shrink-0 group self-start lg:self-auto"
           >
-            Explore Catalog <ArrowRight size={20} />
+            <Sparkles className="w-4 h-4 text-purple-200" />
+            <span>Browse All Catalog Products {totalProducts > 0 ? `(${totalProducts})` : ''}</span>
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 space-y-20">
-        
-        {/* SHOP BY GOAL */}
-        <section>
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-2.5 bg-rose-100 rounded-xl text-rose-600">
-              <Target size={24} />
-            </div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Shop by Goal</h2>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              { title: 'Start a Business', desc: 'Agency & Business kits', icon: '🚀', slug: 'business-templates', color: 'bg-blue-50 text-blue-600 border-blue-100' },
-              { title: 'Grow Social Media', desc: 'Instagram & Social resources', icon: '📱', slug: 'social-media-bundles', color: 'bg-purple-50 text-purple-600 border-purple-100' },
-              { title: 'Automate Work', desc: 'AI Prompts & Automation', icon: '⚡', slug: 'automation', color: 'bg-amber-50 text-amber-600 border-amber-100' },
-              { title: 'Build a Website', desc: 'Website Kits & UI', icon: '🌐', slug: 'website-kits', color: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-            ].map((goal, idx) => (
+        {/* 2–3 Column Grid of Category Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+          {categories.map((cat) => (
+            <div
+              key={cat.id || cat.seq}
+              className="group kdw-card overflow-hidden flex flex-col justify-between min-h-[360px] hover:border-[#5b21b6]/40 transition-all duration-300 bg-white"
+            >
+              {/* Upper Visual Pane with Gradient Tone */}
               <Link 
-                key={idx} 
-                to={`/categories/${goal.slug}`}
-                className="group bg-white rounded-3xl p-6 border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-slate-200/50 hover:-translate-y-1 transition-all"
+                to={`/categories/${encodeURIComponent(cat.slug)}`}
+                className={`h-48 w-full bg-gradient-to-br ${cat.gradient} p-5 flex flex-col justify-between relative overflow-hidden select-none block`}
               >
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-6 border ${goal.color}`}>
-                  {goal.icon}
+                {cat.image ? (
+                  <>
+                    <img 
+                      src={cat.image} 
+                      alt={cat.title} 
+                      className="absolute inset-0 w-full h-full object-cover z-0 group-hover:scale-105 transition-transform duration-500" 
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20 z-1" />
+                  </>
+                ) : (
+                  <>
+                    <div className="absolute inset-0 kdw-cover-grid opacity-25 pointer-events-none z-1" />
+                    <div className="absolute -top-10 -right-10 w-36 h-36 rounded-full border border-white/20 pointer-events-none z-1" />
+                  </>
+                )}
+
+                <div className="relative z-10 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-mono font-bold text-white bg-black/40 px-2.5 py-1 rounded-md border border-white/15">
+                      {cat.seq}
+                    </span>
+                    {cat.featured && (
+                      <span className="text-[10px] font-mono font-bold bg-amber-400 text-amber-950 px-2 py-0.5 rounded shadow-xs flex items-center gap-1 border border-amber-300">
+                        ★ FEATURED
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-mono text-white/80">
+                    {cat.itemCount}
+                  </span>
                 </div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2 group-hover:text-primary transition-colors">{goal.title}</h3>
-                <p className="text-slate-500 text-sm font-medium">{goal.desc}</p>
-                <div className="mt-6 flex items-center text-sm font-bold text-primary opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all">
-                  Explore <ArrowRight size={16} className="ml-1" />
+
+                <div className="relative z-10 flex items-center gap-2 text-white/90">
+                  <Layers className="w-5 h-5" />
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider">
+                    KDW Collection
+                  </span>
                 </div>
               </Link>
-            ))}
-          </div>
-        </section>
 
-        {/* MAIN CATEGORIES & SUBCATEGORIES HIERARCHY */}
-        <section>
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-2.5 bg-indigo-100 rounded-xl text-indigo-600">
-              <LayoutGrid size={24} />
-            </div>
-            <div>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Main Categories & Subcategories</h2>
-              <p className="text-slate-500 text-sm mt-1">Select a category or specific subcategory to view items.</p>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {(topLevelCategories.length > 0 ? topLevelCategories : categories).map(category => {
-              const catSlug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
-              const subcategories = category.children || categories.filter((c: any) => c.parentId === category.id);
+              {/* Lower Half: Category Title, Subcategories & Link */}
+              <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
+                <div>
+                  <Link to={`/categories/${encodeURIComponent(cat.slug)}`}>
+                    <h3 className="text-xl font-serif font-bold text-[#171325] group-hover:text-[#5b21b6] transition-colors leading-snug">
+                      {cat.title}
+                    </h3>
+                  </Link>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed font-sans line-clamp-2">
+                    {cat.description}
+                  </p>
 
-              return (
-                <div 
-                  key={category.id} 
-                  className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
-                >
-                  <div>
-                    {/* Category Image Header */}
-                    <Link to={`/categories/${catSlug}`} className="block relative h-48 bg-slate-900 overflow-hidden group">
-                      <img 
-                        src={category.image || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=600&q=80'} 
-                        alt={category.name} 
-                        className="w-full h-full object-cover opacity-70 group-hover:opacity-50 group-hover:scale-105 transition-all duration-500" 
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent"></div>
-                      <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
-                        <div>
-                          <span className="px-2.5 py-0.5 bg-white/20 text-white rounded-full text-xs font-bold backdrop-blur-md border border-white/20">
-                            {category.count || category.productCount || 0} Products
-                          </span>
-                          <h3 className="text-2xl font-black text-white mt-1 leading-tight">{category.name}</h3>
-                        </div>
-                        <div className="w-9 h-9 rounded-full bg-white/20 text-white flex items-center justify-center backdrop-blur-md border border-white/30 group-hover:bg-primary group-hover:border-primary transition-all">
-                          <ExternalLink size={16} />
-                        </div>
-                      </div>
-                    </Link>
-
-                    {/* Subcategories Pills Section */}
-                    <div className="p-6 space-y-3">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                        <Layers size={14} /> Subcategories
-                      </div>
-
-                      {subcategories && subcategories.length > 0 ? (
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {subcategories.map((sub: any) => {
-                            const subSlug = sub.slug || sub.name.toLowerCase().replace(/\s+/g, '-');
-                            return (
-                              <Link 
-                                key={sub.id}
-                                to={`/categories/${catSlug}/${subSlug}`}
-                                className="px-3 py-1.5 bg-slate-100 hover:bg-primary hover:text-white text-slate-700 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 group/sub border border-slate-200/60"
-                              >
-                                <span>{sub.name}</span>
-                                <span className="text-[10px] font-black opacity-75 bg-slate-200 group-hover/sub:bg-white/20 px-1.5 py-0.5 rounded-md">
-                                  {sub.count || sub.productCount || 0}
-                                </span>
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 font-medium py-1">Direct single category catalog.</p>
+                  {/* Subcategories Chips */}
+                  {cat.children && cat.children.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {cat.children.slice(0, 4).map((sub: any) => (
+                        <Link
+                          key={sub.id || sub.slug || sub.name}
+                          to={`/categories/${encodeURIComponent(cat.slug)}/${encodeURIComponent(sub.slug || sub.name)}`}
+                          className="text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-[#ede9fe] text-slate-600 hover:text-[#5b21b6] transition-colors"
+                        >
+                          {sub.name}
+                        </Link>
+                      ))}
+                      {cat.children.length > 4 && (
+                        <Link
+                          to={`/categories/${encodeURIComponent(cat.slug)}`}
+                          className="text-[10px] font-semibold px-2 py-1 rounded-lg text-slate-400 hover:text-[#5b21b6]"
+                        >
+                          +{cat.children.length - 4} more
+                        </Link>
                       )}
                     </div>
-                  </div>
-
-                  <div className="p-6 pt-0 border-t border-slate-100 mt-4">
-                    <Link 
-                      to={`/categories/${catSlug}`}
-                      className="text-primary font-bold text-xs flex items-center justify-between hover:gap-2 transition-all pt-4"
-                    >
-                      <span>Explore {category.name} Catalog</span>
-                      <ChevronRight size={16} />
-                    </Link>
-                  </div>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </section>
+
+                <div className="pt-4 border-t border-[#e2e8f0] flex items-center justify-between text-xs font-semibold text-[#5b21b6] font-sans">
+                  <Link 
+                    to={`/categories/${encodeURIComponent(cat.slug)}`}
+                    className="hover:underline flex items-center gap-1"
+                  >
+                    <span>
+                      {cat.children && cat.children.length > 0
+                        ? `Browse ${cat.children.length} subcategor${cat.children.length > 1 ? 'ies' : 'y'}`
+                        : 'Explore products'}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
 
       </div>
     </div>

@@ -57,10 +57,11 @@ async function runAutomationVerification() {
 
     // TEST GROUP 3: Action Execution & Idempotency Protection
     console.log('\n--- TEST GROUP 3: Action Execution & Idempotency Key Guard ---');
+    const testOrderId = `ORD-TEST-${Date.now()}`;
     const mockRun = { id: `run_test_${Date.now()}` };
     const firstExec = await executeAction(
       { actionType: 'ISSUE_LICENCE', config: { maxActivations: 3 } },
-      { payload: { orderId: 'ORD-TEST-001' }, customerEmail: 'test.buyer@example.com' },
+      { payload: { orderId: testOrderId }, customerEmail: 'test.buyer@example.com' },
       mockRun
     );
     assert(Boolean(firstExec.licenseKey), 'Test 3.1: License issuance action generates valid key');
@@ -68,7 +69,7 @@ async function runAutomationVerification() {
     // Second execution with same parameters should return idempotent result
     const secondExec = await executeAction(
       { actionType: 'ISSUE_LICENCE', config: { maxActivations: 3 } },
-      { payload: { orderId: 'ORD-TEST-001' }, customerEmail: 'test.buyer@example.com' },
+      { payload: { orderId: testOrderId }, customerEmail: 'test.buyer@example.com' },
       mockRun
     );
     assert(secondExec.idempotentSkip === true, 'Test 3.2: Deterministic database idempotency key prevents duplicate execution');

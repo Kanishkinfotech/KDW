@@ -79,33 +79,119 @@ export class ReviewService {
   /**
    * Automated Content & Spam Risk Classification
    */
-  public static screenReviewContent(title: string, comment: string): { riskScore: string; reason?: string } {
-    const text = `${title} ${comment}`.toLowerCase();
+  public static screenReviewContent(title: string, comment: string, pros?: string, cons?: string): { isFlagged: boolean; riskScore: string; reason?: string; flagType?: string } {
+    const text = `${title || ''} ${comment || ''} ${pros || ''} ${cons || ''}`.toLowerCase();
 
-    // 1. Profanity & Threat Filter
-    const profanities = ['scam', 'fraud', 'cheat', 'fake', 'stolen', 'abuse', 'fuck', 'shit', 'bastard'];
-    const matchedProfanity = profanities.find(p => text.includes(p));
+    // 1. Abusive words & Profanity filter
+    const profanities = [
+      'scam', 'fraud', 'cheat', 'fake', 'stolen', 'abuse', 'fuck', 'shit', 'bastard', 'asshole', 'bitch', 'dick', 'cunt',
+      'slut', 'whore', 'idiot', 'stupid', 'moron', 'scammer', 'thief', 'chutiya', 'harami', 'saala', 'madarchod', 'behenchod'
+    ];
+    const matchedProfanity = profanities.find(p => {
+      const regex = new RegExp(`\\b${p}\\b`, 'i');
+      return regex.test(text);
+    });
     if (matchedProfanity) {
-      return { riskScore: 'PROFANITY_FLAGGED', reason: `Matched flagged term: "${matchedProfanity}"` };
+      return {
+        isFlagged: true,
+        riskScore: 'PROFANITY_FLAGGED',
+        flagType: 'ABUSIVE_LANGUAGE',
+        reason: `Prohibited abusive language detected: "${matchedProfanity}"`
+      };
     }
 
-    // 2. Competitor URLs / Links
-    if (/https?:\/\/[^\s]+/i.test(text) || /www\.[^\s]+/i.test(text)) {
-      return { riskScore: 'SPAM_FLAGGED', reason: 'Review contains external links or URLs' };
+    // 2. Piracy, Warez, Cracks & Exploits
+    const piracyTerms = ['cracked', 'pirated', 'pirate', 'warez', 'keygen', 'nulled', 'torrent', 'bypass license', 'free download crack'];
+    const matchedPiracy = piracyTerms.find(p => text.includes(p));
+    if (matchedPiracy) {
+      return {
+        isFlagged: true,
+        riskScore: 'SPAM_FLAGGED',
+        flagType: 'PIRACY_VIOLATION',
+        reason: `Prohibited piracy/crack keyword detected: "${matchedPiracy}"`
+      };
     }
 
-    // 3. Repetitive characters / All caps spam
-    if (/(.)\1{5,}/.test(text) || (title.length > 10 && title === title.toUpperCase())) {
-      return { riskScore: 'SUSPICIOUS', reason: 'Unusual character patterns or all-caps format' };
+    // 3. Phishing Links, URL Shorteners & Spam
+    const spamLinkPatterns = [
+      /https?:\/\/[^\s]+/i,
+      /www\.[^\s]+/i,
+      /bit\.ly\/[^\s]+/i,
+      /t\.me\/[^\s]+/i,
+      /wa\.me\/[^\s]+/i,
+      /\.cc\b/i,
+      /\.ru\b/i
+    ];
+    for (const pattern of spamLinkPatterns) {
+      if (pattern.test(text)) {
+        return {
+          isFlagged: true,
+          riskScore: 'SPAM_FLAGGED',
+          flagType: 'SPAM_LINK',
+          reason: 'Prohibited external link or URL shortener detected in review'
+        };
+      }
     }
 
-    return { riskScore: 'NORMAL' };
+    // 4. Repetitive characters / spam strings
+    if (/(.)\1{6,}/.test(text)) {
+      return {
+        isFlagged: true,
+        riskScore: 'SUSPICIOUS',
+        flagType: 'CHARACTER_SPAM',
+        reason: 'Suspicious repetitive character spam detected'
+      };
+    }
+
+    return { isFlagged: false, riskScore: 'NORMAL' };
   }
 
   /**
    * Submit a Customer / Guest Review
    */
   public static async submitReview(input: ReviewSubmissionInput): Promise<any> {
+    if (!input.productId) {
+      throw new Error('Product ID is required for review submission');
+    }
+
+    // Resolve product by ID or slug
+    const product = await prisma.product.findFirst({
+      where: {
+        OR: [
+          { id: input.productId },
+          { slug: input.productId }
+        ]
+      }
+    });
+
+    if (!product) {
+      throw new Error('Product not found. Please provide a valid product identifier.');
+    }
+
+    // Set canonical product ID
+    input.productId = product.id;
+
+    // Duplicate check: Prevent duplicate reviews for same product by same user/email
+    const duplicateConditions: any[] = [];
+    if (input.customerId) {
+      duplicateConditions.push({ customerId: input.customerId });
+    }
+    if (input.guestEmail) {
+      duplicateConditions.push({ customerEmail: { equals: input.guestEmail.trim(), mode: 'insensitive' as const } });
+    }
+    if (duplicateConditions.length > 0) {
+      const existing = await prisma.review.findFirst({
+        where: {
+          productId: input.productId,
+          OR: duplicateConditions
+        }
+      });
+      if (existing) {
+        throw new Error('A review from this account for this product already exists. Duplicate reviews are not allowed.');
+      }
+    }
+
+    // STRICT VERIFICATION CHECK: Only verified buyers who purchased this product can review
     const verification = await this.verifyPurchase({
       productId: input.productId,
       customerId: input.customerId,
@@ -113,11 +199,36 @@ export class ReviewService {
       orderId: input.orderId
     });
 
-    const risk = this.screenReviewContent(input.title, input.comment);
+    if (!verification.verified) {
+      throw new Error('Only verified buyers who have purchased this digital product can submit a review. Please sign in with your purchasing account.');
+    }
 
-    // Auto-approve if verified purchase and clean risk score
-    const autoPublish = verification.verified && risk.riskScore === 'NORMAL';
-    const status = autoPublish ? 'PUBLISHED' : 'PENDING';
+    const prosString = Array.isArray(input.pros) 
+      ? input.pros.filter(Boolean).join(', ') 
+      : (typeof input.pros === 'string' ? input.pros : null);
+    
+    const consString = Array.isArray(input.cons) 
+      ? input.cons.filter(Boolean).join(', ') 
+      : (typeof input.cons === 'string' ? input.cons : null);
+
+    const imagesString = input.images 
+      ? (typeof input.images === 'string' ? input.images : JSON.stringify(input.images)) 
+      : '[]';
+
+    const videosString = input.videos 
+      ? (typeof input.videos === 'string' ? input.videos : JSON.stringify(input.videos)) 
+      : '[]';
+
+    // Automated Abusive Words & Spam Moderation Screening
+    const risk = this.screenReviewContent(input.title, input.comment, prosString || undefined, consString || undefined);
+
+    // If abusive words or spam detected, route directly to REPORTED status
+    let status = 'PUBLISHED';
+    let reportCount = 0;
+    if (risk.isFlagged) {
+      status = 'REPORTED';
+      reportCount = 1;
+    }
 
     const customerName = input.guestName || 'KDW Customer';
 
@@ -125,26 +236,40 @@ export class ReviewService {
       data: {
         productId: input.productId,
         productVersion: input.productVersion || '1.0.0',
-        orderId: verification.orderId || input.orderId,
-        customerId: input.customerId,
+        orderId: verification.orderId || input.orderId || undefined,
+        customerId: input.customerId || undefined,
         customerName,
-        customerEmail: input.guestEmail,
+        customerEmail: input.guestEmail || undefined,
         rating: Math.max(1, Math.min(5, input.rating)),
         title: input.title,
         comment: input.comment,
-        pros: input.pros,
-        cons: input.cons,
-        verifiedPurchase: verification.verified,
-        verificationMethod: verification.method,
+        pros: prosString,
+        cons: consString,
+        verifiedPurchase: true,
+        verificationMethod: verification.method || 'PAID_ORDER_ENTITLEMENT',
         status,
         riskScore: risk.riskScore,
-        moderationReason: risk.reason,
-        publishedAt: autoPublish ? new Date() : null,
-        images: input.images ? JSON.stringify(input.images) : null,
-        videos: input.videos ? JSON.stringify(input.videos) : null,
-        guestReviewToken: input.guestReviewToken
+        reportCount,
+        moderationReason: risk.reason || undefined,
+        publishedAt: status === 'PUBLISHED' ? new Date() : null,
+        images: imagesString,
+        videos: videosString,
+        guestReviewToken: input.guestReviewToken || undefined
       }
     });
+
+    // If flagged as abusive or spam, automatically create an OPEN ReviewReport dispute record
+    if (risk.isFlagged) {
+      await prisma.reviewReport.create({
+        data: {
+          reviewId: review.id,
+          reporterEmail: 'automoderation@kdw.internal',
+          reason: risk.flagType || 'ABUSIVE_LANGUAGE_OR_SPAM',
+          details: risk.reason || 'Flagged by automated moderation for prohibited terms',
+          status: 'OPEN'
+        }
+      });
+    }
 
     // If review submitted from a review request token, update request status
     if (input.guestReviewToken) {

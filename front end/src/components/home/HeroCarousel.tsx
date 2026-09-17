@@ -226,7 +226,7 @@ export default function HeroCarousel() {
                   
                   {/* Product 3 (Bottom Right/Back) */}
                   <button 
-                    onClick={() => navigate(`/product/${slideProducts[2].id}`)}
+                    onClick={() => navigate(slideProducts[2]?.canonicalUrl || `/product/${slideProducts[2]?.slug || slideProducts[2]?.id}`)}
                     className="absolute bottom-[5%] right-[0%] w-[60%] bg-white p-2 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-slate-100 rotate-6 hover:rotate-0 hover:z-30 hover:-translate-y-2 transition-all duration-500 group text-left flex flex-col"
                     aria-label={`View ${slideProducts[2].title}`}
                   >
@@ -246,7 +246,7 @@ export default function HeroCarousel() {
 
                   {/* Product 2 (Top Left/Back) */}
                   <button 
-                    onClick={() => navigate(`/product/${slideProducts[1].id}`)}
+                    onClick={() => navigate(slideProducts[1]?.canonicalUrl || `/product/${slideProducts[1]?.slug || slideProducts[1]?.id}`)}
                     className="absolute top-[5%] left-[0%] w-[65%] bg-white p-2 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-slate-100 -rotate-6 hover:rotate-0 hover:z-30 hover:-translate-y-2 transition-all duration-500 group text-left flex flex-col"
                     aria-label={`View ${slideProducts[1].title}`}
                   >
@@ -266,7 +266,7 @@ export default function HeroCarousel() {
 
                   {/* Product 1 (Primary Center Front) */}
                   <button 
-                    onClick={() => navigate(`/product/${slideProducts[0].id}`)}
+                    onClick={() => navigate(slideProducts[0]?.canonicalUrl || `/product/${slideProducts[0]?.slug || slideProducts[0]?.id}`)}
                     className="absolute top-[20%] left-[15%] w-[75%] bg-white p-2.5 rounded-2xl shadow-[0_20px_50px_rgba(37,99,235,0.15)] border border-white z-20 hover:scale-[1.02] hover:-translate-y-2 transition-all duration-500 group text-left flex flex-col"
                     aria-label={`View ${slideProducts[0].title}`}
                   >

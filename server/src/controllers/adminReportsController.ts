@@ -45,10 +45,11 @@ export const getSalesReport = async (req: Request, res: Response, next: NextFunc
     const { range = '30d', from, to, categoryId, productId, couponCode, dimension = 'daily' } = req.query;
     const { start, end } = parseDateRange(String(range), from as string, to as string);
 
-    // Paid orders only
+    // Reconciled with Payment Gateway: Paid & Captured orders only
     const orders = await prisma.order.findMany({
       where: {
         paymentStatus: { in: ['PAID', 'COMPLETED'] },
+        payments: { some: { status: 'CAPTURED' } },
         createdAt: { gte: start, lte: end }
       },
       include: {
@@ -367,56 +368,81 @@ export const getProductPerformanceReport = async (req: Request, res: Response, n
     if (categoryId && categoryId !== 'ALL') where.categoryId = String(categoryId);
     if (search) where.name = { contains: String(search), mode: 'insensitive' };
 
-    const products = await prisma.product.findMany({
-      where,
-      include: {
-        category: true,
-        digitalEntitlements: true,
-        reviews: true,
-        fileHealths: true
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50
-    });
+    const [products, categories] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        include: {
+          category: true,
+          orderItems: {
+            where: {
+              order: {
+                paymentStatus: { in: ['PAID', 'COMPLETED'] },
+                payments: { some: { status: 'CAPTURED' } }
+              }
+            },
+            include: { order: true }
+          },
+          digitalEntitlements: true,
+          reviews: true
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.category.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' }
+      })
+    ]);
 
     const performanceRecords = products.map(p => {
-      const activeEnts = p.digitalEntitlements.filter(e => e.status === 'ACTIVE' || e.status === 'DOWNLOADED');
+      const unitsSold = p.orderItems.reduce((sum, item) => sum + item.quantity, 0);
+      const revenue = Math.round(p.orderItems.reduce((sum, item) => sum + (item.totalAmount || (item.unitPrice * item.quantity)), 0));
+      const ordersCount = new Set(p.orderItems.map(item => item.orderId)).size;
       const downloadsCount = p.digitalEntitlements.reduce((sum, e) => sum + e.downloadCount, 0);
-      const isFileHealthy = p.fileHealths.length > 0 ? p.fileHealths.every(f => f.testStatus === 'HEALTHY') : Boolean(p.googleDriveFileId);
+      const activeEnts = p.digitalEntitlements.filter(e => e.status === 'ACTIVE' || e.status === 'DOWNLOADED').length;
+      
+      const rating = p.reviews.length > 0
+        ? parseFloat((p.reviews.reduce((s, r) => s + r.rating, 0) / p.reviews.length).toFixed(1))
+        : null;
 
-      const commercialHealth = p.digitalEntitlements.length > 10 ? 94 : 78;
-      const deliveryHealth = isFileHealthy ? 98 : 45;
-      const customerSatisfaction = p.reviews.length > 0 ? Math.round((p.reviews.reduce((s, r) => s + r.rating, 0) / (p.reviews.length * 5)) * 100) : 92;
-      const supportHealth = 90;
-      const contentCompleteness = p.googleDriveFileId && p.description ? 100 : 70;
-      const licenceHealth = 95;
-
-      const overallHealthScore = Math.round((commercialHealth + deliveryHealth + customerSatisfaction + supportHealth + contentCompleteness + licenceHealth) / 6);
+      const hasDriveFile = Boolean(p.googleDriveFileId && p.googleDriveFileId.trim().length > 0);
 
       return {
         id: p.id,
         name: p.name,
+        slug: p.slug,
         category: p.category?.name || 'General',
+        categoryId: p.categoryId,
         price: p.price,
-        orders: p.digitalEntitlements.length,
+        discountPrice: p.discountPrice,
+        status: p.status || 'ACTIVE',
+        unitsSold,
+        revenue,
+        orders: ordersCount,
         downloads: downloadsCount,
-        activeEntitlements: activeEnts.length,
-        rating: p.reviews.length > 0 ? parseFloat((p.reviews.reduce((s, r) => s + r.rating, 0) / p.reviews.length).toFixed(1)) : 4.9,
+        activeEntitlements: activeEnts,
+        rating,
         reviewsCount: p.reviews.length,
-        fileHealth: isFileHealthy ? 'HEALTHY' : 'NEEDS_ATTENTION',
-        healthDimensions: {
-          commercialHealth,
-          deliveryHealth,
-          customerSatisfaction,
-          supportHealth,
-          contentCompleteness,
-          licenceHealth,
-          overallHealthScore
-        }
+        hasDriveFile,
+        driveFileId: p.googleDriveFileId || null
       };
     });
 
-    res.json({ success: true, data: performanceRecords });
+    const totalCatalogItems = performanceRecords.length;
+    const totalUnitsSold = performanceRecords.reduce((sum, r) => sum + r.unitsSold, 0);
+    const totalRevenue = performanceRecords.reduce((sum, r) => sum + r.revenue, 0);
+    const totalDownloads = performanceRecords.reduce((sum, r) => sum + r.downloads, 0);
+
+    res.json({
+      success: true,
+      kpis: {
+        totalCatalogItems,
+        totalUnitsSold,
+        totalRevenue,
+        totalDownloads
+      },
+      categories,
+      data: performanceRecords
+    });
   } catch (error) {
     next(error);
   }
@@ -439,7 +465,7 @@ export const getDownloadReport = async (req: Request, res: Response, next: NextF
     const attempts = logs.length;
     const successes = logs.filter(l => l.result === 'SUCCESS').length;
     const failures = logs.filter(l => l.result === 'FAILED').length;
-    const successRate = attempts > 0 ? parseFloat(((successes / attempts) * 100).toFixed(1)) : 100;
+    const successRate = attempts > 0 ? parseFloat(((successes / attempts) * 100).toFixed(1)) : 0;
     const bytesStreamed = logs.reduce((sum, l) => sum + Number(l.bytesStreamed || 0), 0);
 
     const durations = logs.filter(l => l.durationMs && l.durationMs > 0).map(l => l.durationMs || 0).sort((a, b) => a - b);
@@ -513,15 +539,6 @@ export const getReviewReport = async (req: Request, res: Response, next: NextFun
       ratingDist[r.rating] = (ratingDist[r.rating] || 0) + 1;
     });
 
-    // Topic sentiment classification
-    const topics = [
-      { topic: 'Product Quality', positivePercent: 94, totalMentions: Math.round(totalReviews * 0.8) },
-      { topic: 'Ease of Use & Download', positivePercent: 91, totalMentions: Math.round(totalReviews * 0.65) },
-      { topic: 'Value for Money', positivePercent: 96, totalMentions: Math.round(totalReviews * 0.72) },
-      { topic: 'File Accessibility & Speed', positivePercent: 88, totalMentions: Math.round(totalReviews * 0.45) },
-      { topic: 'Customer Support Experience', positivePercent: 92, totalMentions: Math.round(totalReviews * 0.3) }
-    ];
-
     res.json({
       success: true,
       kpis: {
@@ -535,7 +552,6 @@ export const getReviewReport = async (req: Request, res: Response, next: NextFun
         averageResponseTimeHours: 2.4
       },
       ratingDistribution: ratingDist,
-      topicAnalysis: topics,
       recentReviews: reviews.slice(0, 30)
     });
   } catch (error) {
@@ -775,6 +791,104 @@ export const createExportJob = async (req: Request, res: Response, next: NextFun
       downloadUrl: job.fileUrl,
       message: `${reportType.toUpperCase()} export generated successfully.`
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const downloadExportStream = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawReportType = req.params.reportType || 'sales';
+    const type = (Array.isArray(rawReportType) ? rawReportType[0] : rawReportType).toLowerCase();
+    const format = ((req.query.format as string) || 'CSV').toUpperCase();
+
+    let rows: any[] = [];
+
+    if (type === 'sales' || type === 'orders') {
+      const orders = await prisma.order.findMany({
+        take: 1000,
+        orderBy: { createdAt: 'desc' },
+        include: { items: true, customer: true }
+      });
+      rows = orders.map((o: any) => ({
+        OrderNumber: o.orderNumber || o.id,
+        CustomerEmail: o.guestEmail || o.customer?.email || '',
+        CustomerName: o.guestName || o.customer?.name || 'Customer',
+        PaymentStatus: o.paymentStatus,
+        OrderStatus: o.orderStatus,
+        TotalAmount: o.totalAmount,
+        Currency: o.currency,
+        ItemCount: o.items?.length || 0,
+        CreatedAt: o.createdAt.toISOString()
+      }));
+    } else if (type === 'products' || type === 'catalog') {
+      const products = await prisma.product.findMany({
+        take: 1000,
+        orderBy: { createdAt: 'desc' },
+        include: { category: true }
+      });
+      rows = products.map((p: any) => ({
+        ID: p.id,
+        Name: p.name,
+        Slug: p.slug,
+        Category: p.category?.name || 'Uncategorized',
+        Price: p.price,
+        Status: p.status,
+        CreatedAt: p.createdAt.toISOString()
+      }));
+    } else if (type === 'customers') {
+      const customers = await prisma.user.findMany({
+        take: 1000,
+        orderBy: { createdAt: 'desc' }
+      });
+      rows = customers.map((c: any) => ({
+        ID: c.id,
+        Name: c.name,
+        Email: c.email,
+        Mobile: c.mobile || '',
+        CustomerType: c.customerType,
+        Role: c.role,
+        Status: c.status,
+        CreatedAt: c.createdAt.toISOString()
+      }));
+    } else {
+      const audits = await prisma.auditLog.findMany({
+        take: 1000,
+        orderBy: { timestamp: 'desc' }
+      });
+      rows = audits.map((a: any) => ({
+        ID: a.id,
+        AdminId: a.adminId,
+        Action: a.action,
+        Entity: a.entity,
+        Details: a.details || '',
+        Timestamp: a.timestamp.toISOString()
+      }));
+    }
+
+    const filename = `KDW-${type.toUpperCase()}-EXPORT-${new Date().toISOString().split('T')[0]}.${format.toLowerCase()}`;
+
+    if (format === 'JSON') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(JSON.stringify(rows, null, 2));
+    }
+
+    // Generate real CSV
+    if (rows.length === 0) {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send('No data available for this export');
+    }
+
+    const headers = Object.keys(rows[0]).join(',');
+    const csvContent = rows.map((r: any) => 
+      Object.values(r).map((v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(`${headers}\n${csvContent}`);
   } catch (error) {
     next(error);
   }

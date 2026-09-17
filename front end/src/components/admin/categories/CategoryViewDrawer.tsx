@@ -20,7 +20,7 @@ export default function CategoryViewDrawer({
 }: CategoryViewDrawerProps) {
   const [category, setCategory] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'attributes' | 'seo'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'seo'>('overview');
 
   // Category Products Tab Search & Filter States
   const [productSearch, setProductSearch] = useState('');
@@ -110,7 +110,7 @@ export default function CategoryViewDrawer({
 
         {/* Tab Headers */}
         <div className="bg-slate-100 p-2 px-6 border-b border-slate-200 flex gap-2 text-xs font-bold shrink-0">
-          {(['overview', 'products', 'attributes', 'seo'] as const).map(tab => (
+          {(['overview', 'products', 'seo'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -151,40 +151,40 @@ export default function CategoryViewDrawer({
                   )}
 
                   {/* 5-Metric Product Count Breakdown Card (Clause 6) */}
-                  <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-xs space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                        <Package size={14} className="text-primary-light" />
+                  <div className="p-4 bg-sky-50 border border-sky-200 text-slate-800 rounded-2xl shadow-xs space-y-3">
+                    <div className="flex items-center justify-between border-b border-sky-200/60 pb-2">
+                      <span className="text-xs font-bold text-sky-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Package size={14} className="text-primary" />
                         <span>Assigned Products Breakdown</span>
                       </span>
                       <button 
                         onClick={() => setActiveTab('products')}
-                        className="text-[11px] font-bold text-primary-light hover:underline flex items-center gap-1 cursor-pointer"
+                        className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <span>View All Products</span> &rarr;
                       </button>
                     </div>
 
                     <div className="grid grid-cols-5 gap-2 text-center">
-                      <div className="p-2 bg-slate-800/80 rounded-xl">
-                        <span className="text-[10px] text-slate-400 block font-bold">Total</span>
-                        <span className="text-base font-black text-white font-mono">{totalProducts}</span>
+                      <div className="p-2 bg-white border border-sky-100 rounded-xl shadow-2xs">
+                        <span className="text-[10px] text-slate-500 block font-bold">Total</span>
+                        <span className="text-base font-black text-slate-900 font-mono">{totalProducts}</span>
                       </div>
-                      <div className="p-2 bg-slate-800/80 rounded-xl">
-                        <span className="text-[10px] text-emerald-400 block font-bold">Active</span>
-                        <span className="text-base font-black text-emerald-400 font-mono">{activeProducts}</span>
+                      <div className="p-2 bg-white border border-sky-100 rounded-xl shadow-2xs">
+                        <span className="text-[10px] text-emerald-700 block font-bold">Active</span>
+                        <span className="text-base font-black text-emerald-700 font-mono">{activeProducts}</span>
                       </div>
-                      <div className="p-2 bg-slate-800/80 rounded-xl">
-                        <span className="text-[10px] text-amber-400 block font-bold">Scheduled</span>
-                        <span className="text-base font-black text-amber-400 font-mono">{scheduledProducts}</span>
+                      <div className="p-2 bg-white border border-sky-100 rounded-xl shadow-2xs">
+                        <span className="text-[10px] text-amber-700 block font-bold">Scheduled</span>
+                        <span className="text-base font-black text-amber-700 font-mono">{scheduledProducts}</span>
                       </div>
-                      <div className="p-2 bg-slate-800/80 rounded-xl">
-                        <span className="text-[10px] text-slate-400 block font-bold">Draft</span>
-                        <span className="text-base font-black text-slate-300 font-mono">{draftProducts}</span>
+                      <div className="p-2 bg-white border border-sky-100 rounded-xl shadow-2xs">
+                        <span className="text-[10px] text-slate-500 block font-bold">Draft</span>
+                        <span className="text-base font-black text-slate-700 font-mono">{draftProducts}</span>
                       </div>
-                      <div className="p-2 bg-slate-800/80 rounded-xl">
-                        <span className="text-[10px] text-rose-400 block font-bold">Archived</span>
-                        <span className="text-base font-black text-rose-400 font-mono">{archivedProducts}</span>
+                      <div className="p-2 bg-white border border-sky-100 rounded-xl shadow-2xs">
+                        <span className="text-[10px] text-rose-700 block font-bold">Archived</span>
+                        <span className="text-base font-black text-rose-700 font-mono">{archivedProducts}</span>
                       </div>
                     </div>
                   </div>
@@ -317,35 +317,7 @@ export default function CategoryViewDrawer({
                 </div>
               )}
 
-              {/* TAB 3: ATTRIBUTES */}
-              {activeTab === 'attributes' && (
-                <div className="space-y-3">
-                  <span className="font-bold text-slate-800 block">Configured Category Facets</span>
-                  {category.attributeConfig && Object.keys(category.attributeConfig).length > 0 ? (
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {Object.entries(category.attributeConfig).map(([key, cfg]: [string, any]) => (
-                        <div key={key} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                          <div className="flex justify-between">
-                            <span className="font-bold capitalize text-slate-800">{key}</span>
-                            <span className="text-[10px] text-emerald-700 font-bold">Filterable</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {cfg.values?.map((v: string) => (
-                              <span key={v} className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] text-slate-600 font-mono">
-                                {v}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-slate-400">Default global attributes active.</div>
-                  )}
-                </div>
-              )}
-
-              {/* TAB 4: SEO */}
+              {/* TAB 3: SEO */}
               {activeTab === 'seo' && (
                 <div className="space-y-3">
                   <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">

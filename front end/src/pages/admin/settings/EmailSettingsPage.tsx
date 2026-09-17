@@ -132,24 +132,64 @@ export default function EmailSettingsPage() {
             </div>
 
             {settings.provider === 'SMTP' && (
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">SMTP Host</label>
-                  <input
-                    type="text"
-                    value={settings.smtp_host || ''}
-                    onChange={e => handleChange('smtp_host', e.target.value)}
-                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg"
-                  />
+              <div className="space-y-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">SMTP Host *</label>
+                    <input
+                      type="text"
+                      value={settings.smtp_host || ''}
+                      onChange={e => handleChange('smtp_host', e.target.value)}
+                      placeholder="smtp.gmail.com"
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">SMTP Port *</label>
+                    <input
+                      type="number"
+                      value={settings.smtp_port ?? 587}
+                      onChange={e => handleChange('smtp_port', parseInt(e.target.value, 10))}
+                      placeholder="587"
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-mono text-xs"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">SMTP Port</label>
-                  <input
-                    type="number"
-                    value={settings.smtp_port ?? 587}
-                    onChange={e => handleChange('smtp_port', parseInt(e.target.value, 10))}
-                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg"
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">SMTP Username / Email *</label>
+                    <input
+                      type="text"
+                      value={settings.smtp_user || ''}
+                      onChange={e => handleChange('smtp_user', e.target.value)}
+                      placeholder="vvin8160@gmail.com"
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">SMTP Password / App Secret *</label>
+                    <input
+                      type="password"
+                      value={settings.smtp_password || ''}
+                      onChange={e => handleChange('smtp_password', e.target.value)}
+                      placeholder="••••••••••••••••"
+                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] font-bold text-slate-700">SSL / TLS Secure Connection</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(settings.smtp_secure)}
+                      onChange={e => handleChange('smtp_secure', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
                 </div>
               </div>
             )}

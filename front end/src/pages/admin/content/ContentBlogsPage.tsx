@@ -71,6 +71,26 @@ export default function ContentBlogsPage() {
     }
   };
 
+  const handleDeleteBlog = async (id: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to permanently delete "${title}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/content/blogs/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const json = await res.json();
+      if (json.success) {
+        fetchBlogs();
+      } else {
+        alert(json.message || 'Failed to delete article');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <ContentLayout
       title="Articles & Blog Posts"
@@ -210,8 +230,20 @@ export default function ContentBlogsPage() {
                     <td className="py-3.5 px-4 text-slate-500">{p.readingTimeMinutes || 3} min</td>
                     <td className="py-3.5 px-4 font-semibold text-slate-700">{p.viewsCount || 0}</td>
                     <td className="py-3.5 px-4 font-semibold text-emerald-700">{p.purchasesCount || 0} orders</td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900">${(p.revenueAttributed || 0).toFixed(2)}</td>
+                    <td className="py-3.5 px-4 font-bold text-slate-900">₹{Math.round(p.revenueAttributed || 0).toLocaleString('en-IN')}</td>
                     <td className="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
+                      {p.slug && (
+                        <a
+                          href={`/blog/${p.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all inline-flex items-center"
+                          title="View Live Article"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      )}
+
                       <button
                         onClick={() => handleToggleFeatured(p.id, p.isFeatured)}
                         className={`p-1.5 rounded-lg transition-all ${
@@ -228,6 +260,14 @@ export default function ContentBlogsPage() {
                         title="Edit Article"
                       >
                         <Edit3 className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteBlog(p.id, p.title)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                        title="Delete Article"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>

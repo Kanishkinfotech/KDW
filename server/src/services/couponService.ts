@@ -24,8 +24,14 @@ export interface CouponValidationResult {
   message: string;
   eligibleItemIds?: string[];
   freeProductId?: string;
+  freeProduct?: { id: string; name: string; price: number; thumbnail?: string | null; slug?: string | null };
   affiliateId?: string;
   stackingPolicy?: string;
+  durationBadge?: string;
+  durationLabel?: string;
+  isPermanent?: boolean;
+  isFirstOrder?: boolean;
+  minOrderValue?: number;
 }
 
 export class CouponService {
@@ -173,7 +179,7 @@ export class CouponService {
     }
     // B. CUSTOMER_SEGMENT Check
     else if (coupon.discountType === 'CUSTOMER_SEGMENT') {
-      const isEligibleSegment = await this.checkCustomerSegmentEligibility(targetCustomerId, eligibleCustomerSegments);
+      const isEligibleSegment = await this.checkCustomerSegmentEligibility(targetCustomerId, targetEmail, eligibleCustomerSegments);
       if (!isEligibleSegment) {
         return {
           valid: false,
@@ -210,12 +216,17 @@ export class CouponService {
         select: { id: true, categoryId: true }
       });
 
+      const subcategories = await prisma.category.findMany({
+        where: { parentId: { in: eligibleCategoryIds } },
+        select: { id: true }
+      });
+      const allEligibleCatIds = new Set([...eligibleCategoryIds, ...subcategories.map(c => c.id)]);
       const categoryMap = new Map(products.map(p => [p.id, p.categoryId]));
 
       input.cartItems.forEach(item => {
         if (item.productId) {
           const catId = categoryMap.get(item.productId);
-          if (catId && eligibleCategoryIds.includes(catId) && !excludedProductIds.includes(item.productId)) {
+          if (catId && allEligibleCatIds.has(catId) && !excludedProductIds.includes(item.productId)) {
             eligibleSubtotal += item.quantity * item.unitPrice;
             eligibleItemIds.push(item.productId);
           }
@@ -265,8 +276,23 @@ export class CouponService {
 
     // 8. Calculate Discount Value
     let calculatedDiscount = 0;
+    let freeProductData: any = undefined;
 
-    if (coupon.discountType === 'PERCENTAGE' || coupon.discountType === 'FIRST_ORDER' || coupon.discountType === 'CUSTOMER_SEGMENT') {
+    if (coupon.discountType === 'FREE_PRODUCT') {
+      if (coupon.freeProductId) {
+        const fp = await prisma.product.findUnique({
+          where: { id: coupon.freeProductId },
+          select: { id: true, name: true, price: true, thumbnail: true, slug: true }
+        });
+        if (fp) {
+          freeProductData = fp;
+          const freeInCart = input.cartItems.find(i => i.productId === fp.id);
+          if (freeInCart) {
+            calculatedDiscount = Math.min(freeInCart.unitPrice, totalSubtotal);
+          }
+        }
+      }
+    } else if (coupon.discountType === 'PERCENTAGE' || coupon.discountType === 'FIRST_ORDER' || coupon.discountType === 'CUSTOMER_SEGMENT') {
       calculatedDiscount = (eligibleSubtotal * coupon.discountValue) / 100;
       if (coupon.maxDiscountAmount && coupon.maxDiscountAmount > 0) {
         calculatedDiscount = Math.min(calculatedDiscount, coupon.maxDiscountAmount);
@@ -288,6 +314,36 @@ export class CouponService {
     calculatedDiscount = Math.max(0, Math.min(calculatedDiscount, totalSubtotal));
     calculatedDiscount = Math.round(calculatedDiscount * 100) / 100;
 
+    // Duration metadata computation
+    let isPermanent = !coupon.endAt;
+    let durationBadge = 'Permanent';
+    let durationLabel = 'Permanent / No Expiration';
+
+    if (coupon.endAt) {
+      const startMs = coupon.startAt ? new Date(coupon.startAt).getTime() : new Date(coupon.createdAt).getTime();
+      const endMs = new Date(coupon.endAt).getTime();
+      const totalSpanDays = Math.round((endMs - startMs) / (1000 * 60 * 60 * 24));
+      const daysRemaining = Math.max(0, Math.ceil((endMs - Date.now()) / (1000 * 60 * 60 * 24)));
+
+      if (totalSpanDays <= 8) {
+        durationBadge = '1 Week Limited';
+      } else if (totalSpanDays <= 32) {
+        durationBadge = '1 Month Limited';
+      } else {
+        durationBadge = 'Limited Time';
+      }
+
+      durationLabel = daysRemaining > 0 
+        ? `${durationBadge} (${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'} left)`
+        : 'Expiring today';
+    }
+
+    const customMessage = calculatedDiscount > 0
+      ? `Coupon "${coupon.code}" applied! You save ₹${calculatedDiscount.toLocaleString('en-IN')}.`
+      : freeProductData
+        ? `🎁 Free gift "${freeProductData.name}" unlocked with coupon "${coupon.code}"!`
+        : `Coupon "${coupon.code}" applied successfully.`;
+
     return {
       valid: true,
       code: normalizedCode,
@@ -297,48 +353,124 @@ export class CouponService {
       calculatedDiscount,
       eligibleItemIds,
       freeProductId: coupon.freeProductId || undefined,
+      freeProduct: freeProductData,
       affiliateId: coupon.affiliateId || undefined,
       stackingPolicy: coupon.stackingPolicy,
-      message: `Coupon "${coupon.code}" applied! You save ₹${calculatedDiscount.toLocaleString('en-IN')}.`
+      durationBadge,
+      durationLabel,
+      isPermanent,
+      isFirstOrder: coupon.discountType === 'FIRST_ORDER',
+      minOrderValue: coupon.minOrderValue || 0,
+      message: customMessage
     };
   }
 
   /**
-   * Check if customer or email has previous paid order
+   * Check if customer or email has previous paid order or claimed first-order coupon
    */
   public static async checkPriorPaidOrders(customerId?: string, email?: string): Promise<boolean> {
     const conditions: any[] = [];
-    if (customerId) conditions.push({ customerId });
-    if (email) conditions.push({ guestEmail: { equals: email.trim(), mode: 'insensitive' } });
+    if (customerId) {
+      conditions.push({ customerId });
+      try {
+        const user = await prisma.user.findUnique({ where: { id: customerId }, select: { email: true } });
+        if (user?.email) {
+          conditions.push({ guestEmail: { equals: user.email.trim(), mode: 'insensitive' } });
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (email && email.trim()) {
+      const trimmedEmail = email.trim();
+      conditions.push({ guestEmail: { equals: trimmedEmail, mode: 'insensitive' } });
+      try {
+        const user = await prisma.user.findUnique({ where: { email: trimmedEmail.toLowerCase() }, select: { id: true } });
+        if (user?.id) {
+          conditions.push({ customerId: user.id });
+        }
+      } catch {
+        // ignore
+      }
+    }
 
+    if (conditions.length === 0) return false;
+
+    // Check PAID or CAPTURED orders
     const paidOrderCount = await prisma.order.count({
       where: {
-        paymentStatus: 'PAID',
-        OR: conditions.length > 0 ? conditions : undefined
+        paymentStatus: { in: ['PAID', 'CAPTURED'] },
+        OR: conditions
       }
     });
 
-    return paidOrderCount > 0;
+    if (paidOrderCount > 0) return true;
+
+    // Check prior redemption or active reservation for any FIRST_ORDER coupon
+    const redemptionConditions: any[] = [];
+    if (customerId) redemptionConditions.push({ customerId });
+    if (email && email.trim()) redemptionConditions.push({ guestEmail: { equals: email.trim(), mode: 'insensitive' } });
+
+    if (redemptionConditions.length > 0) {
+      const priorFirstOrderRedemption = await prisma.couponRedemption.findFirst({
+        where: {
+          status: { in: ['REDEEMED', 'RESERVED'] },
+          coupon: { discountType: 'FIRST_ORDER' },
+          OR: redemptionConditions
+        }
+      });
+      if (priorFirstOrderRedemption) return true;
+    }
+
+    return false;
   }
 
   /**
-   * Check dynamic customer segment eligibility
+   * Check dynamic customer segment eligibility & direct customer/email targets
    */
-  public static async checkCustomerSegmentEligibility(customerId?: string, segments: string[] = []): Promise<boolean> {
-    if (!customerId || segments.length === 0) return false;
+  public static async checkCustomerSegmentEligibility(customerId?: string, email?: string, segments: string[] = []): Promise<boolean> {
+    if ((!customerId && !email) || segments.length === 0) return false;
 
-    const customer = await prisma.user.findUnique({
-      where: { id: customerId },
-      include: {
-        orders: { where: { paymentStatus: 'PAID' } },
-        bundleEntitlements: true
-      }
-    });
+    const normalizedEmail = (email || '').toLowerCase().trim();
+
+    // 1. Check direct ID or Email matches in segments
+    for (const rawSeg of segments) {
+      const seg = (rawSeg || '').trim();
+      if (customerId && seg === customerId) return true;
+      if (normalizedEmail && seg.toLowerCase() === normalizedEmail) return true;
+    }
+
+    let customer: any = null;
+    if (customerId) {
+      customer = await prisma.user.findUnique({
+        where: { id: customerId },
+        include: {
+          orders: { where: { paymentStatus: 'PAID' } },
+          bundleEntitlements: true
+        }
+      });
+    } else if (normalizedEmail) {
+      customer = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        include: {
+          orders: { where: { paymentStatus: 'PAID' } },
+          bundleEntitlements: true
+        }
+      });
+    }
 
     if (!customer) return false;
 
+    // Check if customer email or ID was in segments
+    for (const rawSeg of segments) {
+      const seg = (rawSeg || '').trim();
+      if (seg === customer.id || (customer.email && seg.toLowerCase() === customer.email.toLowerCase())) {
+        return true;
+      }
+    }
+
     const paidOrders = customer.orders || [];
-    const totalSpent = paidOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    const totalSpent = paidOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
 
     for (const rawSeg of segments) {
       const segment = (rawSeg || '').toUpperCase().trim();
@@ -347,7 +479,7 @@ export class CouponService {
       if ((segment === 'HIGH_VALUE' || segment === 'HIGH_VALUE_CUSTOMERS') && (totalSpent >= 5000 || paidOrders.length >= 3)) return true;
       if ((segment === 'VIP' || segment === 'VIPS') && (totalSpent >= 10000 || customer.role === 'VIP')) return true;
       if ((segment === 'STUDENTS' || segment === 'STUDENT') && customer.customerType === 'STUDENT') return true;
-      if ((segment === 'AGENCY' || segment === 'AGENCIES') && (customer.customerType === 'AGENCY' || customer.bundleEntitlements.some(e => e.licenceType === 'AGENCY'))) return true;
+      if ((segment === 'AGENCY' || segment === 'AGENCIES') && (customer.customerType === 'AGENCY' || customer.bundleEntitlements.some((e: any) => e.licenceType === 'AGENCY'))) return true;
     }
 
     return false;
@@ -479,5 +611,63 @@ export class CouponService {
         }
       });
     }
+  }
+
+  /**
+   * Automatically reconciles coupons:
+   * - Sets past-expiration coupons to EXPIRED
+   * - Sets scheduled coupons whose startAt has arrived to ACTIVE
+   */
+  public static async reconcileAndActivateScheduledCoupons(): Promise<{
+    activatedCount: number;
+    expiredCount: number;
+  }> {
+    try {
+      const now = new Date();
+
+      // Expire coupons past end date
+      const expiredRes = await prisma.coupon.updateMany({
+        where: {
+          status: { in: ['ACTIVE', 'SCHEDULED'] },
+          endAt: { not: null, lt: now }
+        },
+        data: { status: 'EXPIRED' }
+      });
+
+      // Activate scheduled coupons whose startAt has arrived
+      const activatedRes = await prisma.coupon.updateMany({
+        where: {
+          status: 'SCHEDULED',
+          startAt: { not: null, lte: now },
+          OR: [{ endAt: null }, { endAt: { gte: now } }]
+        },
+        data: { status: 'ACTIVE' }
+      });
+
+      return {
+        activatedCount: activatedRes.count,
+        expiredCount: expiredRes.count
+      };
+    } catch (err) {
+      console.error('[CouponService] Error in coupon auto-reconciliation:', err);
+      return { activatedCount: 0, expiredCount: 0 };
+    }
+  }
+
+  /**
+   * Background schedule for coupons every 60 seconds
+   */
+  public static startCouponScheduler(): void {
+    setTimeout(() => {
+      this.reconcileAndActivateScheduledCoupons().catch(err =>
+        console.error('[CouponService] Initial coupon scheduler run error:', err)
+      );
+    }, 6000);
+
+    setInterval(() => {
+      this.reconcileAndActivateScheduledCoupons().catch(err =>
+        console.error('[CouponService] Periodic coupon scheduler run error:', err)
+      );
+    }, 60 * 1000);
   }
 }

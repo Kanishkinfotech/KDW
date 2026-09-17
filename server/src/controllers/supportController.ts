@@ -59,6 +59,7 @@ export const getMyTickets = async (req: Request, res: Response, next: NextFuncti
       include: {
         order: { select: { orderNumber: true } },
         messages: {
+          where: { visibility: 'CUSTOMER' },
           include: {
             sender: { select: { name: true, role: true } }
           },
@@ -79,12 +80,16 @@ export const getTicketDetails = async (req: Request, res: Response, next: NextFu
     const role = (req as any).user?.role;
     const id = req.params.id as string;
 
+    const userRole = String(role || '').toUpperCase();
+    const isStaff = ['SUPER_ADMIN', 'ADMIN', 'STAFF', 'STORE_MANAGER', 'SUPPORT_AGENT', 'FINANCE_MANAGER', 'CATALOG_MANAGER', 'MANAGER'].includes(userRole);
+
     const ticket = await prisma.supportTicket.findUnique({
       where: { id },
       include: {
         order: true,
         user: { select: { name: true, email: true } },
         messages: {
+          where: isStaff ? undefined : { visibility: 'CUSTOMER' },
           include: {
             sender: { select: { name: true, role: true } }
           },
@@ -97,7 +102,7 @@ export const getTicketDetails = async (req: Request, res: Response, next: NextFu
       return res.status(404).json({ success: false, message: 'Ticket not found' });
     }
 
-    if (role !== 'ADMIN' && role !== 'STAFF' && ticket.userId !== userId) {
+    if (!isStaff && ticket.userId !== userId) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
@@ -461,31 +466,42 @@ export const getFAQs = async (req: Request, res: Response, next: NextFunction) =
     const search = req.query.search as string;
     const category = req.query.category as string;
     
-    let dbFaqs: any[] = [];
-    try {
-      let where: any = { status: 'ACTIVE' };
-      if (search) {
-        where.OR = [
-          { question: { contains: search, mode: 'insensitive' } },
-          { answer: { contains: search, mode: 'insensitive' } }
-        ];
-      }
-      if (category) {
-        where.category = category;
-      }
-      dbFaqs = await prisma.fAQ.findMany({
-        where,
-        orderBy: { sortOrder: 'asc' }
-      });
-    } catch (e) {
-      // Ignore DB error
+    let where: any = {};
+    if (search && String(search).trim() !== '') {
+      const q = String(search).trim();
+      where.OR = [
+        { question: { contains: q, mode: 'insensitive' } },
+        { answer: { contains: q, mode: 'insensitive' } }
+      ];
     }
+    if (category && String(category).trim() !== '') {
+      where.OR = [
+        { categoryId: String(category).trim() },
+        { category: { slug: String(category).trim() } },
+        { category: { name: { contains: String(category).trim(), mode: 'insensitive' } } }
+      ];
+    }
+
+    const dbFaqs = await prisma.supportFAQ.findMany({
+      where,
+      include: { category: true },
+      orderBy: { sortOrder: 'asc' }
+    });
 
     if (dbFaqs && dbFaqs.length > 0) {
-      return res.json({ success: true, faqs: dbFaqs });
+      const formatted = dbFaqs.map(f => ({
+        id: f.id,
+        question: f.question,
+        answer: f.answer,
+        category: f.category?.name || 'General',
+        categoryId: f.categoryId,
+        sortOrder: f.sortOrder,
+        status: 'ACTIVE'
+      }));
+      return res.json({ success: true, faqs: formatted, data: formatted });
     }
 
-    // Fallback to default FAQs
+    // Fallback to default FAQs if DB is empty
     let filtered = DEFAULT_FAQS;
     if (search) {
       const q = search.toLowerCase();
@@ -495,92 +511,241 @@ export const getFAQs = async (req: Request, res: Response, next: NextFunction) =
       filtered = filtered.filter(f => f.category === category);
     }
 
-    res.json({ success: true, faqs: filtered });
+    res.json({ success: true, faqs: filtered, data: filtered });
   } catch (error) {
     next(error);
   }
 };
 
-export const getSupportCategories = async (req: Request, res: Response) => {
-  res.json({ success: true, data: DEFAULT_CATEGORIES });
-};
+export const getSupportCategories = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const dbCategories = await prisma.supportCategory.findMany({
+      include: {
+        _count: {
+          select: { articles: true, faqs: true }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
 
-export const getSupportArticles = async (req: Request, res: Response) => {
-  const search = (req.query.search || req.query.q) as string;
-  const categorySlug = req.query.category as string;
-
-  let filtered = DEFAULT_ARTICLES;
-
-  if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(a => a.title.toLowerCase().includes(q) || a.content.toLowerCase().includes(q));
-  }
-
-  if (categorySlug) {
-    const cat = DEFAULT_CATEGORIES.find(c => c.slug === categorySlug || c.id === categorySlug);
-    if (cat) {
-      filtered = filtered.filter(a => a.categoryId === cat.id);
+    if (dbCategories && dbCategories.length > 0) {
+      return res.json({
+        success: true,
+        data: dbCategories.map(c => ({
+          ...c,
+          articlesCount: c._count.articles,
+          faqsCount: c._count.faqs
+        }))
+      });
     }
-  }
 
-  res.json({ success: true, data: filtered });
+    res.json({ success: true, data: DEFAULT_CATEGORIES });
+  } catch (error) {
+    next(error);
+  }
 };
 
-export const getArticleBySlug = async (req: Request, res: Response) => {
-  const { slug } = req.params;
-  const article = DEFAULT_ARTICLES.find(a => a.slug === slug || a.id === slug);
+export const getSupportArticles = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const search = (req.query.search || req.query.q) as string;
+    const categorySlug = req.query.category as string;
 
-  if (!article) {
-    return res.status(404).json({ success: false, message: 'Article not found' });
-  }
-
-  // Increment view count dynamically
-  (article as any).views = ((article as any).views || 0) + 1;
-
-  const related = DEFAULT_ARTICLES
-    .filter(a => a.categoryId === article.categoryId && a.id !== article.id)
-    .slice(0, 4);
-
-  res.json({ success: true, data: article, relatedArticles: related });
-};
-
-export const voteArticle = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { helpful } = req.body;
-  const article = DEFAULT_ARTICLES.find(a => a.id === id || a.slug === id);
-  if (article) {
-    if (helpful) {
-      (article as any).helpful = ((article as any).helpful || 0) + 1;
-    } else {
-      (article as any).unhelpful = ((article as any).unhelpful || 0) + 1;
+    const where: any = {};
+    if (search && String(search).trim() !== '') {
+      const q = String(search).trim();
+      where.OR = [
+        { title: { contains: q, mode: 'insensitive' } },
+        { content: { contains: q, mode: 'insensitive' } },
+        { slug: { contains: q, mode: 'insensitive' } }
+      ];
     }
+
+    if (categorySlug && String(categorySlug).trim() !== '') {
+      where.OR = [
+        { categoryId: String(categorySlug).trim() },
+        { category: { slug: String(categorySlug).trim() } }
+      ];
+    }
+
+    const dbArticles = await prisma.supportArticle.findMany({
+      where,
+      include: {
+        category: true
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    if (dbArticles && dbArticles.length > 0) {
+      return res.json({ success: true, data: dbArticles });
+    }
+
+    // Fallback to default articles if DB is empty
+    let filtered = DEFAULT_ARTICLES;
+    if (search) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter(a => a.title.toLowerCase().includes(q) || a.content.toLowerCase().includes(q));
+    }
+    if (categorySlug) {
+      const cat = DEFAULT_CATEGORIES.find(c => c.slug === categorySlug || c.id === categorySlug);
+      if (cat) {
+        filtered = filtered.filter(a => a.categoryId === cat.id);
+      }
+    }
+
+    res.json({ success: true, data: filtered });
+  } catch (error) {
+    next(error);
   }
-  res.json({ success: true, message: 'Thank you for your feedback!' });
 };
 
-export const searchSupport = async (req: Request, res: Response) => {
-  const q = (req.query.q as string || req.query.search as string || '').toLowerCase().trim();
-  if (!q) {
-    return res.json({ success: true, data: { articles: [], faqs: [] } });
-  }
+export const getArticleBySlug = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const slug = String(req.params.slug || '');
 
-  const articles = DEFAULT_ARTICLES.filter(a =>
-    a.title.toLowerCase().includes(q) ||
-    a.content.toLowerCase().includes(q) ||
-    (a.category && a.category.name.toLowerCase().includes(q))
-  );
+    const dbArticle = await prisma.supportArticle.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }]
+      },
+      include: {
+        category: true
+      }
+    });
 
-  const faqs = DEFAULT_FAQS.filter(f =>
-    f.question.toLowerCase().includes(q) ||
-    f.answer.toLowerCase().includes(q) ||
-    (f.category && f.category.toLowerCase().includes(q))
-  );
+    if (dbArticle) {
+      // Increment view count asynchronously
+      prisma.supportArticle.update({
+        where: { id: dbArticle.id },
+        data: { views: { increment: 1 } }
+      }).catch(() => {});
 
-  res.json({
-    success: true,
-    data: {
-      articles,
-      faqs
+      const related = await prisma.supportArticle.findMany({
+        where: {
+          categoryId: dbArticle.categoryId,
+          id: { not: dbArticle.id }
+        },
+        include: { category: true },
+        take: 4
+      });
+
+      return res.json({
+        success: true,
+        data: { ...dbArticle, views: dbArticle.views + 1 },
+        relatedArticles: related
+      });
     }
-  });
+
+    // Fallback to DEFAULT_ARTICLES
+    const article = DEFAULT_ARTICLES.find(a => a.slug === slug || a.id === slug);
+    if (!article) {
+      return res.status(404).json({ success: false, message: 'Article not found' });
+    }
+
+    (article as any).views = ((article as any).views || 0) + 1;
+    const related = DEFAULT_ARTICLES
+      .filter(a => a.categoryId === article.categoryId && a.id !== article.id)
+      .slice(0, 4);
+
+    res.json({ success: true, data: article, relatedArticles: related });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const voteArticle = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id || '');
+    const { helpful } = req.body;
+
+    const dbArticle = await prisma.supportArticle.findFirst({
+      where: { OR: [{ id }, { slug: id }] }
+    });
+
+    if (dbArticle) {
+      await prisma.supportArticle.update({
+        where: { id: dbArticle.id },
+        data: helpful ? { helpfulVotes: { increment: 1 } } : { unhelpfulVotes: { increment: 1 } }
+      });
+      return res.json({ success: true, message: 'Thank you for your feedback!' });
+    }
+
+    const article = DEFAULT_ARTICLES.find(a => a.id === id || a.slug === id);
+    if (article) {
+      if (helpful) {
+        (article as any).helpful = ((article as any).helpful || 0) + 1;
+      } else {
+        (article as any).unhelpful = ((article as any).unhelpful || 0) + 1;
+      }
+    }
+    res.json({ success: true, message: 'Thank you for your feedback!' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const searchSupport = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const q = (req.query.q as string || req.query.search as string || '').toLowerCase().trim();
+    if (!q) {
+      return res.json({ success: true, data: { articles: [], faqs: [] } });
+    }
+
+    const [dbArticles, dbFaqs] = await Promise.all([
+      prisma.supportArticle.findMany({
+        where: {
+          OR: [
+            { title: { contains: q, mode: 'insensitive' } },
+            { content: { contains: q, mode: 'insensitive' } }
+          ]
+        },
+        include: { category: true }
+      }),
+      prisma.supportFAQ.findMany({
+        where: {
+          OR: [
+            { question: { contains: q, mode: 'insensitive' } },
+            { answer: { contains: q, mode: 'insensitive' } }
+          ]
+        },
+        include: { category: true }
+      })
+    ]);
+
+    if (dbArticles.length > 0 || dbFaqs.length > 0) {
+      return res.json({
+        success: true,
+        data: {
+          articles: dbArticles,
+          faqs: dbFaqs.map(f => ({
+            id: f.id,
+            question: f.question,
+            answer: f.answer,
+            category: f.category?.name || 'General'
+          }))
+        }
+      });
+    }
+
+    // Fallback to default
+    const articles = DEFAULT_ARTICLES.filter(a =>
+      a.title.toLowerCase().includes(q) ||
+      a.content.toLowerCase().includes(q) ||
+      (a.category && a.category.name.toLowerCase().includes(q))
+    );
+
+    const faqs = DEFAULT_FAQS.filter(f =>
+      f.question.toLowerCase().includes(q) ||
+      f.answer.toLowerCase().includes(q) ||
+      (f.category && f.category.toLowerCase().includes(q))
+    );
+
+    res.json({
+      success: true,
+      data: {
+        articles,
+        faqs
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 };

@@ -59,18 +59,32 @@ export const getDownloadOverview = async (req: Request, res: Response, next: Nex
       downloadLimitEvents,
       driveErrorsCount,
       failedDownloadsTotal,
-      productsList
+      productsList,
+      recentLogs,
+      totalFiles,
+      activeTokens
     ] = await Promise.all([
       prisma.digitalEntitlement.count({ where: { ...whereEntitlement, status: { in: ['ACTIVE', 'PARTIALLY_DOWNLOADED', 'DOWNLOADED'] } } }),
       prisma.digitalEntitlement.count({ where: { ...whereEntitlement, status: 'EXPIRED' } }),
       prisma.digitalEntitlement.count({ where: { ...whereEntitlement, status: 'REVOKED' } }),
       prisma.digitalEntitlement.count({ where: whereEntitlement }),
-      prisma.downloadLog.findMany({ where: { createdAt: { gte: startOfToday } } }),
-      prisma.downloadLog.findMany({ where: { createdAt: { gte: startDate } } }),
+      prisma.downloadLog.findMany({ where: { createdAt: { gte: startOfToday }, ...(productId && productId !== 'ALL' ? { productId: String(productId) } : {}) } }),
+      prisma.downloadLog.findMany({ where: { createdAt: { gte: startDate }, ...(productId && productId !== 'ALL' ? { productId: String(productId) } : {}) } }),
       prisma.downloadLog.count({ where: { eventType: 'limit_reached', createdAt: { gte: startDate } } }),
       prisma.downloadFailure.count({ where: { failureCategory: { in: ['Drive file missing', 'Drive permission denied', 'Drive quota exceeded'] }, isResolved: false } }),
       prisma.downloadFailure.count({ where: { isResolved: false } }),
-      prisma.product.findMany({ select: { id: true, name: true, slug: true }, take: 100 })
+      prisma.product.findMany({ select: { id: true, name: true, slug: true }, take: 100 }),
+      prisma.downloadLog.findMany({
+        where: { ...(productId && productId !== 'ALL' ? { productId: String(productId) } : {}) },
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          product: { select: { id: true, name: true, slug: true } },
+          entitlement: { select: { customerEmail: true } }
+        }
+      }),
+      prisma.productFile.count(),
+      prisma.downloadToken.count({ where: { status: 'ACTIVE', expiresAt: { gte: now } } })
     ]);
 
     const attemptsToday = downloadLogsToday.length;
@@ -85,7 +99,7 @@ export const getDownloadOverview = async (req: Request, res: Response, next: Nex
     const logsWithDuration = allDownloadLogsInRange.filter(l => l.durationMs && l.durationMs > 0);
     const avgDurationMs = logsWithDuration.length > 0
       ? logsWithDuration.reduce((acc, l) => acc + (l.durationMs || 0), 0) / logsWithDuration.length
-      : 840;
+      : 0;
 
     // Daily breakdown chart for range
     const dailyMap = new Map<string, { date: string; attempts: number; successes: number; failures: number; bytes: number }>();
@@ -123,6 +137,9 @@ export const getDownloadOverview = async (req: Request, res: Response, next: Nex
       success: true,
       kpis: {
         activeEntitlements,
+        totalFiles,
+        activeTokens,
+        totalDownloads: totalSuccessesInRange,
         downloadAttemptsToday: attemptsToday,
         successfulDownloads: successesToday,
         failedDownloads: failuresToday,
@@ -140,6 +157,7 @@ export const getDownloadOverview = async (req: Request, res: Response, next: Nex
         failureDistribution: failureReasons
       },
       products: productsList,
+      recentLogs,
       metadata: {
         range,
         timezone: 'Asia/Kolkata',
@@ -764,17 +782,34 @@ export const getDownloadActivity = async (req: Request, res: Response, next: Nex
     const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 25));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
+    const dummyExclusions = {
+      NOT: [
+        { customerEmail: { endsWith: '@kdw.in' } },
+        { customerEmail: { contains: 'newbie_test' } },
+        { customerEmail: { contains: 'buyer_test' } },
+        { customerEmail: { contains: 'dummy' } },
+        { customerEmail: { contains: 'kdw-anonymized' } },
+        { customerEmail: { startsWith: 'guest_buyer_' } },
+        { productName: { contains: 'colab' } }
+      ]
+    };
+
+    const where: any = { ...dummyExclusions };
     if (result && result !== 'ALL') where.result = String(result);
     if (eventType && eventType !== 'ALL') where.eventType = String(eventType);
     if (productId && productId !== 'ALL') where.productId = String(productId);
     if (customerId) where.customerId = String(customerId);
     if (search) {
-      where.OR = [
-        { customerEmail: { contains: String(search), mode: 'insensitive' } },
-        { productName: { contains: String(search), mode: 'insensitive' } },
-        { ipAddress: { contains: String(search), mode: 'insensitive' } },
-        { failureReason: { contains: String(search), mode: 'insensitive' } }
+      where.AND = [
+        dummyExclusions,
+        {
+          OR: [
+            { customerEmail: { contains: String(search), mode: 'insensitive' } },
+            { productName: { contains: String(search), mode: 'insensitive' } },
+            { ipAddress: { contains: String(search), mode: 'insensitive' } },
+            { failureReason: { contains: String(search), mode: 'insensitive' } }
+          ]
+        }
       ];
     }
 
@@ -805,9 +840,14 @@ export const getDownloadActivity = async (req: Request, res: Response, next: Nex
     const medianDuration = durations.length > 0 ? durations[Math.floor(durations.length / 2)] : 0;
     const p95Duration = durations.length > 0 ? durations[Math.floor(durations.length * 0.95)] : 0;
 
+    const formattedLogs = logs.map(l => ({
+      ...l,
+      bytesStreamed: l.bytesStreamed ? Number(l.bytesStreamed) : 0
+    }));
+
     res.json({
       success: true,
-      data: logs,
+      data: formattedLogs,
       metrics: {
         totalEvents: total,
         avgDurationMs: Math.round(avgDuration),
@@ -1221,3 +1261,254 @@ export const getDownloadOverrides = async (req: Request, res: Response, next: Ne
     next(error);
   }
 };
+
+// ============================================================================
+// 9. FILE STORAGE & ASSET MANAGEMENT (Upload, Storage, Access, Security)
+// ============================================================================
+export const getFilesList = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { folder, search, page = '1', limit = '50' } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {};
+    if (folder && folder !== 'ALL') {
+      where.parentFolderId = String(folder);
+    }
+    if (search) {
+      where.OR = [
+        { fileName: { contains: String(search), mode: 'insensitive' } },
+        { parentFolderId: { contains: String(search), mode: 'insensitive' } },
+        { mimeType: { contains: String(search), mode: 'insensitive' } }
+      ];
+    }
+
+    const [files, total, allFilesForStats, products] = await Promise.all([
+      prisma.productFile.findMany({
+        where,
+        skip,
+        take: limitNum,
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.productFile.count({ where }),
+      prisma.productFile.findMany({ select: { sizeBytes: true, parentFolderId: true } }),
+      prisma.product.findMany({ select: { id: true, name: true, slug: true, downloadLimit: true, accessDurationDays: true } })
+    ]);
+
+    // Compute stats
+    let totalSizeBytes = 0;
+    const folderCounts: Record<string, number> = {};
+    allFilesForStats.forEach(f => {
+      totalSizeBytes += Number(f.sizeBytes || 0);
+      const fld = f.parentFolderId || 'Uncategorized';
+      folderCounts[fld] = (folderCounts[fld] || 0) + 1;
+    });
+
+    // Compute downloads per product
+    const downloadCounts = await prisma.downloadLog.groupBy({
+      by: ['productId'],
+      where: { result: 'SUCCESS' },
+      _count: true
+    });
+    const downloadMap = new Map<string, number>();
+    downloadCounts.forEach(dc => {
+      if (dc.productId) downloadMap.set(dc.productId, dc._count);
+    });
+
+    const enrichedFiles = files.map(file => {
+      const linkedProduct = products.find(p => p.id === file.productId);
+      const downloadCount = downloadMap.get(file.productId) || 0;
+      return {
+        ...file,
+        product: linkedProduct || null,
+        downloadCount,
+        accessPolicy: 'PAID_CUSTOMERS'
+      };
+    });
+
+    res.json({
+      success: true,
+      data: enrichedFiles,
+      metrics: {
+        totalFiles: allFilesForStats.length,
+        totalSizeBytes,
+        folderCounts
+      },
+      products,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const uploadDigitalFile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actor = getAdminActor(req);
+    const file = req.file;
+    const {
+      fileName: customName,
+      folder = 'Software & Templates',
+      productId,
+      accessPolicy = 'PAID_CUSTOMERS',
+      downloadLimit = 5,
+      accessDurationDays = 365
+    } = req.body;
+
+    let targetProductId = productId;
+    if (!targetProductId) {
+      const firstProd = await prisma.product.findFirst({ select: { id: true } });
+      targetProductId = firstProd ? firstProd.id : undefined;
+    }
+
+    const resolvedFileName = customName || file?.originalname || 'unnamed_digital_asset.zip';
+    const mimeType = file?.mimetype || 'application/octet-stream';
+    const sizeBytes = file ? String(file.size) : '15728640'; // 15MB default
+    const driveFileId = file ? file.filename : `asset_${Date.now()}`;
+
+    const newFile = await prisma.productFile.create({
+      data: {
+        productId: targetProductId,
+        driveFileId,
+        fileName: resolvedFileName,
+        mimeType,
+        sizeBytes,
+        parentFolderId: folder,
+        accessStatus: 'CONNECTED',
+        isCurrent: true,
+        lastVerifiedAt: new Date()
+      }
+    });
+
+    await createAuditLog(
+      actor.id,
+      'UPLOAD_DIGITAL_FILE',
+      'ProductFile',
+      `Uploaded ${resolvedFileName} to folder ${folder} for product ${targetProductId}`
+    );
+
+    res.status(201).json({
+      success: true,
+      file: newFile,
+      message: `File "${resolvedFileName}" uploaded and stored successfully.`
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateFilePermissions = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actor = getAdminActor(req);
+    const id = String(req.params.id);
+    const { folder, accessStatus, isCurrent, downloadLimit } = req.body;
+
+    const file = await prisma.productFile.findUnique({ where: { id } });
+    if (!file) return res.status(404).json({ success: false, message: 'File not found.' });
+
+    const updated = await prisma.productFile.update({
+      where: { id },
+      data: {
+        parentFolderId: folder !== undefined ? String(folder) : file.parentFolderId,
+        accessStatus: accessStatus !== undefined ? String(accessStatus) : file.accessStatus,
+        isCurrent: isCurrent !== undefined ? Boolean(isCurrent) : file.isCurrent,
+        lastVerifiedAt: new Date()
+      }
+    });
+
+    if (downloadLimit && file.productId) {
+      await prisma.product.update({
+        where: { id: file.productId },
+        data: { downloadLimit: parseInt(downloadLimit, 10) }
+      });
+    }
+
+    await createAuditLog(actor.id, 'UPDATE_FILE_PERMISSIONS', 'ProductFile', `Updated permissions for file ${id}`);
+
+    res.json({ success: true, file: updated, message: 'Permissions updated successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const generateSecureTokenLink = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const { durationMinutes = 60 } = req.body;
+
+    const file = await prisma.productFile.findUnique({ where: { id } });
+    if (!file) return res.status(404).json({ success: false, message: 'File record not found.' });
+
+    // Find or create entitlement
+    let entitlement = await prisma.digitalEntitlement.findFirst({
+      where: { productId: file.productId, status: 'ACTIVE' }
+    });
+
+    if (!entitlement) {
+      // Find an order
+      const order = await prisma.order.findFirst({});
+      if (order) {
+        entitlement = await prisma.digitalEntitlement.create({
+          data: {
+            orderId: order.id,
+            productId: file.productId,
+            customerEmail: order.guestEmail || 'admin@kdw.com',
+            status: 'ACTIVE',
+            downloadLimit: 5,
+            accessExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+          }
+        });
+      }
+    }
+
+    const secureToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(secureToken).digest('hex');
+    const expiresAt = new Date(Date.now() + parseInt(durationMinutes, 10) * 60 * 1000);
+
+    if (entitlement) {
+      await prisma.downloadToken.create({
+        data: {
+          entitlementId: entitlement.id,
+          secureToken,
+          tokenHash,
+          status: 'ACTIVE',
+          expiresAt
+        }
+      });
+    }
+
+    const downloadUrl = `/api/purchases/download/${secureToken}`;
+
+    res.json({
+      success: true,
+      token: secureToken,
+      expiresAt,
+      downloadUrl,
+      fileName: file.fileName,
+      message: `Signed token generated for ${file.fileName}. Valid for ${durationMinutes} minutes.`
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteDigitalFile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actor = getAdminActor(req);
+    const id = String(req.params.id);
+
+    await prisma.productFile.delete({ where: { id } });
+    await createAuditLog(actor.id, 'DELETE_DIGITAL_FILE', 'ProductFile', `Deleted file ${id}`);
+
+    res.json({ success: true, message: 'Digital file removed successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+

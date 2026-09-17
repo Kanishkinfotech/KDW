@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Store, CreditCard, Truck, Link as LinkIcon, Lock } from 'lucide-react';
+import { Settings, Save, Store, CreditCard, Truck, Link as LinkIcon, Lock, CheckCircle2 } from 'lucide-react';
 import Button from '../../components/Button';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
@@ -31,19 +31,31 @@ export default function AdminSettings() {
     twitter_url: ''
   });
   
+  const [isSecretConfigured, setIsSecretConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
       try {
+        const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
         const res = await axios.get('/api/admin/settings', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          headers: { Authorization: `Bearer ${token}` }
         });
-        if (res.data.success && res.data.data.length > 0) {
+        if (res.data.success && res.data.data && res.data.data.length > 0) {
           const fetched: Record<string, any> = { ...settings };
           res.data.data.forEach((s: SettingItem) => {
-            fetched[s.key] = s.value;
+            if (s.key === 'razorpay_key_secret') {
+              if (s.value === '__SET__' || s.value === '••••••••••••••••') {
+                setIsSecretConfigured(true);
+              } else {
+                setIsSecretConfigured(false);
+              }
+              // Never populate secret field with __SET__ or mask string
+              fetched[s.key] = '';
+            } else {
+              fetched[s.key] = s.value ?? '';
+            }
           });
           setSettings(fetched);
         }
@@ -60,13 +72,13 @@ export default function AdminSettings() {
   const handleSave = async () => {
     // Frontend Validation
     if (settings.support_email) {
-      const emailRegex = /^[^\\s@]+@[^\\s@]+\.[^\\s@]+$/;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(settings.support_email)) {
         toast.error('Please enter a valid support email.');
         return;
       }
     }
-    const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\\w \.-]*)*\/?$/;
+    const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
     if (settings.facebook_url && !urlRegex.test(settings.facebook_url)) {
       toast.error('Please enter a valid Facebook URL.');
       return;
@@ -82,27 +94,44 @@ export default function AdminSettings() {
 
     setSaving(true);
     try {
-      const updates = [
+      const updates: Array<{ key: string; value: any; group: string }> = [
         { key: 'store_name', value: settings.store_name, group: 'general' },
         { key: 'support_email', value: settings.support_email, group: 'general' },
+        { key: 'support_phone', value: settings.support_phone, group: 'general' },
         { key: 'store_address', value: settings.store_address, group: 'general' },
         
         { key: 'razorpay_key_id', value: settings.razorpay_key_id, group: 'payment' },
-        { key: 'razorpay_key_secret', value: settings.razorpay_key_secret, group: 'payment' },
         { key: 'currency', value: settings.currency, group: 'payment' },
         { key: 'tax_rate', value: settings.tax_rate, group: 'payment' },
+        
+        { key: 'default_shipping_cost', value: settings.default_shipping_cost, group: 'shipping' },
+        { key: 'free_shipping_threshold', value: settings.free_shipping_threshold, group: 'shipping' },
         
         { key: 'facebook_url', value: settings.facebook_url, group: 'social' },
         { key: 'instagram_url', value: settings.instagram_url, group: 'social' },
         { key: 'twitter_url', value: settings.twitter_url, group: 'social' },
       ];
 
+      // Only include secret in payload if administrator typed a new secret
+      if (settings.razorpay_key_secret && settings.razorpay_key_secret.trim() !== '' && settings.razorpay_key_secret !== '__SET__') {
+        updates.push({
+          key: 'razorpay_key_secret',
+          value: settings.razorpay_key_secret.trim(),
+          group: 'payment'
+        });
+      }
+
+      const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
       const res = await axios.put('/api/admin/settings', updates, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
       
       if (res.data.success) {
         toast.success('Settings saved successfully!');
+        if (settings.razorpay_key_secret && settings.razorpay_key_secret.trim() !== '') {
+          setIsSecretConfigured(true);
+          handleChange('razorpay_key_secret', '');
+        }
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to save settings');
@@ -122,6 +151,7 @@ export default function AdminSettings() {
   const tabs = [
     { id: 'general', label: 'General', icon: <Store size={18} /> },
     { id: 'payment', label: 'Payment API', icon: <CreditCard size={18} /> },
+    { id: 'shipping', label: 'Shipping', icon: <Truck size={18} /> },
     { id: 'social', label: 'Social Links', icon: <LinkIcon size={18} /> },
   ];
 
@@ -135,7 +165,7 @@ export default function AdminSettings() {
             <Settings className="text-primary" />
             Global Settings
           </h1>
-          <p className="text-slate-500 text-sm mt-1">Configure global platform settings, API keys, and business details.</p>
+          <p className="text-slate-500 text-sm mt-1">Configure global platform settings, API keys, shipping rates, and business details.</p>
         </div>
         <Button onClick={handleSave} isLoading={saving} className="flex items-center gap-2">
           <Save size={18} />
@@ -166,6 +196,7 @@ export default function AdminSettings() {
         {/* Content Area */}
         <div className="flex-1 bg-white rounded-xl border border-slate-200 p-6 shadow-sm min-h-[500px]">
           
+          {/* General Tab */}
           {activeTab === 'general' && (
             <div className="space-y-6 animate-in fade-in">
               <h2 className="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-2">Store Details</h2>
@@ -179,6 +210,10 @@ export default function AdminSettings() {
                   <input type="email" value={settings.support_email} onChange={e => handleChange('support_email', e.target.value)} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary" placeholder="support@yourstore.com" />
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Support Phone</label>
+                  <input type="text" value={settings.support_phone} onChange={e => handleChange('support_phone', e.target.value)} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary" placeholder="+91 98765 43210" />
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Business Address</label>
                   <textarea rows={3} value={settings.store_address} onChange={e => handleChange('store_address', e.target.value)} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary resize-none" placeholder="123 Commerce St..." />
                 </div>
@@ -186,6 +221,7 @@ export default function AdminSettings() {
             </div>
           )}
 
+          {/* Payment Tab */}
           {activeTab === 'payment' && (
             <div className="space-y-6 animate-in fade-in">
               <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-2">
@@ -200,7 +236,23 @@ export default function AdminSettings() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Key Secret</label>
-                  <input type="password" value={settings.razorpay_key_secret} onChange={e => handleChange('razorpay_key_secret', e.target.value)} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary" placeholder="••••••••••••••••" />
+                  <input
+                    type="password"
+                    value={settings.razorpay_key_secret}
+                    onChange={e => handleChange('razorpay_key_secret', e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary"
+                    placeholder={isSecretConfigured ? 'Leave blank to preserve existing secret' : 'Enter Razorpay Key Secret'}
+                  />
+                  {isSecretConfigured ? (
+                    <p className="text-xs text-emerald-600 font-semibold mt-1.5 flex items-center gap-1">
+                      <CheckCircle2 size={12} />
+                      Already saved — leave blank to keep the existing secret.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      No secret configured yet. Enter your Razorpay secret key.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -222,7 +274,38 @@ export default function AdminSettings() {
             </div>
           )}
 
+          {/* Shipping Tab */}
+          {activeTab === 'shipping' && (
+            <div className="space-y-6 animate-in fade-in">
+              <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-2">
+                <h2 className="text-lg font-bold text-slate-900">Shipping & Delivery Rates</h2>
+                <Truck size={16} className="text-slate-600" />
+              </div>
+              <p className="text-sm text-slate-500 mb-4">Configure shipping charges and free delivery threshold for physical items.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Default Shipping Cost (₹)</label>
+                  <input
+                    type="number"
+                    value={settings.default_shipping_cost}
+                    onChange={e => handleChange('default_shipping_cost', e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Free Shipping Threshold (₹)</label>
+                  <input
+                    type="number"
+                    value={settings.free_shipping_threshold}
+                    onChange={e => handleChange('free_shipping_threshold', e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
+          {/* Social Tab */}
           {activeTab === 'social' && (
             <div className="space-y-6 animate-in fade-in">
               <h2 className="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-2">Social Media Links</h2>

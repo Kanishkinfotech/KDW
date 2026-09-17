@@ -13,7 +13,8 @@ import {
   getPermissions,
   updateRolePermissions,
   grantTemporaryPermission,
-  getTemporaryPermissions
+  getTemporaryPermissions,
+  revokeTemporaryPermission
 } from '../controllers/admin/rolePermissionController';
 import {
   getAdminSessions,
@@ -44,6 +45,8 @@ router.get('/permissions', getPermissions);
 router.patch('/roles/:id', updateRolePermissions);
 router.post('/temporary-permission', grantTemporaryPermission);
 router.get('/temporary-permissions', getTemporaryPermissions);
+router.post('/temporary-permissions/:id/revoke', revokeTemporaryPermission);
+router.delete('/temporary-permissions/:id', revokeTemporaryPermission);
 
 // Sessions & Governance
 router.get('/sessions', getAdminSessions);

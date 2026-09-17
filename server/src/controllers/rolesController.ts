@@ -7,19 +7,25 @@ const prisma = new PrismaClient();
 export const getRoles = async (req: Request, res: Response) => {
   try {
     const roles = await prisma.role.findMany({
-      include: {
-        _count: {
-          select: { users: true }
-        }
-      },
       orderBy: { createdAt: 'desc' }
     });
 
-    const formattedRoles = roles.map(role => ({
-      ...role,
-      permissions: JSON.parse(role.permissions),
-      usersCount: role._count.users
-    }));
+    const formattedRoles = await Promise.all(
+      roles.map(async (role) => {
+        const usersCount = await prisma.user.count({ where: { role: role.name } });
+        let parsedPermissions = [];
+        try {
+          parsedPermissions = JSON.parse(role.permissions);
+        } catch {
+          parsedPermissions = [];
+        }
+        return {
+          ...role,
+          permissions: parsedPermissions,
+          usersCount
+        };
+      })
+    );
 
     res.json({ success: true, roles: formattedRoles });
   } catch (error) {
@@ -122,8 +128,7 @@ export const deleteRole = async (req: Request, res: Response) => {
     const id = req.params.id as string;
 
     const existingRole = await prisma.role.findUnique({ 
-      where: { id },
-      include: { _count: { select: { users: true } } }
+      where: { id }
     });
     
     if (!existingRole) {
@@ -134,7 +139,8 @@ export const deleteRole = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'Cannot delete a system role' });
     }
 
-    if (existingRole._count.users > 0) {
+    const assignedCount = await prisma.user.count({ where: { role: existingRole.name } });
+    if (assignedCount > 0) {
       return res.status(400).json({ success: false, message: 'Cannot delete role with assigned users' });
     }
 

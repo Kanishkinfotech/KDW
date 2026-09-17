@@ -79,13 +79,18 @@ export const getBundles = async (req: Request, res: Response, next: NextFunction
     }
 
     // Status filter
-    if (status && status !== 'ALL') {
+    if (status === 'ALL') {
+      // Explicit ALL: allow admin to retrieve all bundles (ACTIVE, DRAFT, ARCHIVED)
+    } else if (status && String(status).trim() !== '') {
       const s = String(status).toUpperCase();
       if (s === 'ACTIVE' || s === 'PUBLISHED') {
         whereClause.status = { in: ['ACTIVE', 'PUBLISHED'] };
       } else {
         whereClause.status = s;
       }
+    } else {
+      // Default for storefront: only return live ACTIVE and PUBLISHED bundles (never ARCHIVED or DRAFT)
+      whereClause.status = { in: ['ACTIVE', 'PUBLISHED'] };
     }
 
     // Licence Type filter
@@ -178,6 +183,19 @@ export const getBundles = async (req: Request, res: Response, next: NextFunction
       prisma.bundle.count({ where: whereClause })
     ]);
 
+    const now = new Date();
+
+    // Fetch active promotional offers from prisma.offer that apply to bundles
+    const activeBundlePromos = await prisma.offer.findMany({
+      where: {
+        status: 'ACTIVE',
+        offerType: { in: ['BUNDLE_OFFER', 'BUNDLE_DEAL', 'FLASH_SALE', 'TIME_LIMITED'] },
+        OR: [{ startAt: null }, { startAt: { lte: now } }],
+        AND: [{ OR: [{ endAt: null }, { endAt: { gte: now } }] }]
+      },
+      orderBy: { priority: 'asc' }
+    });
+
     // Format & enrich with dynamic calculations
     const enriched = bundles.map(bundle => {
       const items = bundle.bundleItems || [];
@@ -185,8 +203,74 @@ export const getBundles = async (req: Request, res: Response, next: NextFunction
 
       // Combined component value
       const combinedValue = items.reduce((sum, item) => sum + (item.product?.price || item.referencePriceSnapshot || 0), 0);
-      const discountAmount = Math.max(0, combinedValue - bundle.price);
-      const discountPercent = combinedValue > 0 ? Math.round((discountAmount / combinedValue) * 100) : 0;
+      const rawOriginal = bundle.originalPrice > 0 ? bundle.originalPrice : combinedValue;
+      const rawDiscounted = bundle.price;
+
+      // Check if an active promotional offer applies to this bundle
+      const matchingOffer = activeBundlePromos.find(offer => {
+        const placement = offer.displayPlacement || 'ALL_PLACEMENTS';
+        if (placement !== 'ALL_PLACEMENTS' && placement !== 'BUNDLE_SECTION' && placement !== 'BANNER_AND_PRODUCT') {
+          return false;
+        }
+
+        let bIds: string[] = [];
+        try {
+          if (offer.bundleIds) {
+            bIds = typeof offer.bundleIds === 'string' ? JSON.parse(offer.bundleIds) : offer.bundleIds;
+          }
+        } catch {
+          bIds = [];
+        }
+
+        if (['BUNDLE_OFFER', 'BUNDLE_DEAL'].includes(offer.offerType)) {
+          return bIds.length === 0 || bIds.includes(bundle.id);
+        }
+
+        if (['FLASH_SALE', 'TIME_LIMITED'].includes(offer.offerType)) {
+          return bIds.length > 0 && bIds.includes(bundle.id);
+        }
+
+        return false;
+      });
+
+      let isDealExpired = Boolean(bundle.offerEndAt && now > new Date(bundle.offerEndAt));
+      let isDealActive = Boolean(bundle.offerEndAt && now <= new Date(bundle.offerEndAt) && (!bundle.offerStartAt || now >= new Date(bundle.offerStartAt)));
+      let effectivePrice = isDealExpired ? (rawOriginal > 0 ? rawOriginal : rawDiscounted) : rawDiscounted;
+      let effectiveOriginalPrice = rawOriginal > 0 ? rawOriginal : effectivePrice;
+      let activeDeal: any = null;
+
+      if (matchingOffer) {
+        let promoPrice = rawDiscounted;
+        if (matchingOffer.discountType === 'PERCENTAGE') {
+          promoPrice = Math.max(0, Math.round(rawDiscounted * (1 - matchingOffer.discountValue / 100)));
+        } else if (matchingOffer.discountType === 'FIXED') {
+          promoPrice = Math.max(0, rawDiscounted - matchingOffer.discountValue);
+        } else if (matchingOffer.discountType === 'FLAT_PRICE') {
+          promoPrice = matchingOffer.discountValue;
+        }
+
+        effectivePrice = promoPrice;
+        effectiveOriginalPrice = rawOriginal > 0 ? rawOriginal : rawDiscounted;
+        isDealActive = true;
+        isDealExpired = false;
+
+        activeDeal = {
+          offerId: matchingOffer.id,
+          offerName: matchingOffer.name,
+          offerType: matchingOffer.offerType,
+          badgeText: matchingOffer.badgeText || (matchingOffer.discountType === 'PERCENTAGE' ? `${matchingOffer.discountValue}% OFF` : 'BUNDLE DEAL'),
+          bannerText: matchingOffer.bannerText || null,
+          discountType: matchingOffer.discountType,
+          discountValue: matchingOffer.discountValue,
+          effectivePrice: promoPrice,
+          originalPrice: effectiveOriginalPrice,
+          endAt: matchingOffer.endAt,
+          startAt: matchingOffer.startAt
+        };
+      }
+
+      const discountAmount = isDealExpired ? 0 : Math.max(0, effectiveOriginalPrice - effectivePrice);
+      const discountPercent = isDealExpired ? 0 : (effectiveOriginalPrice > 0 ? Math.round((discountAmount / effectiveOriginalPrice) * 100) : 0);
 
       // Check delivery link status
       let configuredLinks = 0;
@@ -202,15 +286,23 @@ export const getBundles = async (req: Request, res: Response, next: NextFunction
 
       return {
         ...bundle,
+        price: effectivePrice,
+        originalPrice: effectiveOriginalPrice,
+        effectivePrice,
+        isDealActive,
+        isDealExpired,
+        activeDeal,
+        offerEndAt: activeDeal?.endAt || bundle.offerEndAt,
         componentCount,
         combinedValue,
+        discount: discountAmount,
         discountAmount,
-        discountPercent: bundle.discountPercent || discountPercent,
+        discountPercent,
         configuredLinks,
         missingLinks: componentCount - configuredLinks,
         isDriveFullyConfigured,
         sales: bundle.salesCount || bundle._count?.orderItems || 0,
-        revenue: bundle.revenue || (bundle.salesCount || bundle._count?.orderItems || 0) * bundle.price
+        revenue: bundle.revenue || (bundle.salesCount || bundle._count?.orderItems || 0) * effectivePrice
       };
     });
 
@@ -283,11 +375,94 @@ export const getBundleById = async (req: Request, res: Response, next: NextFunct
       return res.status(404).json({ success: false, message: 'Bundle not found' });
     }
 
+    const userRole = (req as any).user?.role;
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+    if (bundle.status === 'ARCHIVED' && !isAdmin) {
+      return res.status(404).json({ success: false, message: 'This bundle has been archived and is no longer available.' });
+    }
+
     // Component calculations
     const items = bundle.bundleItems || [];
     const combinedValue = items.reduce((sum, item) => sum + (item.product?.price || item.referencePriceSnapshot || 0), 0);
-    const discountAmount = Math.max(0, combinedValue - bundle.price);
-    const discountPercent = combinedValue > 0 ? Math.round((discountAmount / combinedValue) * 100) : 0;
+    const rawOriginal = bundle.originalPrice > 0 ? bundle.originalPrice : combinedValue;
+    const rawDiscounted = bundle.price;
+    const now = new Date();
+
+    // Check active promotional offer from prisma.offer
+    const activeBundlePromos = await prisma.offer.findMany({
+      where: {
+        status: 'ACTIVE',
+        offerType: { in: ['BUNDLE_OFFER', 'BUNDLE_DEAL', 'FLASH_SALE', 'TIME_LIMITED'] },
+        OR: [{ startAt: null }, { startAt: { lte: now } }],
+        AND: [{ OR: [{ endAt: null }, { endAt: { gte: now } }] }]
+      },
+      orderBy: { priority: 'asc' }
+    });
+
+    const matchingOffer = activeBundlePromos.find(offer => {
+      const placement = offer.displayPlacement || 'ALL_PLACEMENTS';
+      if (placement !== 'ALL_PLACEMENTS' && placement !== 'BUNDLE_SECTION' && placement !== 'BANNER_AND_PRODUCT') {
+        return false;
+      }
+
+      let bIds: string[] = [];
+      try {
+        if (offer.bundleIds) {
+          bIds = typeof offer.bundleIds === 'string' ? JSON.parse(offer.bundleIds) : offer.bundleIds;
+        }
+      } catch {
+        bIds = [];
+      }
+
+      if (['BUNDLE_OFFER', 'BUNDLE_DEAL'].includes(offer.offerType)) {
+        return bIds.length === 0 || bIds.includes(bundle.id);
+      }
+
+      if (['FLASH_SALE', 'TIME_LIMITED'].includes(offer.offerType)) {
+        return bIds.length > 0 && bIds.includes(bundle.id);
+      }
+
+      return false;
+    });
+
+    let isDealExpired = Boolean(bundle.offerEndAt && now > new Date(bundle.offerEndAt));
+    let isDealActive = Boolean(bundle.offerEndAt && now <= new Date(bundle.offerEndAt) && (!bundle.offerStartAt || now >= new Date(bundle.offerStartAt)));
+    let effectivePrice = isDealExpired ? (rawOriginal > 0 ? rawOriginal : rawDiscounted) : rawDiscounted;
+    let effectiveOriginalPrice = rawOriginal > 0 ? rawOriginal : effectivePrice;
+    let activeDeal: any = null;
+
+    if (matchingOffer) {
+      let promoPrice = rawDiscounted;
+      if (matchingOffer.discountType === 'PERCENTAGE') {
+        promoPrice = Math.max(0, Math.round(rawDiscounted * (1 - matchingOffer.discountValue / 100)));
+      } else if (matchingOffer.discountType === 'FIXED') {
+        promoPrice = Math.max(0, rawDiscounted - matchingOffer.discountValue);
+      } else if (matchingOffer.discountType === 'FLAT_PRICE') {
+        promoPrice = matchingOffer.discountValue;
+      }
+
+      effectivePrice = promoPrice;
+      effectiveOriginalPrice = rawOriginal > 0 ? rawOriginal : rawDiscounted;
+      isDealActive = true;
+      isDealExpired = false;
+
+      activeDeal = {
+        offerId: matchingOffer.id,
+        offerName: matchingOffer.name,
+        offerType: matchingOffer.offerType,
+        badgeText: matchingOffer.badgeText || (matchingOffer.discountType === 'PERCENTAGE' ? `${matchingOffer.discountValue}% OFF` : 'BUNDLE DEAL'),
+        bannerText: matchingOffer.bannerText || null,
+        discountType: matchingOffer.discountType,
+        discountValue: matchingOffer.discountValue,
+        effectivePrice: promoPrice,
+        originalPrice: effectiveOriginalPrice,
+        endAt: matchingOffer.endAt,
+        startAt: matchingOffer.startAt
+      };
+    }
+
+    const discountAmount = isDealExpired ? 0 : Math.max(0, effectiveOriginalPrice - effectivePrice);
+    const discountPercent = isDealExpired ? 0 : (effectiveOriginalPrice > 0 ? Math.round((discountAmount / effectiveOriginalPrice) * 100) : 0);
 
     let configuredCount = 0;
     const componentsWithDiagnostics = items.map(item => {
@@ -310,11 +485,19 @@ export const getBundleById = async (req: Request, res: Response, next: NextFunct
       success: true,
       data: {
         ...bundle,
+        price: effectivePrice,
+        originalPrice: effectiveOriginalPrice,
+        effectivePrice,
+        isDealActive,
+        isDealExpired,
+        activeDeal,
+        offerEndAt: activeDeal?.endAt || bundle.offerEndAt,
         bundleItems: componentsWithDiagnostics,
         itemsIncluded: items.length,
         combinedValue,
+        discount: discountAmount,
         discountAmount,
-        discountPercent: bundle.discountPercent || discountPercent,
+        discountPercent,
         configuredLinks: configuredCount,
         missingLinks: items.length - configuredCount,
         isDriveFullyConfigured: bundle.deliveryMode === 'BUNDLE_LINK' ? !!bundle.googleDriveLink : configuredCount === items.length && items.length > 0
@@ -844,8 +1027,18 @@ export const duplicateBundle = async (req: Request, res: Response, next: NextFun
 export const archiveBundle = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    const existing = await prisma.bundle.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }, { bundleCode: id }, { title: id }]
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Bundle not found to archive' });
+    }
+
     const bundle = await prisma.bundle.update({
-      where: { id },
+      where: { id: existing.id },
       data: {
         status: 'ARCHIVED',
         archivedAt: new Date(),
@@ -853,12 +1046,13 @@ export const archiveBundle = async (req: Request, res: Response, next: NextFunct
           create: {
             action: 'UPDATED',
             actorEmail: (req as any).user?.email || 'admin@kdw.com',
+            actorId: await getValidActorId(req),
             reason: 'Bundle archived'
           }
         }
       }
     });
-    res.json({ success: true, message: 'Bundle archived successfully', data: bundle });
+    res.json({ success: true, message: `Bundle "${bundle.title}" archived successfully`, data: bundle });
   } catch (error) {
     next(error);
   }
@@ -867,8 +1061,18 @@ export const archiveBundle = async (req: Request, res: Response, next: NextFunct
 export const restoreBundle = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    const existing = await prisma.bundle.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }, { bundleCode: id }, { title: id }]
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Bundle not found to restore' });
+    }
+
     const bundle = await prisma.bundle.update({
-      where: { id },
+      where: { id: existing.id },
       data: {
         status: 'ACTIVE',
         archivedAt: null,
@@ -876,12 +1080,13 @@ export const restoreBundle = async (req: Request, res: Response, next: NextFunct
           create: {
             action: 'UPDATED',
             actorEmail: (req as any).user?.email || 'admin@kdw.com',
+            actorId: await getValidActorId(req),
             reason: 'Bundle restored from archive'
           }
         }
       }
     });
-    res.json({ success: true, message: 'Bundle restored successfully', data: bundle });
+    res.json({ success: true, message: `Bundle "${bundle.title}" restored successfully`, data: bundle });
   } catch (error) {
     next(error);
   }
@@ -890,7 +1095,17 @@ export const restoreBundle = async (req: Request, res: Response, next: NextFunct
 export const deleteBundle = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    await prisma.bundle.delete({ where: { id } });
+    const existing = await prisma.bundle.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }, { bundleCode: id }]
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Bundle not found' });
+    }
+
+    await prisma.bundle.delete({ where: { id: existing.id } });
     res.json({ success: true, message: 'Bundle deleted permanently' });
   } catch (error) {
     next(error);
@@ -916,9 +1131,7 @@ export const validateBundle = async (req: Request, res: Response, next: NextFunc
     if (!payload.coverImage || String(payload.coverImage).trim() === '') {
       warnings.push({ pillar: 'Content', field: 'coverImage', message: 'Bundle is missing a high-resolution cover thumbnail.' });
     }
-    if (!payload.categoryId) {
-      warnings.push({ pillar: 'Content', field: 'categoryId', message: 'Bundle is unassigned to a primary category.' });
-    }
+
 
     // --- Pillar 2: Components & Circular Reference ---
     const componentIds = (payload.components?.map((c: any) => c.productId) || payload.productIds || []).filter(Boolean);

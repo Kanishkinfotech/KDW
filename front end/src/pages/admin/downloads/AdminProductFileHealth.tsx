@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HardDrive, Search, Filter, RefreshCw, CheckCircle2, AlertCircle, Wrench, Activity } from 'lucide-react';
 import SEO from '../../../components/SEO';
 import DriveHealthTestModal from '../../../components/admin/DriveHealthTestModal';
+import { authFetch } from '../../../api/apiClient';
 
 export default function AdminProductFileHealth() {
   const [loading, setLoading] = useState(true);
@@ -20,7 +21,7 @@ export default function AdminProductFileHealth() {
     setLoading(true);
     try {
       const query = new URLSearchParams({ page: String(page), limit: '20', search: search.trim(), status });
-      const res = await fetch(`/api/admin/downloads/product-files?${query.toString()}`);
+      const res = await authFetch(`/api/admin/downloads/product-files?${query.toString()}`);
       const json = await res.json();
       if (json.success) {
         setRecords(json.data || []);

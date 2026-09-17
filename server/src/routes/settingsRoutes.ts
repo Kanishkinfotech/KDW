@@ -9,6 +9,7 @@ import { getCurrencyTaxSettings, updateCurrencyTaxSettings } from '../controller
 import { getCheckoutSettings, updateCheckoutSettings } from '../controllers/settings/checkoutSettingsController';
 import { getDownloadSettings, updateDownloadSettings } from '../controllers/settings/downloadSettingsController';
 import { getEmailSettings, updateEmailSettings, sendTestEmail } from '../controllers/settings/emailSettingsController';
+import { getWhatsAppSettings, updateWhatsAppSettings, sendTestWhatsAppMessage } from '../controllers/settings/whatsappSettingsController';
 import { getSecuritySettings, updateSecuritySettings } from '../controllers/settings/securitySettingsController';
 import { getPrivacySettings, updatePrivacySettings } from '../controllers/settings/privacySettingsController';
 import {
@@ -27,7 +28,9 @@ import {
 import {
   testRazorpayIntegration,
   testWebhookSignature,
-  testGoogleDriveIntegration
+  testGoogleDriveIntegration,
+  testWhatsAppIntegration,
+  testEmailIntegration
 } from '../controllers/settings/integrationsTestController';
 
 // Legacy public controller fallback
@@ -48,55 +51,62 @@ router.post('/legal/accept', recordPolicyAcceptance);
 // ==========================================
 
 // Dashboard Health Overview
-router.get('/admin/dashboard', authenticate, authorize(...ADMIN_ROLES), getSettingsDashboardHealth);
+router.get(['/dashboard', '/admin/dashboard'], authenticate, authorize(...ADMIN_ROLES), getSettingsDashboardHealth);
 
 // General Settings
-router.get('/admin/general', authenticate, authorize(...ADMIN_ROLES), getGeneralSettings);
-router.patch('/admin/general', authenticate, authorize(...ADMIN_ROLES), updateGeneralSettings);
+router.get(['/general', '/admin/general'], authenticate, authorize(...ADMIN_ROLES), getGeneralSettings);
+router.patch(['/general', '/admin/general'], authenticate, authorize(...ADMIN_ROLES), updateGeneralSettings);
 
 // Store Settings
-router.get('/admin/store', authenticate, authorize(...ADMIN_ROLES), getStoreSettings);
-router.patch('/admin/store', authenticate, authorize(...ADMIN_ROLES), updateStoreSettings);
+router.get(['/store', '/admin/store'], authenticate, authorize(...ADMIN_ROLES), getStoreSettings);
+router.patch(['/store', '/admin/store'], authenticate, authorize(...ADMIN_ROLES), updateStoreSettings);
 
 // Currency and Tax
-router.get('/admin/currency-tax', authenticate, authorize(...ADMIN_ROLES), getCurrencyTaxSettings);
-router.patch('/admin/currency-tax', authenticate, authorize(...ADMIN_ROLES), updateCurrencyTaxSettings);
+router.get(['/currency-tax', '/admin/currency-tax'], authenticate, authorize(...ADMIN_ROLES), getCurrencyTaxSettings);
+router.patch(['/currency-tax', '/admin/currency-tax'], authenticate, authorize(...ADMIN_ROLES), updateCurrencyTaxSettings);
 
 // Checkout Settings
-router.get('/admin/checkout', authenticate, authorize(...ADMIN_ROLES), getCheckoutSettings);
-router.patch('/admin/checkout', authenticate, authorize(...ADMIN_ROLES), updateCheckoutSettings);
+router.get(['/checkout', '/admin/checkout'], authenticate, authorize(...ADMIN_ROLES), getCheckoutSettings);
+router.patch(['/checkout', '/admin/checkout'], authenticate, authorize(...ADMIN_ROLES), updateCheckoutSettings);
 
 // Download Settings
-router.get('/admin/downloads', authenticate, authorize(...ADMIN_ROLES), getDownloadSettings);
-router.patch('/admin/downloads', authenticate, authorize(...ADMIN_ROLES), updateDownloadSettings);
+router.get(['/downloads', '/admin/downloads'], authenticate, authorize(...ADMIN_ROLES), getDownloadSettings);
+router.patch(['/downloads', '/admin/downloads'], authenticate, authorize(...ADMIN_ROLES), updateDownloadSettings);
 
 // Email Settings
-router.get('/admin/email', authenticate, authorize(...ADMIN_ROLES), getEmailSettings);
-router.patch('/admin/email', authenticate, authorize(...ADMIN_ROLES), updateEmailSettings);
-router.post('/admin/email/test', authenticate, authorize(...ADMIN_ROLES), sendTestEmail);
+router.get(['/email', '/admin/email'], authenticate, authorize(...ADMIN_ROLES), getEmailSettings);
+router.patch(['/email', '/admin/email'], authenticate, authorize(...ADMIN_ROLES), updateEmailSettings);
+router.post(['/email/test', '/admin/email/test'], authenticate, authorize(...ADMIN_ROLES), sendTestEmail);
+
+// WhatsApp Settings
+router.get(['/whatsapp', '/admin/whatsapp'], authenticate, authorize(...ADMIN_ROLES), getWhatsAppSettings);
+router.patch(['/whatsapp', '/admin/whatsapp'], authenticate, authorize(...ADMIN_ROLES), updateWhatsAppSettings);
+router.post(['/whatsapp/test', '/admin/whatsapp/test'], authenticate, authorize(...ADMIN_ROLES), sendTestWhatsAppMessage);
 
 // Security Settings
-router.get('/admin/security', authenticate, authorize(...ADMIN_ROLES), getSecuritySettings);
-router.patch('/admin/security', authenticate, authorize(...ADMIN_ROLES), updateSecuritySettings);
+router.get(['/security', '/admin/security'], authenticate, authorize(...ADMIN_ROLES), getSecuritySettings);
+router.patch(['/security', '/admin/security'], authenticate, authorize(...ADMIN_ROLES), updateSecuritySettings);
 
 // Privacy Settings
-router.get('/admin/privacy', authenticate, authorize(...ADMIN_ROLES), getPrivacySettings);
-router.patch('/admin/privacy', authenticate, authorize(...ADMIN_ROLES), updatePrivacySettings);
+router.get(['/privacy', '/admin/privacy'], authenticate, authorize(...ADMIN_ROLES), getPrivacySettings);
+router.patch(['/privacy', '/admin/privacy'], authenticate, authorize(...ADMIN_ROLES), updatePrivacySettings);
 
 // Legal Documents Management
-router.get('/admin/legal-documents', authenticate, authorize(...ADMIN_ROLES), getLegalDocuments);
-router.get('/admin/legal-documents/:slug', authenticate, authorize(...ADMIN_ROLES), getLegalDocumentBySlug);
-router.post('/admin/legal-documents/:slug/draft', authenticate, authorize(...ADMIN_ROLES), saveLegalDocumentDraft);
-router.post('/admin/legal-documents/:slug/publish', authenticate, authorize(...ADMIN_ROLES), publishLegalDocument);
+router.get(['/legal-documents', '/admin/legal-documents'], authenticate, authorize(...ADMIN_ROLES), getLegalDocuments);
+router.get(['/legal-documents/:slug', '/admin/legal-documents/:slug'], authenticate, authorize(...ADMIN_ROLES), getLegalDocumentBySlug);
+router.post(['/legal-documents/:slug/draft', '/admin/legal-documents/:slug/draft'], authenticate, authorize(...ADMIN_ROLES), saveLegalDocumentDraft);
+router.post(['/legal-documents/:slug/publish', '/admin/legal-documents/:slug/publish'], authenticate, authorize(...ADMIN_ROLES), publishLegalDocument);
 
 // Settings Audit History & Rollback
-router.get('/admin/audit', authenticate, authorize(...ADMIN_ROLES), getSettingsAuditLogs);
-router.get('/admin/audit/versions/:key', authenticate, authorize(...ADMIN_ROLES), getSettingVersionHistory);
-router.post('/admin/audit/rollback', authenticate, authorize(...ADMIN_ROLES), rollbackSetting);
+router.get(['/audit', '/admin/audit'], authenticate, authorize(...ADMIN_ROLES), getSettingsAuditLogs);
+router.get(['/audit/versions/:key', '/admin/audit/versions/:key'], authenticate, authorize(...ADMIN_ROLES), getSettingVersionHistory);
+router.post(['/audit/rollback', '/admin/audit/rollback'], authenticate, authorize(...ADMIN_ROLES), rollbackSetting);
 
 // Integrations Verification Tests
-router.post('/admin/test/razorpay', authenticate, authorize(...ADMIN_ROLES), testRazorpayIntegration);
-router.post('/admin/test/webhook', authenticate, authorize(...ADMIN_ROLES), testWebhookSignature);
-router.post('/admin/test/drive', authenticate, authorize(...ADMIN_ROLES), testGoogleDriveIntegration);
+router.post(['/test/razorpay', '/admin/test/razorpay'], authenticate, authorize(...ADMIN_ROLES), testRazorpayIntegration);
+router.post(['/test/webhook', '/admin/test/webhook'], authenticate, authorize(...ADMIN_ROLES), testWebhookSignature);
+router.post(['/test/drive', '/admin/test/drive'], authenticate, authorize(...ADMIN_ROLES), testGoogleDriveIntegration);
+router.post(['/test/whatsapp', '/admin/test/whatsapp'], authenticate, authorize(...ADMIN_ROLES), testWhatsAppIntegration);
+router.post(['/test/email', '/admin/test/email'], authenticate, authorize(...ADMIN_ROLES), testEmailIntegration);
 
 export default router;

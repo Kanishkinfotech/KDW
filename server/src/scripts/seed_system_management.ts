@@ -172,112 +172,11 @@ async function seedSystemManagement() {
   }
   console.log(`✓ Seeded ${errorLogs.length} system error records.`);
 
-  // 3. Seed System Login Logs
-  console.log('\n3. Seeding System Login Logs...');
-  const loginLogs = [
-    {
-      userType: 'ADMIN',
-      email: 'admin@kanishkdigitalworld.com',
-      userName: 'Vishwa SuperAdmin',
-      eventType: 'LOGIN_SUCCESS',
-      result: 'SUCCESS',
-      ipAddress: '49.37.152.88',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0',
-      isSuspicious: false,
-      createdAt: new Date(Date.now() - 3600 * 1000 * 2)
-    },
-    {
-      userType: 'ADMIN',
-      email: 'finance@kanishkdigitalworld.com',
-      userName: 'Finance Staff',
-      eventType: 'MFA_CHALLENGE',
-      result: 'SUCCESS',
-      ipAddress: '106.51.240.12',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-      isSuspicious: false,
-      createdAt: new Date(Date.now() - 3600 * 1000 * 4)
-    },
-    {
-      userType: 'ADMIN',
-      email: 'admin@kanishkdigitalworld.com',
-      userName: 'Unknown Attacker',
-      eventType: 'LOGIN_FAILURE',
-      result: 'BLOCKED',
-      failureReason: 'Invalid password & IP blocked after 5 attempts',
-      ipAddress: '185.220.101.5',
-      userAgent: 'Python-urllib/3.9',
-      isSuspicious: true,
-      suspiciousReason: 'Brute-force credential stuffing attack detected from Tor exit node',
-      createdAt: new Date(Date.now() - 3600 * 1000 * 7)
-    },
-    {
-      userType: 'CUSTOMER',
-      email: 'priya.patel@gmail.com',
-      userName: 'Priya Patel',
-      eventType: 'LOGIN_SUCCESS',
-      result: 'SUCCESS',
-      ipAddress: '157.34.120.91',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)',
-      isSuspicious: false,
-      createdAt: new Date(Date.now() - 3600 * 1000 * 1)
-    },
-    {
-      userType: 'CUSTOMER',
-      email: 'anand.k@hotmail.com',
-      userName: 'Anand Kumar',
-      eventType: 'LOGIN_FAILURE',
-      result: 'FAILED',
-      failureReason: 'Incorrect password',
-      ipAddress: '117.198.88.42',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      isSuspicious: false,
-      createdAt: new Date(Date.now() - 3600 * 1000 * 3)
-    }
-  ];
+  // 3. System Login Logs (Maintained exclusively via live authentic customer and staff logins)
+  console.log('\n3. Skipping mock login logs (Exclusively real-time telemetry from authController)...');
 
-  for (const log of loginLogs) {
-    await prisma.systemLoginLog.create({ data: log });
-  }
-  console.log(`✓ Seeded ${loginLogs.length} authentication & security logs.`);
-
-  // 4. Seed API & Webhook Logs
-  console.log('\n4. Seeding API and Webhook Logs...');
-  const apiLogs = [
-    {
-      requestId: 'req_kdw_api_001',
-      method: 'GET',
-      endpoint: '/api/admin/dashboard',
-      statusCode: 200,
-      latencyMs: 38,
-      actorRole: 'ADMIN',
-      ipAddress: '49.37.152.88',
-      responseSizeBytes: 4280
-    },
-    {
-      requestId: 'req_kdw_api_002',
-      method: 'POST',
-      endpoint: '/api/payments/verify',
-      statusCode: 200,
-      latencyMs: 142,
-      actorRole: 'CUSTOMER',
-      ipAddress: '157.34.120.91',
-      responseSizeBytes: 1040
-    },
-    {
-      requestId: 'req_kdw_api_003',
-      method: 'GET',
-      endpoint: '/api/digital-delivery/stream/tok_9912',
-      statusCode: 200,
-      latencyMs: 65,
-      actorRole: 'CUSTOMER',
-      ipAddress: '157.34.120.91',
-      responseSizeBytes: 52428800
-    }
-  ];
-
-  for (const api of apiLogs) {
-    await prisma.systemApiLog.create({ data: api });
-  }
+  // 4. API Logs (Maintained exclusively via live Express apiLoggingMiddleware)
+  console.log('\n4. Skipping mock API logs (Exclusively real-time telemetry from Express middleware)...');
 
   const webhookLogs = [
     {

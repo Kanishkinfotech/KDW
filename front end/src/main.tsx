@@ -2,12 +2,13 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HelmetProvider } from 'react-helmet-async'
 import './index.css'
+import './api/apiClient'
 import App from './App.tsx'
 import React from 'react'
 import { AuthProvider } from './context/AuthContext'
-import axios from 'axios'
-
-axios.defaults.withCredentials = true;
+import { CartProvider } from './context/CartContext'
+import { WishlistProvider } from './context/WishlistContext'
+import { SettingsProvider } from './context/SettingsContext'
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any, errorInfo: any}> {
   constructor(props: {children: React.ReactNode}) {
@@ -54,9 +55,15 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <HelmetProvider>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <SettingsProvider>
+          <AuthProvider>
+            <CartProvider>
+              <WishlistProvider>
+                <App />
+              </WishlistProvider>
+            </CartProvider>
+          </AuthProvider>
+        </SettingsProvider>
       </HelmetProvider>
     </ErrorBoundary>
   </StrictMode>,

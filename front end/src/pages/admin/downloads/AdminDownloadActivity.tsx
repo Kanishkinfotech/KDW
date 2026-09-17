@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Clock, Search, Filter, RefreshCw, CheckCircle2, AlertCircle, Activity, Download } from 'lucide-react';
 import SEO from '../../../components/SEO';
+import { authFetch } from '../../../api/apiClient';
 
 export default function AdminDownloadActivity() {
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>({});
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [resultFilter, setResultFilter] = useState('ALL');
   const [eventTypeFilter, setEventTypeFilter] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -23,7 +26,7 @@ export default function AdminDownloadActivity() {
         result: resultFilter,
         eventType: eventTypeFilter
       });
-      const res = await fetch(`/api/admin/downloads/activity?${query.toString()}`);
+      const res = await authFetch(`/api/admin/downloads/activity?${query.toString()}`);
       const json = await res.json();
       if (json.success) {
         setLogs(json.data || []);

@@ -14,41 +14,53 @@ export const submitContactQuery = async (req: Request, res: Response, next: Next
       return res.status(400).json({ success: false, message: 'Name, email, and message are required' });
     }
 
-    const trimmedMsg = String(message).toLowerCase();
-    const finalSubject = subject || `Support Inquiry from ${name}`;
+    const trimmedMsg = String(message || '').trim();
+    const finalName = String(name || '').trim();
+    const finalEmail = String(email || '').trim();
+    const cleanSubject = String(subject || '').trim();
+    const finalSubject = cleanSubject || `${queryType ? queryType.replace(/_/g, ' ') : 'Support'} Inquiry from ${finalName}`;
 
     // Automatic classification based on queryType or text analysis
     let type = 'CONTACT_QUERY';
     let priority = 'MEDIUM';
     let category = queryType || 'General';
 
-    if (queryType === 'DOWNLOAD_ISSUE' || trimmedMsg.includes('download') || trimmedMsg.includes('drive')) {
+    const lowerMsg = trimmedMsg.toLowerCase();
+    if (queryType === 'DOWNLOAD_ISSUE' || lowerMsg.includes('download') || lowerMsg.includes('drive')) {
       type = 'DOWNLOAD_ISSUE';
       category = 'Download & Fulfillment';
       priority = 'HIGH';
-    } else if (queryType === 'REFUND_REQUEST' || trimmedMsg.includes('refund') || trimmedMsg.includes('money back')) {
+    } else if (queryType === 'REFUND_REQUEST' || lowerMsg.includes('refund') || lowerMsg.includes('money back')) {
       type = 'REFUND_REQUEST';
       category = 'Billing & Refunds';
       priority = 'HIGH';
-    } else if (queryType === 'LICENCE_ISSUE' || trimmedMsg.includes('licence') || trimmedMsg.includes('license') || trimmedMsg.includes('activation')) {
+    } else if (queryType === 'LICENCE_ISSUE' || lowerMsg.includes('licence') || lowerMsg.includes('license') || lowerMsg.includes('activation')) {
       type = 'LICENCE_ISSUE';
       category = 'Licence & Activation';
       priority = 'HIGH';
-    } else if (trimmedMsg.includes('payment') || trimmedMsg.includes('upi') || trimmedMsg.includes('card')) {
+    } else if (lowerMsg.includes('payment') || lowerMsg.includes('upi') || lowerMsg.includes('card')) {
       type = 'PAYMENT_QUERY';
       category = 'Payment & Invoicing';
     }
 
     // Lookup user if exists
     let user = authUser;
-    if (!user) {
-      user = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    if (!user && finalEmail) {
+      user = await prisma.user.findFirst({ where: { email: { equals: finalEmail, mode: 'insensitive' } } });
     }
 
     // Lookup order if orderNumber given
     let orderId: string | null = null;
     if (orderNumber) {
-      const order = await prisma.order.findFirst({ where: { orderNumber: String(orderNumber).trim() } });
+      const cleanOrderNum = String(orderNumber).trim().replace(/^#/, '');
+      const order = await prisma.order.findFirst({
+        where: {
+          OR: [
+            { orderNumber: { equals: cleanOrderNum, mode: 'insensitive' } },
+            { id: cleanOrderNum }
+          ]
+        }
+      });
       if (order) orderId = order.id;
     }
 
@@ -64,8 +76,8 @@ export const submitContactQuery = async (req: Request, res: Response, next: Next
         data: {
           ticketNumber,
           userId: user ? user.id : null,
-          customerName: name,
-          customerEmail: email,
+          customerName: finalName,
+          customerEmail: finalEmail,
           isGuest: !user,
           orderId,
           type,
@@ -74,7 +86,7 @@ export const submitContactQuery = async (req: Request, res: Response, next: Next
           status: 'NEW',
           source: 'WEB_CONTACT',
           subject: finalSubject,
-          description: message,
+          description: trimmedMsg,
           slaStatus: 'HEALTHY',
           slaFirstResponseDueAt: slaDeadlines.firstResponseDueAt,
           slaResolutionDueAt: slaDeadlines.resolutionDueAt
@@ -97,9 +109,9 @@ export const submitContactQuery = async (req: Request, res: Response, next: Next
           ticketId: t.id,
           senderId: user ? user.id : null,
           senderType: 'CUSTOMER',
-          senderName: name,
-          senderEmail: email,
-          message,
+          senderName: finalName,
+          senderEmail: finalEmail,
+          message: trimmedMsg,
           visibility: 'CUSTOMER',
           channel: 'WEB',
           attachmentsJson: attachments ? JSON.parse(JSON.stringify(attachments)) : null
@@ -110,10 +122,30 @@ export const submitContactQuery = async (req: Request, res: Response, next: Next
         data: {
           ticketId: t.id,
           eventType: 'CREATED',
-          actorName: name,
+          actorName: finalName,
           actorRole: 'CUSTOMER',
           newValue: 'NEW',
           reason: 'Web Contact Query Submitted'
+        }
+      });
+
+      // Also create a linked CustomerRequest record so it appears in the Customer Requests admin desk
+      await tx.customerRequest.create({
+        data: {
+          ticketId: t.id,
+          customerId: user ? user.id : null,
+          requestType: queryType || type || 'GENERAL',
+          verificationStatus: user ? 'VERIFIED' : 'PENDING',
+          verificationMethod: user ? 'LOGIN_CONFIRMED' : 'GUEST_FORM',
+          status: 'NEW',
+          actionTaken: null,
+          dataAccessedJson: {
+            name: finalName,
+            email: finalEmail,
+            orderNumber: orderNumber ? String(orderNumber).trim() : null,
+            subject: finalSubject,
+            message: trimmedMsg
+          }
         }
       });
 
@@ -125,6 +157,56 @@ export const submitContactQuery = async (req: Request, res: Response, next: Next
       message: 'Support inquiry received. A customer support ticket has been registered.',
       ticketNumber: ticket.ticketNumber,
       expectedResponseTime: priority === 'HIGH' ? 'Within 2 hours' : 'Within 24 hours'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 2B. Customer Get Support Inquiries & Staff Responses (Used by Contact Support Page)
+export const getCustomerSupportRequests = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const authUser = (req as any).user;
+    const queryEmail = (req.query.email as string) || authUser?.email;
+    const queryTicket = req.query.ticketNumber as string;
+
+    const orConditions: any[] = [];
+    if (authUser?.id) {
+      orConditions.push({ userId: authUser.id });
+    }
+    if (authUser?.email) {
+      orConditions.push({ customerEmail: { equals: authUser.email.trim(), mode: 'insensitive' } });
+    }
+    if (queryEmail) {
+      orConditions.push({ customerEmail: { equals: queryEmail.trim(), mode: 'insensitive' } });
+    }
+    if (queryTicket) {
+      orConditions.push({ ticketNumber: queryTicket.trim() });
+    }
+
+    if (orConditions.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const tickets = await prisma.supportTicket.findMany({
+      where: {
+        OR: orConditions
+      },
+      include: {
+        messages: {
+          where: { visibility: 'CUSTOMER' },
+          orderBy: { createdAt: 'asc' }
+        },
+        order: { select: { orderNumber: true } },
+        customerRequest: true
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    });
+
+    res.json({
+      success: true,
+      data: tickets
     });
   } catch (error) {
     next(error);

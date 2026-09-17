@@ -11,37 +11,43 @@ export default function OrderTracking() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // In a real app, fetch order by id. We use mock fetch here based on store/api if available
     const fetchOrder = async () => {
       try {
-        // const res = await axios.get(`/api/orders/${id}`);
-        // if(res.data.success) setOrder(res.data.data);
-        
-        // Mock data since /api/orders/:id might not be fully wired up yet for single fetches
-        setTimeout(() => {
+        setIsLoading(true);
+        const res = await axios.get(`/api/orders/${id}`);
+        if (res.data?.success && res.data.data) {
+          const raw = res.data.data;
           setOrder({
-            orderId: id || 'ORD-2026-1029',
-            status: 'Shipped',
-            totalAmount: 149.00,
-            date: new Date().toISOString(),
-            items: [
-              { name: 'SaaS Framer Template', quantity: 1, price: 99.00, coverImage: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=200' },
-              { name: 'Dashboard UI Kit', quantity: 1, price: 50.00, coverImage: 'https://images.unsplash.com/photo-1512758117929-08ce414d4858?w=200' }
-            ],
-            statusHistory: [
-              { status: 'Ordered', timestamp: new Date(Date.now() - 86400000 * 2).toISOString(), note: 'Order placed successfully' },
-              { status: 'Packed', timestamp: new Date(Date.now() - 86400000 * 1.5).toISOString(), note: 'Items packed and ready for shipping' },
-              { status: 'Shipped', timestamp: new Date(Date.now() - 86400000 * 1).toISOString(), note: 'Handed over to delivery partner' }
-            ],
-            trackingNumber: 'TRK9876543210'
+            orderId: raw.orderNumber || raw.id,
+            status: raw.orderStatus === 'PAID' ? 'Delivered' : raw.orderStatus === 'FULFILLED' ? 'Delivered' : raw.orderStatus === 'CANCELLED' ? 'Cancelled' : raw.orderStatus === 'REFUNDED' ? 'Refunded' : 'Ordered',
+            totalAmount: raw.totalAmount || 0,
+            date: raw.createdAt || new Date().toISOString(),
+            items: (raw.items || []).map((i: any) => ({
+              name: i.productName || i.productNameSnapshot || i.product?.name || 'Digital Asset',
+              quantity: i.quantity || 1,
+              price: i.unitPrice || (i.totalAmount ? i.totalAmount / (i.quantity || 1) : 0),
+              coverImage: i.product?.thumbnail || i.product?.coverImage || '/images/fallback/image-unavailable.png'
+            })),
+            statusHistory: (raw.timelineEvents || []).map((t: any) => ({
+              status: t.eventType?.replace(/_/g, ' ') || 'Update',
+              timestamp: t.createdAt,
+              note: t.description
+            })),
+            trackingNumber: raw.razorpayPaymentId || raw.razorpayOrderId || undefined
           });
-          setIsLoading(false);
-        }, 500);
+        } else {
+          setOrder(null);
+        }
       } catch (err) {
-        console.error(err);
+        console.error('Failed to load order tracking:', err);
+        setOrder(null);
+      } finally {
+        setIsLoading(false);
       }
     };
-    fetchOrder();
+    if (id) {
+      fetchOrder();
+    }
   }, [id]);
 
   if (isLoading) return <div className="min-h-screen py-12 flex items-center justify-center">Loading tracking details...</div>;
@@ -166,6 +172,15 @@ export default function OrderTracking() {
               <div className="border-t border-slate-100 pt-4 flex justify-between items-center">
                 <span className="font-bold text-slate-700">Total</span>
                 <span className="text-xl font-bold text-slate-900">{formatCurrency(order.totalAmount)}</span>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-100 text-center">
+                <Link
+                  to={`/support/contact?orderNumber=${encodeURIComponent(order.orderId)}`}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#5b21b6] hover:text-[#7c3aed] transition-colors"
+                >
+                  Need help with this order? Contact Support &rarr;
+                </Link>
               </div>
             </div>
           </div>

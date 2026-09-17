@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
-  ArrowLeft, Send, User, Package, Clock, ShieldCheck, 
-  RotateCcw, ArrowDownToLine, Key, MessageSquare, AlertTriangle, 
-  CheckCircle2, AlertCircle, FileText, Check, ShieldAlert, Sparkles
+  ArrowLeft, ArrowRight, ArrowDownToLine, Clock, ShieldCheck, User, Mail, Package, Key, RotateCcw, 
+  Send, Lock, MessageSquare, AlertTriangle, ExternalLink,
+  CheckCircle2, AlertCircle, FileText, Check, ShieldAlert, Sparkles, Trash2
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { SupportStatusBadge, SupportPriorityBadge } from '../../../components/admin/support/SupportStatusBadge';
 import { SlaTimerBadge } from '../../../components/admin/support/SlaTimerBadge';
 
@@ -14,6 +15,8 @@ export default function TicketDetailPage() {
 
   const [ticket, setTicket] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Form State
   const [replyMessage, setReplyMessage] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [sending, setSending] = useState(false);
@@ -25,12 +28,26 @@ export default function TicketDetailPage() {
   // Active Context Tab
   const [activeTab, setActiveTab] = useState<'CUSTOMER' | 'ORDER' | 'DOWNLOAD' | 'LICENCE' | 'REFUND' | 'AUDIT'>('CUSTOMER');
 
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken') || localStorage.getItem('adminAuth');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+  };
+
   const fetchTicket = async () => {
     setLoading(true);
     try {
       const [resTicket, resCanned] = await Promise.all([
-        fetch(`/api/admin/support/tickets/${id}`, { credentials: 'include' }),
-        fetch('/api/admin/support/canned-responses', { credentials: 'include' })
+        fetch(`/api/admin/support/tickets/${id}`, {
+          headers: getAuthHeaders(),
+          credentials: 'include'
+        }),
+        fetch('/api/admin/support/canned-responses', {
+          headers: getAuthHeaders(),
+          credentials: 'include'
+        })
       ]);
 
       const jsonTicket = await resTicket.json();
@@ -61,7 +78,7 @@ export default function TicketDetailPage() {
 
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         credentials: 'include',
         body: JSON.stringify({
           [isInternalNote ? 'note' : 'message']: replyMessage
@@ -70,14 +87,16 @@ export default function TicketDetailPage() {
 
       const json = await res.json();
       if (json.success) {
+        toast.success(isInternalNote ? 'Internal note added' : 'Staff reply sent');
         setReplyMessage('');
         setIsInternalNote(false);
         fetchTicket();
       } else {
-        alert(json.message || 'Failed to send message');
+        toast.error(json.message || 'Failed to send message');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Error sending message');
     } finally {
       setSending(false);
     }
@@ -87,15 +106,41 @@ export default function TicketDetailPage() {
     try {
       const res = await fetch(`/api/admin/support/tickets/${ticket.id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         credentials: 'include',
         body: JSON.stringify({ status: newStatus })
       });
       const json = await res.json();
-      if (json.success) fetchTicket();
-      else alert(json.message);
+      if (json.success) {
+        toast.success(`Status updated to ${newStatus}`);
+        fetchTicket();
+      } else {
+        toast.error(json.message || 'Failed to update status');
+      }
     } catch (err) {
       console.error(err);
+      toast.error('Error updating status');
+    }
+  };
+
+  const handlePriorityChange = async (newPriority: string) => {
+    try {
+      const res = await fetch(`/api/admin/support/tickets/${ticket.id}/priority`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({ priority: newPriority })
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(`Priority updated to ${newPriority}`);
+        fetchTicket();
+      } else {
+        toast.error(json.message || 'Failed to update priority');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Error updating priority');
     }
   };
 
@@ -182,6 +227,25 @@ export default function TicketDetailPage() {
     }
   };
 
+  const handleDeleteTicket = async () => {
+    if (!window.confirm(`Are you sure you want to permanently delete ticket #${ticket.ticketNumber}? This action cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/admin/support/tickets/${ticket.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const json = await res.json();
+      if (json.success) {
+        navigate('/admin/support/tickets');
+      } else {
+        alert(json.message || 'Failed to delete ticket');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error deleting ticket');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-96 flex items-center justify-center">
@@ -228,6 +292,26 @@ export default function TicketDetailPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={ticket.priority}
+              onChange={(e) => handlePriorityChange(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl border cursor-pointer shadow-xs transition-all ${
+                ticket.priority === 'CRITICAL'
+                  ? 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
+                  : ticket.priority === 'HIGH'
+                  ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                  : ticket.priority === 'MEDIUM'
+                  ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
+                  : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+              }`}
+              title="Change ticket priority"
+            >
+              <option value="CRITICAL">Priority: CRITICAL</option>
+              <option value="HIGH">Priority: HIGH</option>
+              <option value="MEDIUM">Priority: MEDIUM</option>
+              <option value="LOW">Priority: LOW</option>
+            </select>
+
             <SlaTimerBadge
               slaStatus={ticket.slaStatus}
               resolutionDueAt={ticket.slaRecord?.resolutionDueAt}
@@ -261,6 +345,13 @@ export default function TicketDetailPage() {
                 <RotateCcw className="w-3.5 h-3.5" /> Reopen Ticket
               </button>
             )}
+
+            <button
+              onClick={handleDeleteTicket}
+              className="px-3.5 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200 transition-all flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete Ticket
+            </button>
           </div>
         </div>
       </div>
@@ -446,13 +537,22 @@ export default function TicketDetailPage() {
                 </div>
                 {ticket.user?.orders && (
                   <div className="pt-2 border-t border-slate-100">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Recent Orders</span>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">Recent Orders</span>
+                      <Link to="/admin/orders" className="text-[11px] font-bold text-blue-600 hover:underline">
+                        All Orders &rarr;
+                      </Link>
+                    </div>
                     <div className="space-y-1">
                       {ticket.user.orders.map((o: any) => (
-                        <div key={o.id} className="p-2 bg-slate-50 rounded-xl flex items-center justify-between">
+                        <Link
+                          key={o.id}
+                          to="/admin/orders"
+                          className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-between transition-colors block"
+                        >
                           <span className="font-mono font-bold text-blue-600">{o.orderNumber}</span>
                           <span className="font-bold text-slate-800">${o.totalAmount.toFixed(2)}</span>
-                        </div>
+                        </Link>
                       ))}
                     </div>
                   </div>
@@ -465,9 +565,15 @@ export default function TicketDetailPage() {
               <div className="space-y-3 text-xs">
                 {ticket.order ? (
                   <>
-                    <div>
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Order Number</span>
-                      <span className="font-mono font-bold text-slate-900">{ticket.order.orderNumber}</span>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Order Number</span>
+                        <span className="font-mono font-bold text-slate-900">{ticket.order.orderNumber}</span>
+                      </div>
+                      <Link to="/admin/orders" className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1">
+                        <span>Order Details</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </Link>
                     </div>
                     <div>
                       <span className="text-[10px] font-bold uppercase text-slate-400 block">Order Amount</span>
@@ -479,7 +585,7 @@ export default function TicketDetailPage() {
                     </div>
                     <div className="pt-2 border-t border-slate-100 space-y-1">
                       <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Purchased Products</span>
-                      {(ticket.order.orderItems || []).map((it: any) => (
+                      {(ticket.order.items || ticket.order.orderItems || []).map((it: any) => (
                         <div key={it.id} className="p-2 bg-slate-50 rounded-xl text-[11px] font-semibold text-slate-800">
                           {it.product?.name || 'Product'} &bull; v{it.product?.version || '1.0'}
                         </div>
@@ -495,7 +601,13 @@ export default function TicketDetailPage() {
             {/* Download Context Tab */}
             {activeTab === 'DOWNLOAD' && (
               <div className="space-y-3 text-xs">
-                <span className="font-bold text-slate-800 block">Download Actions</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">Download Actions</span>
+                  <Link to="/admin/downloads/activity" className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1">
+                    <span>Logs</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
                 <button
                   onClick={handleResendDownloadLink}
                   className="w-full py-2 px-3 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl border border-blue-200 transition-all text-left flex items-center justify-between"
@@ -530,7 +642,13 @@ export default function TicketDetailPage() {
             {/* Refund Context Tab */}
             {activeTab === 'REFUND' && (
               <div className="space-y-3 text-xs">
-                <span className="font-bold text-slate-800 block">Refund Evaluation</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">Refund Evaluation</span>
+                  <Link to="/admin/reports/refunds" className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1">
+                    <span>Refund Reports</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
                 <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] text-purple-900 font-bold">Policy Check</span>

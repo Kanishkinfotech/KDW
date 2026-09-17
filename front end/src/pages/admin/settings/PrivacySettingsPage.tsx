@@ -49,6 +49,10 @@ export default function PrivacySettingsPage() {
       if (json.success) {
         toast.success('Privacy configuration & retention periods updated');
         setInitialSettings(settings);
+        window.dispatchEvent(new CustomEvent('kdw:settings-updated'));
+        try {
+          localStorage.setItem('kdw_settings_updated', Date.now().toString());
+        } catch (e) {}
       } else {
         toast.error(json.message || 'Failed to save settings');
       }

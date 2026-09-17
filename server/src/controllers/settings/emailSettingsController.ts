@@ -8,13 +8,13 @@ export const getEmailSettings = async (req: Request, res: Response, next: NextFu
 
     const response = {
       // Provider Configuration
-      provider: settings.provider || 'RESEND', // RESEND, SMTP, SENDGRID
+      provider: settings.provider || (process.env.SMTP_HOST ? 'SMTP' : 'RESEND'), // RESEND, SMTP, SENDGRID
       api_key: settings.api_key ? SECRET_MASK : (process.env.RESEND_API_KEY ? SECRET_MASK : ''),
-      smtp_host: settings.smtp_host || 'smtp.resend.com',
-      smtp_port: settings.smtp_port ?? 587,
-      smtp_user: settings.smtp_user || 'resend',
-      smtp_password: settings.smtp_password ? SECRET_MASK : '',
-      smtp_secure: settings.smtp_secure ?? false,
+      smtp_host: settings.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
+      smtp_port: settings.smtp_port ?? (Number(process.env.SMTP_PORT) || 587),
+      smtp_user: settings.smtp_user || process.env.SMTP_USER || 'vvin8160@gmail.com',
+      smtp_password: (settings.smtp_password || process.env.SMTP_PASS) ? SECRET_MASK : '',
+      smtp_secure: settings.smtp_secure !== undefined ? settings.smtp_secure : (Number(process.env.SMTP_PORT) === 465),
 
       // Sender Identities
       from_name: settings.from_name || 'Kanishk Digital World',

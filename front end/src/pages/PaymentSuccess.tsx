@@ -1,164 +1,207 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { CheckCircle2, ArrowRight, Package, Mail, RefreshCw, LifeBuoy, Download } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { formatCurrency } from '../utils/currency';
+import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { CheckCircle2, Clock, ArrowRight, Download, Mail, ArrowLeft, ShieldCheck, RefreshCw } from 'lucide-react';
 import SEO from '../components/SEO';
-import toast from 'react-hot-toast';
 import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
+import { formatCurrency } from '../utils/currency';
 
 export default function PaymentSuccess() {
-  const { orderId } = useParams();
-  const navigate = useNavigate();
-  const { isAuthenticated, user } = useAuth();
-  
-  const [order, setOrder] = useState<any | null>(null);
+  const { orderId, orderNumber } = useParams<{ orderId?: string; orderNumber?: string }>();
+  const identifier = orderNumber || orderId;
+
+  const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [resendingEmail, setResendingEmail] = useState(false);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchOrderDetails = async () => {
+    const fetchOrder = async () => {
+      if (!identifier) return;
       try {
-        const res = await axios.get('/api/purchases');
-        if (res.data.success && res.data.purchases) {
-          const matched = res.data.purchases.find((p: any) => p.orderId === orderId || p.orderNumber === orderId || p.id === orderId);
-          if (matched) {
-            setOrder(matched);
+        setLoading(true);
+        try {
+          const res = await axios.get(`/api/orders/public/${encodeURIComponent(identifier)}`);
+          if (res.data?.success && res.data.data) {
+            setOrder(res.data.data);
+            return;
           }
+        } catch (e1) {
+          // Fallback to lookup query
+          try {
+            const searchRes = await axios.get(`/api/orders/lookup?query=${encodeURIComponent(identifier)}`);
+            if (searchRes.data?.success && searchRes.data.data) {
+              setOrder(searchRes.data.data);
+              return;
+            }
+          } catch (e2) {}
         }
       } catch (err) {
-        console.error("Failed to fetch order details", err);
+        console.error('Order query error:', err);
       } finally {
         setLoading(false);
       }
     };
-    fetchOrderDetails();
-  }, [orderId]);
+    fetchOrder();
+  }, [identifier]);
 
-  useEffect(() => {
-    let timer: any;
-    if (cooldownSeconds > 0) {
-      timer = setInterval(() => {
-        setCooldownSeconds(prev => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [cooldownSeconds]);
-
-  const handleResendEmail = async () => {
-    if (!orderId) return;
-    if (!isAuthenticated) {
-      toast.error("Please login to resend your delivery email.");
-      return;
-    }
-    if (cooldownSeconds > 0) {
-      toast.error(`Please wait ${cooldownSeconds}s before resending.`);
-      return;
-    }
-
-    setResendingEmail(true);
-    try {
-      const res = await axios.post(`/api/purchases/resend-email/${orderId || order?.orderId}`);
-      if (res.data.success) {
-        toast.success(res.data.message || 'Access email resent successfully!');
-        setCooldownSeconds(60);
-      }
-    } catch (err: any) {
-      const msg = err.response?.data?.message || 'Failed to resend access email';
-      toast.error(msg);
-      if (err.response?.status === 429) {
-        setCooldownSeconds(60);
-      }
-    } finally {
-      setResendingEmail(false);
-    }
-  };
+  const isPaid = order && (
+    order.status === 'PAID' || 
+    order.status === 'COMPLETED' || 
+    order.paymentStatus === 'PAID' || 
+    order.orderStatus === 'PAID' || 
+    order.orderStatus === 'FULFILLED' || 
+    order.orderStatus === 'FULFILMENT_PROCESSING' ||
+    order.accessStatus === 'ACTIVE' ||
+    order.accessStatus === 'GRANTED' ||
+    order.totalAmount === 0
+  );
+  const isPending = !order || (!isPaid && (order.status === 'PENDING' || order.status === 'AWAITING_VERIFICATION' || order.paymentStatus === 'PENDING'));
 
   return (
-    <div className="min-h-screen py-16 md:py-24 px-6 bg-slate-50 flex items-center justify-center font-sans">
-      <SEO title="Payment Successful | Kanishk Digital World" description="Your payment was successful and your digital product access has been generated." />
-      
-      <div className="max-w-xl w-full">
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 overflow-hidden border border-slate-100">
-          
-          {/* Success Banner */}
-          <div className="bg-success/10 p-8 md:p-12 text-center relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-success"></div>
-            <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm border border-success/20">
-              <CheckCircle2 size={40} className="text-success" />
-            </div>
-            <h1 className="text-3xl md:text-4xl font-black text-slate-900 mb-2 tracking-tight">Payment Successful!</h1>
-            <p className="text-slate-600 font-medium text-base">Your digital order has been processed and access granted.</p>
+    <div className="min-h-screen bg-[#fcfbf9] text-[#171325] py-16 px-4 flex items-center justify-center font-sans">
+      <SEO title="Order Status | KDW" description="Order confirmation and delivery entitlement status." />
+
+      <div className="max-w-xl w-full bg-white rounded-3xl p-8 sm:p-10 border border-[#e2e8f0] shadow-sm text-center space-y-6">
+        
+        {loading ? (
+          <div className="py-12 space-y-3">
+            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#5b21b6]" />
+            <p className="text-xs font-mono text-slate-400">Verifying order and entitlement records...</p>
           </div>
-
-          <div className="p-8 md:p-10 space-y-8">
-            
-            {/* Order Ref */}
-            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Order Reference</p>
-                <p className="font-mono font-bold text-slate-900 text-lg">{order?.orderNumber || orderId || 'ORD-COMPLETED'}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Access Status</p>
-                <span className="px-3 py-1 bg-success/10 text-success font-bold text-xs rounded-full uppercase">
-                  READY IN LIBRARY
-                </span>
-              </div>
+        ) : isPaid ? (
+          <>
+            {/* Green Verified Status Card (Only when verified by server) */}
+            <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" />
             </div>
 
-            {/* Email Notification Card */}
-            <div className="p-6 rounded-2xl bg-blue-50/50 border border-blue-100 space-y-4">
-              <div className="flex items-center gap-3 text-blue-900 font-bold">
-                <Mail size={20} className="text-blue-600" />
-                <span>Access Email Sent</span>
-              </div>
-              <p className="text-xs text-blue-700 leading-relaxed">
-                An email containing your direct download links has been dispatched to your email address ({user?.email || 'your registered email'}).
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold font-sans tracking-[0.2em] uppercase text-emerald-700 block">
+                PAYMENT VERIFIED & ENTITLEMENTS GRANTED
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-serif font-bold text-[#171325]">
+                Order {order?.orderNumber || identifier}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 font-sans leading-relaxed">
+                Your transaction has been verified on the server. Your digital assets and download tokens are now active in your customer library.
               </p>
-
-              <button 
-                onClick={handleResendEmail}
-                disabled={resendingEmail || cooldownSeconds > 0}
-                className="w-full py-2.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {resendingEmail ? (
-                  <RefreshCw size={14} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={14} />
-                )}
-                {cooldownSeconds > 0 ? `Resend Email (${cooldownSeconds}s)` : 'Resend Access Email'}
-              </button>
             </div>
 
-            {/* Primary Action Buttons */}
-            <div className="space-y-3">
-              <Link 
-                to="/dashboard?tab=library" 
-                className="w-full py-4 bg-primary hover:bg-primary-dark text-white font-bold text-base rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-              >
-                <Package size={20} /> Open My Library <ArrowRight size={18} />
-              </Link>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <Link 
-                  to="/categories/all-products" 
-                  className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl text-center transition-colors"
-                >
-                  Continue Shopping
-                </Link>
-                <Link 
-                  to="/support/ticket" 
-                  className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl text-center transition-colors flex items-center justify-center gap-1"
-                >
-                  <LifeBuoy size={14} /> Contact Support
-                </Link>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-left text-xs font-mono space-y-1.5 text-slate-600">
+              <div className="flex justify-between">
+                <span>Payment Status:</span>
+                <span className="font-bold text-emerald-700">VERIFIED_PAID</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Purchaser Email:</span>
+                <span className="text-slate-800">{order?.customerEmail || 'Registered Account'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Total Amount:</span>
+                <span className="font-bold text-[#171325]">{formatCurrency(Number(order?.totalAmount || 0))}</span>
               </div>
             </div>
 
-          </div>
-        </div>
+            {/* License Key & Verification Direct Action */}
+            {order?.licenceKeys && order.licenceKeys.length > 0 && (
+              <div className="p-4 bg-purple-50/70 rounded-2xl border border-purple-200 text-left space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-800">
+                    Commercial License Key Dispatched
+                  </span>
+                  <span className="text-[10px] font-mono text-purple-600">Sent to {order?.customerEmail || 'email'}</span>
+                </div>
+
+                {order.licenceKeys.map((lk: any, idx: number) => (
+                  <div key={idx} className="p-2.5 bg-white rounded-xl border border-purple-200 flex items-center justify-between gap-2 font-mono text-xs">
+                    <span className="font-bold text-slate-900 truncate">{lk.key}</span>
+                    <Link
+                      to={`/verify-license?key=${encodeURIComponent(lk.key)}`}
+                      className="px-3 py-1 bg-[#5b21b6] text-white text-[11px] font-bold font-sans rounded-lg hover:bg-[#6d28d9] transition-colors shrink-0"
+                    >
+                      Verify &amp; Unlock
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              {order?.licenceKeys && order.licenceKeys.length > 0 ? (
+                <Link
+                  to={`/verify-license?key=${encodeURIComponent(order.licenceKeys[0].key)}`}
+                  className="w-full sm:w-auto px-6 py-3 rounded-full bg-[#5b21b6] text-white text-xs font-bold font-sans uppercase hover:bg-[#6d28d9] transition-all flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Verify License &amp; Download</span>
+                </Link>
+              ) : (
+                <Link
+                  to="/verify-license"
+                  className="w-full sm:w-auto px-6 py-3 rounded-full bg-[#5b21b6] text-white text-xs font-bold font-sans uppercase hover:bg-[#6d28d9] transition-all flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Verify License &amp; Download</span>
+                </Link>
+              )}
+              <Link
+                to="/dashboard"
+                className="w-full sm:w-auto px-6 py-3 rounded-full border border-[#e2e8f0] text-slate-700 text-xs font-semibold font-sans hover:bg-slate-50 transition-all"
+              >
+                Go to Dashboard
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Pending / Awaiting Confirmation (Does NOT look paid) */}
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+              <Clock className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold font-sans tracking-[0.2em] uppercase text-amber-700 block">
+                ORDER RECORDED (PENDING VERIFICATION)
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-serif font-bold text-[#171325]">
+                Order {order?.orderNumber || identifier}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 font-sans leading-relaxed">
+                Your order has been recorded into the persistent store. In accordance with security standards, entitlement tokens are provisioned once gateway capture verification is received.
+              </p>
+            </div>
+
+            <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200 text-left text-xs font-mono space-y-1.5 text-amber-950">
+              <div className="flex justify-between">
+                <span>Order State:</span>
+                <span className="font-bold text-amber-800">PENDING_PAYMENT_VERIFICATION</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Delivery Email:</span>
+                <span>{order?.customerEmail || 'Provided at checkout'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Entitlement State:</span>
+                <span className="text-slate-500">AWAITING_VERIFIED_SETTLEMENT</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                to="/shop"
+                className="w-full sm:w-auto px-6 py-3 rounded-full bg-[#5b21b6] text-white text-xs font-bold font-sans uppercase hover:bg-[#6d28d9] transition-all"
+              >
+                Continue Browsing
+              </Link>
+              <Link
+                to="/support"
+                className="w-full sm:w-auto px-6 py-3 rounded-full border border-[#e2e8f0] text-slate-700 text-xs font-semibold font-sans hover:bg-slate-50 transition-all"
+              >
+                Contact Support
+              </Link>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );

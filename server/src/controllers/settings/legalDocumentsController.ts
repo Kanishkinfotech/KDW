@@ -110,16 +110,80 @@ export const saveLegalDocumentDraft = async (req: Request, res: Response, next: 
 export const publishLegalDocument = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const slug = req.params.slug as string;
-    const { versionNumber, effectiveDate } = req.body;
+    const { versionNumber, title, content, summary, changeLog, effectiveDate } = req.body;
     const authUser = (req as any).user;
 
     const doc = await prisma.legalDocument.findUnique({
       where: { slug },
-      include: { versions: true }
+      include: { versions: { orderBy: { versionNumber: 'desc' } } }
     });
 
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Legal document not found' });
+    }
+
+    const now = new Date();
+    const finalEffectiveDate = effectiveDate ? new Date(effectiveDate) : now;
+
+    // If new content/title was provided directly with publish action
+    if (content && title) {
+      const nextVersionNumber = (doc.versions[0]?.versionNumber || doc.currentVersion || 0) + 1;
+
+      await prisma.$transaction(async (tx) => {
+        // Archive previously published versions
+        await tx.legalDocumentVersion.updateMany({
+          where: { documentId: doc.id, status: 'PUBLISHED' },
+          data: { status: 'ARCHIVED' }
+        });
+
+        // Create and publish new version immediately
+        const newVersion = await tx.legalDocumentVersion.create({
+          data: {
+            documentId: doc.id,
+            versionNumber: nextVersionNumber,
+            title,
+            content,
+            summary: summary || null,
+            changeLog: changeLog || 'Published revision',
+            status: 'PUBLISHED',
+            authorId: authUser?.id || null,
+            authorName: authUser?.name || 'Administrator',
+            reviewerId: authUser?.id || null,
+            reviewerName: authUser?.name || 'Administrator',
+            effectiveDate: finalEffectiveDate,
+            publishedAt: now
+          }
+        });
+
+        // Update parent document
+        await tx.legalDocument.update({
+          where: { id: doc.id },
+          data: {
+            currentVersion: nextVersionNumber,
+            publishedVersion: nextVersionNumber,
+            status: 'PUBLISHED',
+            effectiveDate: finalEffectiveDate,
+            publishedAt: now
+          }
+        });
+
+        // Log audit
+        await tx.settingAuditLog.create({
+          data: {
+            actorId: authUser?.id || null,
+            actorName: authUser?.name || 'Administrator',
+            actorRole: authUser?.role || 'ADMIN',
+            action: 'PUBLISHED',
+            group: 'LEGAL',
+            details: `Published version ${nextVersionNumber}.0.0 of policy document '${doc.name}' (${doc.slug})`
+          }
+        });
+      });
+
+      return res.json({
+        success: true,
+        message: `Version ${nextVersionNumber}.0.0 of ${doc.name} published and active on storefront.`
+      });
     }
 
     const targetVerNum = parseInt(String(versionNumber || doc.currentVersion), 10);
@@ -128,9 +192,6 @@ export const publishLegalDocument = async (req: Request, res: Response, next: Ne
     if (!targetVersion) {
       return res.status(404).json({ success: false, message: `Version ${targetVerNum} not found` });
     }
-
-    const now = new Date();
-    const finalEffectiveDate = effectiveDate ? new Date(effectiveDate) : now;
 
     await prisma.$transaction(async (tx) => {
       // Archive previously published versions
@@ -194,6 +255,7 @@ export const getPublicLegalDocument = async (req: Request, res: Response, next: 
       include: {
         versions: {
           where: { status: 'PUBLISHED' },
+          orderBy: { versionNumber: 'desc' },
           take: 1
         }
       }

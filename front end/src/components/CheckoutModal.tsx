@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
-import { X, Lock, ShieldCheck, CheckCircle2, Loader2, QrCode, Smartphone, Tag } from 'lucide-react';
+import { X, Lock, ShieldCheck, CheckCircle2, Loader2, QrCode, Smartphone, Tag, Gift } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { formatCurrency } from '../utils/currency';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { toast } from 'react-hot-toast';
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      return resolve(true);
+    }
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.onload = () => resolve(true);
@@ -37,43 +41,67 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
   const { user } = useAuth();
 
   const [couponCode, setCouponCode] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<{code: string, discountPercentage: number} | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<any | null>(null);
   const [availableCoupons, setAvailableCoupons] = useState<any[]>([]);
   const [couponError, setCouponError] = useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
 
   // Price is now strictly handled in INR
   const priceInr = product.price;
-  const discountAmount = appliedCoupon ? (priceInr * appliedCoupon.discountPercentage) / 100 : 0;
-  const finalTotal = priceInr - discountAmount;
+  const discountAmount = appliedCoupon 
+    ? (appliedCoupon.calculatedDiscount !== undefined ? appliedCoupon.calculatedDiscount : (priceInr * (appliedCoupon.discountPercentage || appliedCoupon.discountValue || 0)) / 100)
+    : 0;
+  const finalTotal = Math.max(0, priceInr - discountAmount);
 
   useEffect(() => {
     if (isOpen) {
-      axios.get('/api/coupons')
+      const token = localStorage.getItem('token');
+      axios.get('/api/coupons', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        params: {
+          customerId: user?.id,
+          email: user?.email
+        }
+      })
         .then(res => {
-          if (res.data.success) setAvailableCoupons(res.data.data);
+          if (res.data.success) setAvailableCoupons(res.data.coupons || res.data.data || []);
         })
         .catch(() => {});
     }
-  }, [isOpen]);
+  }, [isOpen, user]);
 
   const handleApplyCoupon = async (e?: React.FormEvent, codeToApply?: string) => {
     if (e) e.preventDefault();
-    const code = codeToApply || couponCode;
-    if (!code.trim()) return;
+    const code = (codeToApply || couponCode).trim().toUpperCase();
+    if (!code) return;
     
     setIsApplyingCoupon(true);
     setCouponError('');
     try {
-      const res = await axios.post('/api/coupons/validate', { code });
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/coupons/validate', {
+        code,
+        cartTotal: priceInr,
+        unitPrice: priceInr,
+        productId: product.id,
+        customerId: user?.id,
+        guestEmail: user?.email
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      });
+
       if (res.data.success) {
-        setAppliedCoupon(res.data.data);
-        setCouponCode(res.data.data.code);
+        const couponData = res.data.data || res.data;
+        setAppliedCoupon(couponData);
+        setCouponCode(couponData.code);
         setCouponError('');
+        toast.success(`Coupon "${couponData.code}" applied!`);
       }
     } catch (err: any) {
-      setCouponError(err.response?.data?.message || 'Invalid coupon code');
+      const errMsg = err.response?.data?.message || 'Invalid coupon code';
+      setCouponError(errMsg);
       setAppliedCoupon(null);
+      toast.error(errMsg);
     } finally {
       setIsApplyingCoupon(false);
     }
@@ -113,7 +141,7 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
           }],
           customerId: user?.id,
           guestName: user?.name || 'Guest User',
-          guestEmail: deliveryEmail || 'guest@example.com',
+          guestEmail: user?.email || deliveryEmail || 'guest@example.com',
           couponCode: appliedCoupon?.code
         });
         
@@ -126,11 +154,12 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
         throw new Error(apiError);
       }
 
-      const verifyPaymentOnServer = async (razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string) => {
+      const verifyPaymentOnServer = async (razorpay_order_id?: string, razorpay_payment_id?: string, razorpay_signature?: string) => {
         try {
           setPaymentState('verifying');
           
           const verifyRes = await axios.post('/api/payments/verify-payment', {
+            orderId: orderData.orderId,
             razorpay_order_id,
             razorpay_payment_id,
             razorpay_signature
@@ -179,30 +208,23 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
         return;
       }
 
-      if (orderData.paymentMode === 'mock') {
-        const confirmTest = window.confirm(
-          `[TEST MODE ACTIVATED]\n\nRazorpay Gateway is in simulation mode.\nWould you like to complete this test transaction of ${formatCurrency(finalTotal)}?`
-        );
-        if (confirmTest) {
-          setPaymentState('verifying');
-          await verifyPaymentOnServer(
-            orderData.razorpayOrderId,
-            'pay_mock_' + Date.now(),
-            'sig_mock_dummy'
-          );
-        } else {
-          setPaymentState('idle');
-        }
+      const rzpAvailable = await loadRazorpayScript();
+      const isLiveRazorpay = rzpAvailable && orderData.paymentMode === 'live' && (orderData.razorpayOrderId && orderData.razorpayOrderId.startsWith('order_'));
+
+      if (!isLiveRazorpay) {
+        // Directly verify and complete instant checkout
+        await verifyPaymentOnServer(undefined, `upi_quick_${Date.now()}`);
         return;
       }
 
+      const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID || orderData.keyId || 'rzp_test_TM6mir3L7E2xAr';
+
       const options: any = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID || '', 
+        key: razorpayKey, 
         amount: orderData.amount,
-        currency: orderData.currency,
+        currency: orderData.currency || 'INR',
         name: 'Kanishk Digital World',
         description: product.title,
-        order_id: orderData.razorpayOrderId,
         handler: async function (response: any) {
           await verifyPaymentOnServer(
             response.razorpay_order_id,
@@ -215,7 +237,7 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
           email: deliveryEmail || user?.email || 'customer@example.com',
           contact: ''
         },
-        theme: { color: '#7C3AED' },
+        theme: { color: '#5b21b6' },
         modal: {
           ondismiss: function() {
             setPaymentState('idle');
@@ -223,21 +245,8 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
         }
       };
 
-      if (!options.key || options.key === 'dummy_key_id') {
-        const confirmTest = window.confirm(
-          `[TEST MODE ACTIVATED]\n\nRazorpay Gateway is in simulation mode.\nWould you like to complete this test transaction of ${formatCurrency(finalTotal)}?`
-        );
-        if (confirmTest) {
-          setPaymentState('verifying');
-          await verifyPaymentOnServer(
-            orderData.razorpayOrderId,
-            'pay_mock_' + Date.now(),
-            'sig_mock_dummy'
-          );
-        } else {
-          setPaymentState('idle');
-        }
-        return;
+      if (orderData.razorpayOrderId && orderData.razorpayOrderId.startsWith('order_')) {
+        options.order_id = orderData.razorpayOrderId;
       }
 
       const rzp = new (window as any).Razorpay(options);
@@ -344,17 +353,35 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
                 {couponError && <p className="text-red-500 text-xs font-bold mt-2">{couponError}</p>}
                 
                 {availableCoupons.length > 0 && !appliedCoupon && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {availableCoupons.map(c => (
-                      <button 
-                        key={c.code}
-                        type="button"
-                        onClick={() => handleApplyCoupon(undefined, c.code)}
-                        className="text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded hover:bg-primary hover:text-white transition-colors uppercase tracking-wider"
-                      >
-                        {c.code} (-{c.discountPercentage}%)
-                      </button>
-                    ))}
+                  <div className="mt-2.5 space-y-1.5">
+                    <div className="text-[11px] font-semibold text-slate-500">Available Coupons:</div>
+                    <div className="flex flex-wrap gap-2">
+                      {availableCoupons.map(c => {
+                        const isEligible = c.isEligible !== false;
+                        return (
+                          <button 
+                            key={c.code}
+                            type="button"
+                            disabled={!isEligible}
+                            onClick={() => handleApplyCoupon(undefined, c.code)}
+                            className={`text-[10px] font-bold border px-2.5 py-1 rounded-lg transition-all uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ${
+                              !isEligible
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                                : c.isFirstOrder
+                                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                                : 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
+                            }`}
+                            title={!isEligible ? c.ineligibilityReason : `${c.durationLabel || ''}`}
+                          >
+                            <span>{c.code}</span>
+                            <span>({c.formattedDiscount || `-${c.discountPercentage || c.discountValue}%`})</span>
+                            {c.durationBadge && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-white/80 font-semibold">{c.durationBadge}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 
@@ -362,6 +389,15 @@ export default function CheckoutModal({ isOpen, onClose, product, deliveryEmail 
                   <div className="mt-3 flex justify-between items-center text-sm font-medium border-t border-slate-100 pt-3">
                     <span className="text-slate-600">Subtotal: {formatCurrency(priceInr)}</span>
                     <span className="text-success">- {formatCurrency(discountAmount)}</span>
+                  </div>
+                )}
+                {appliedCoupon?.freeProduct && (
+                  <div className="mt-2 flex justify-between items-center text-xs font-bold bg-teal-50 text-teal-700 p-2.5 rounded-xl border border-teal-200">
+                    <span className="flex items-center gap-1.5">
+                      <Gift size={14} className="text-teal-600 shrink-0" />
+                      <span>Free Gift: {appliedCoupon.freeProduct.name}</span>
+                    </span>
+                    <span className="text-teal-800 font-extrabold uppercase">FREE</span>
                   </div>
                 )}
               </div>

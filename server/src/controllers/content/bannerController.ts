@@ -5,14 +5,32 @@ export const getBanners = async (req: Request, res: Response, next: NextFunction
   try {
     const { placement = 'ALL', status = 'ALL', search } = req.query;
     const where: any = {};
-    if (placement && placement !== 'ALL') where.placement = String(placement);
+    if (placement && placement !== 'ALL') {
+      if (placement === 'STOREFRONT_PAGE') {
+        where.OR = [
+          { placement: 'STOREFRONT_PAGE' },
+          { placement: { startsWith: 'PAGE_' } },
+          { placement: { startsWith: 'PAGE:' } }
+        ];
+      } else {
+        where.placement = String(placement);
+      }
+    }
     if (status && status !== 'ALL') where.status = String(status);
     if (search) {
-      where.OR = [
-        { name: { contains: String(search), mode: 'insensitive' } },
-        { headline: { contains: String(search), mode: 'insensitive' } },
-        { ctaLabel: { contains: String(search), mode: 'insensitive' } }
+      const s = String(search).trim();
+      const searchConditions = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { headline: { contains: s, mode: 'insensitive' } },
+        { ctaLabel: { contains: s, mode: 'insensitive' } },
+        { placement: { contains: s, mode: 'insensitive' } }
       ];
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchConditions }];
+        delete where.OR;
+      } else {
+        where.OR = searchConditions;
+      }
     }
 
     // Automatically check and expire past banners
@@ -30,7 +48,7 @@ export const getBanners = async (req: Request, res: Response, next: NextFunction
       orderBy: [{ priority: 'asc' }, { updatedAt: 'desc' }]
     });
 
-    res.json({ success: true, data: banners });
+    res.json({ success: true, data: banners, banners });
   } catch (error) {
     next(error);
   }

@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import {
   getDownloadOverview,
@@ -24,10 +27,34 @@ import {
   getProductFilesHealth,
   testProductFileDriveHealth,
   repairProductFileMapping,
-  getDownloadOverrides
+  getDownloadOverrides,
+  getFilesList,
+  uploadDigitalFile,
+  updateFilePermissions,
+  generateSecureTokenLink,
+  deleteDigitalFile
 } from '../controllers/adminDownloadManagementController';
 
 const router = Router();
+
+// Multer storage for digital asset uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.resolve(process.cwd(), 'uploads', 'digital_assets');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB
+});
 
 // Protect all download management admin routes
 router.use(authenticate);
@@ -72,5 +99,12 @@ router.post('/product-files/:id/repair', repairProductFileMapping);
 
 // 8. Overrides Audit Log
 router.get('/overrides', getDownloadOverrides);
+
+// 9. File Storage & Uploads (Pillar 1, 2, 4, 5, 6)
+router.get('/files', getFilesList);
+router.post('/files/upload', upload.single('file'), uploadDigitalFile);
+router.patch('/files/:id/permissions', updateFilePermissions);
+router.post('/files/:id/token', generateSecureTokenLink);
+router.delete('/files/:id', deleteDigitalFile);
 
 export default router;

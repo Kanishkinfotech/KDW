@@ -239,30 +239,8 @@ async function seedCacheAndUsersSystem() {
     });
   }
 
-  // 6. Seed Invalidation Events & Maintenance Logs
-  console.log('6. Seeding Cache Invalidation Events & Maintenance Logs...');
-  await prisma.cacheInvalidationEvent.create({
-    data: {
-      eventType: 'PRODUCT_UPDATED',
-      namespace: 'kdw:prod:product',
-      keyPattern: 'kdw:prod:product:starter-agency-pack',
-      triggerSource: 'PostgreSQL_TRIGGER',
-      status: 'COMPLETED',
-      retryCount: 0,
-      processedAt: new Date()
-    }
-  });
-
-  await prisma.cacheMaintenanceLog.create({
-    data: {
-      action: 'WARM',
-      actorName: 'Super Admin',
-      actorRole: 'SUPER_ADMIN',
-      keysAffected: 15,
-      reason: 'Scheduled automated pre-warming for featured products and categories',
-      result: 'SUCCESS'
-    }
-  });
+  // 6. Invalidation Events & Maintenance Logs (Exclusively real-time telemetry from live operations)
+  console.log('6. Skipping mock maintenance logs (Exclusively real-time telemetry from cache operations)...');
 
   // 7. Seed Staff Invitation & Access Review Record
   console.log('7. Seeding Staff Invitations and Access Review Governance...');

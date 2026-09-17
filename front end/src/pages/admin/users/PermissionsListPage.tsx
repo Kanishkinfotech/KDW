@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
-import { Lock, RefreshCw, Plus, Clock, ShieldCheck, User } from 'lucide-react';
+import { Lock, RefreshCw, Plus, Clock, ShieldCheck, User, Search, Filter, Trash2, CheckCircle } from 'lucide-react';
 import { UsersLayout } from '../../../components/admin/users/UsersLayout';
 
 export const PermissionsListPage: React.FC = () => {
@@ -10,6 +10,10 @@ export const PermissionsListPage: React.FC = () => {
   const [tempGrants, setTempGrants] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
 
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedResource, setSelectedResource] = useState('ALL');
+
   // Modal State for Temporary Permission
   const [showGrantModal, setShowGrantModal] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -17,6 +21,7 @@ export const PermissionsListPage: React.FC = () => {
   const [durationHours, setDurationHours] = useState(2);
   const [grantReason, setGrantReason] = useState('');
   const [submittingGrant, setSubmittingGrant] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
@@ -35,7 +40,7 @@ export const PermissionsListPage: React.FC = () => {
       }
       if (usersRes.data.success) {
         setUsers(usersRes.data.data);
-        if (usersRes.data.data.length > 0) {
+        if (usersRes.data.data.length > 0 && !selectedUserId) {
           setSelectedUserId(usersRes.data.data[0].id);
         }
       }
@@ -49,6 +54,21 @@ export const PermissionsListPage: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleRevokeTemporary = async (grantId: string) => {
+    try {
+      setRevokingId(grantId);
+      const res = await axios.post(`/api/admin/users/temporary-permissions/${grantId}/revoke`, {}, { withCredentials: true });
+      if (res.data.success) {
+        toast.success(res.data.message || 'Elevated permission revoked');
+        fetchData();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to revoke temporary permission');
+    } finally {
+      setRevokingId(null);
+    }
+  };
 
   const handleGrantTemporary = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +102,18 @@ export const PermissionsListPage: React.FC = () => {
       setSubmittingGrant(false);
     }
   };
+
+  const allResources = Array.from(new Set(permissions.map((p) => p.resource))).sort();
+
+  const filteredPermissions = permissions.filter((p) => {
+    const matchesResource = selectedResource === 'ALL' || p.resource === selectedResource;
+    const q = searchQuery.toLowerCase().trim();
+    const matchesQuery = !q || 
+      p.code?.toLowerCase().includes(q) || 
+      p.description?.toLowerCase().includes(q) ||
+      p.resource?.toLowerCase().includes(q);
+    return matchesResource && matchesQuery;
+  });
 
   return (
     <div className="space-y-6">
@@ -125,17 +157,30 @@ export const PermissionsListPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    tg.status === 'ACTIVE'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : 'bg-slate-800 text-slate-400'
-                  }`}>
-                    {tg.status}
-                  </span>
-                  <div className="text-[10px] text-slate-500 mt-0.5">
-                    Expires: {new Date(tg.expiresAt).toLocaleTimeString()}
+                <div className="text-right flex items-center gap-3">
+                  <div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      tg.status === 'ACTIVE'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {tg.status}
+                    </span>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      Expires: {new Date(tg.expiresAt).toLocaleTimeString()}
+                    </div>
                   </div>
+
+                  {tg.status === 'ACTIVE' && (
+                    <button
+                      onClick={() => handleRevokeTemporary(tg.id)}
+                      disabled={revokingId === tg.id}
+                      title="Revoke Elevated Access Immediately"
+                      className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg transition disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -145,12 +190,38 @@ export const PermissionsListPage: React.FC = () => {
 
       {/* Permissions Catalog */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
-        <div>
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <Lock className="w-4 h-4 text-blue-400" />
-            System Permissions Master Catalog
-          </h2>
-          <p className="text-xs text-slate-400">All granular resource actions supported across the application platform.</p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Lock className="w-4 h-4 text-blue-400" />
+              System Permissions Master Catalog ({filteredPermissions.length})
+            </h2>
+            <p className="text-xs text-slate-400">All granular resource actions supported across the application platform.</p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search code or desc..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 w-full sm:w-48 focus:outline-hidden focus:border-blue-500"
+              />
+            </div>
+
+            <select
+              value={selectedResource}
+              onChange={(e) => setSelectedResource(e.target.value)}
+              className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-hidden"
+            >
+              <option value="ALL">All Resources</option>
+              {allResources.map((res) => (
+                <option key={res} value={res}>{res}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -165,7 +236,7 @@ export const PermissionsListPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-sans">
-              {permissions.map((p) => (
+              {filteredPermissions.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-850/50 transition-colors">
                   <td className="px-4 py-3 font-mono text-white font-bold text-xs">
                     {p.code}
@@ -194,6 +265,13 @@ export const PermissionsListPage: React.FC = () => {
                   </td>
                 </tr>
               ))}
+              {filteredPermissions.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    No permissions match your search filter.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

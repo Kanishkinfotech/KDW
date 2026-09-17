@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Search, Filter, RefreshCw, CheckCircle2, RotateCcw, Wrench, ShieldAlert } from 'lucide-react';
 import SEO from '../../../components/SEO';
+import { authFetch } from '../../../api/apiClient';
 
 export default function AdminFailedDownloads() {
   const [loading, setLoading] = useState(true);
@@ -24,7 +25,7 @@ export default function AdminFailedDownloads() {
         category: categoryFilter,
         isResolved
       });
-      const res = await fetch(`/api/admin/downloads/failed-downloads?${query.toString()}`);
+      const res = await authFetch(`/api/admin/downloads/failed-downloads?${query.toString()}`);
       const json = await res.json();
       if (json.success) {
         setFailures(json.data || []);
@@ -46,7 +47,7 @@ export default function AdminFailedDownloads() {
   const handleResolve = async (id: string) => {
     const notes = prompt('Enter resolution notes (optional):') || 'Resolved by admin.';
     try {
-      const res = await fetch(`/api/admin/downloads/failed-downloads/${id}/resolve`, {
+      const res = await authFetch(`/api/admin/downloads/failed-downloads/${id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes })
@@ -63,7 +64,7 @@ export default function AdminFailedDownloads() {
 
   const handleRetry = async (id: string) => {
     try {
-      const res = await fetch(`/api/admin/downloads/failed-downloads/${id}/retry`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/downloads/failed-downloads/${id}/retry`, { method: 'POST' });
       const json = await res.json();
       setActionMessage(json.message || (json.success ? 'Retry succeeded!' : 'Retry failed.'));
       fetchFailures();

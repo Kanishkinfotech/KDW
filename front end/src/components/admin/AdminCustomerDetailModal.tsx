@@ -9,6 +9,7 @@ import {
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { formatCurrency } from '../../utils/currency';
+import AdminOrderDetailModal from './AdminOrderDetailModal';
 
 interface AdminCustomerDetailModalProps {
   customerId: string;
@@ -24,7 +25,7 @@ export default function AdminCustomerDetailModal({
   const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'profile' | 'orders' | 'entitlements' | 'downloads' | 'licences' | 'refunds' | 'support' | 'consents' | 'tags' | 'notes' | 'security' | 'data-requests' | 'timeline' | 'audit'
+    'overview' | 'orders' | 'downloads' | 'tags' | 'data-requests' | 'timeline' | 'audit' | string
   >('overview');
 
   const [actionLoading, setActionLoading] = useState(false);
@@ -278,6 +279,66 @@ export default function AdminCustomerDetailModal({
     }
   };
 
+  // 8. Delete Internal Note
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      setActionLoading(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.delete(`/api/admin/customers/${customer.id}/notes/${noteId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        toast.success('Note removed');
+        fetchCustomerDetails();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to delete note');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // 9. Manual Verify
+  const handleManualVerify = async () => {
+    try {
+      setActionLoading(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`/api/admin/customers/${customer.id}/verify`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        toast.success('Customer email marked verified');
+        fetchCustomerDetails();
+        onRefresh();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Verification failed');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // 10. Resend Verification Email
+  const handleResendVerification = async () => {
+    try {
+      setActionLoading(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`/api/admin/customers/${customer.id}/resend-verification`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        toast.success('Verification email dispatched successfully');
+        fetchCustomerDetails();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to dispatch verification email');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const [drilldownOrderId, setDrilldownOrderId] = useState<string | null>(null);
+
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -325,6 +386,32 @@ export default function AdminCustomerDetailModal({
                 }`}>
                   {customer.customerType}
                 </span>
+
+                {/* Regularity Telemetry Badge */}
+                {(() => {
+                  const now = Date.now();
+                  const loginTime = customer.lastLoginAt ? new Date(customer.lastLoginAt).getTime() : null;
+                  const isRegular = loginTime && ((now - loginTime) / (1000 * 60 * 60 * 24)) <= 7;
+                  return isRegular ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Regular Customer
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-orange-100 text-orange-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
+                      Irregular Customer
+                    </span>
+                  );
+                })()}
+
+                {/* Returning Customer Badge */}
+                {Array.isArray(customer.orders) && customer.orders.length >= 2 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-teal-100 text-teal-800">
+                    🔁 Returning ({customer.orders.length} orders)
+                  </span>
+                )}
+
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
                   customer.emailVerified ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                 }`}>
@@ -355,12 +442,36 @@ export default function AdminCustomerDetailModal({
         </div>
 
         {/* ACTION BAR STRIP */}
-        <div className="bg-slate-900 text-white px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="bg-sky-50 border-y border-sky-200 text-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-400">Quick Actions:</span>
+            <span className="font-bold text-sky-800">Quick Actions:</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Verify Email / Resend for unverified accounts */}
+            {!customer.emailVerified && customer.customerType === 'ACCOUNT' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleManualVerify}
+                  disabled={actionLoading}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-bold text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <CheckCircle2 size={13} />
+                  Verify Email
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={actionLoading}
+                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 font-bold text-slate-700 border border-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Send size={13} />
+                  Resend Link
+                </button>
+              </>
+            )}
+
             {/* Add Tag */}
             <button
               type="button"
@@ -399,16 +510,9 @@ export default function AdminCustomerDetailModal({
         <div className="border-b border-slate-200 px-6 flex items-center gap-2 overflow-x-auto bg-slate-50/70 shrink-0">
           {[
             { id: 'overview', label: 'Overview', icon: User },
-            { id: 'profile', label: 'Contact & Business', icon: Building },
             { id: 'orders', label: `Orders (${customer.orders?.length || 0})`, icon: CreditCard },
-            { id: 'entitlements', label: `Entitlements (${customer.purchases?.length || 0})`, icon: HardDrive },
             { id: 'downloads', label: `Downloads (${customer.downloadHistory?.length || 0})`, icon: Download },
-            { id: 'licences', label: `Licences (${customer.licenceKeys?.length || 0})`, icon: Key },
-            { id: 'support', label: `Support (${customer.supportTickets?.length || 0})`, icon: MessageSquare },
-            { id: 'consents', label: `Consent Registry (${customer.consents?.length || 0})`, icon: Shield },
             { id: 'tags', label: `Tags (${customer.customerTags?.length || 0})`, icon: Tag },
-            { id: 'notes', label: `Notes (${customer.customerNotes?.length || 0})`, icon: FileText },
-            { id: 'security', label: 'Security & Logins', icon: Lock },
             { id: 'data-requests', label: `Data Requests (${customer.dataRequests?.length || 0})`, icon: ShieldAlert },
             { id: 'timeline', label: `Timeline (${customer.timelineEvents?.length || 0})`, icon: HistoryIcon },
             { id: 'audit', label: `Audit Log (${customer.customerAuditLogs?.length || 0})`, icon: FileText }
@@ -582,16 +686,26 @@ export default function AdminCustomerDetailModal({
                       <span className="font-mono font-bold text-slate-900 text-sm">{o.orderNumber}</span>
                       <span className="text-slate-500 block text-[11px] mt-0.5">{new Date(o.createdAt).toLocaleString()} • {o.items?.length || 1} item(s)</span>
                     </div>
-                    <div className="text-right">
-                      <span className="font-black text-slate-900 text-sm block">{formatCurrency(o.totalAmount)}</span>
-                      <div className="flex gap-1.5 justify-end mt-1">
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 text-emerald-800">
-                          {o.paymentStatus}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-100 text-blue-800">
-                          {o.fulfilmentStatus}
-                        </span>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="font-black text-slate-900 text-sm block">{formatCurrency(o.totalAmount)}</span>
+                        <div className="flex gap-1.5 justify-end mt-1">
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 text-emerald-800">
+                            {o.paymentStatus}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-100 text-blue-800">
+                            {o.fulfilmentStatus}
+                          </span>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setDrilldownOrderId(o.id)}
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-primary hover:text-white text-slate-600 transition-colors cursor-pointer"
+                        title="View Full Order Details"
+                      >
+                        <Eye size={14} />
+                      </button>
                     </div>
                   </div>
                 ))
@@ -757,9 +871,20 @@ export default function AdminCustomerDetailModal({
               <div className="space-y-2">
                 {customer.customerNotes?.map((n: any) => (
                   <div key={n.id} className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-1">
-                    <div className="flex justify-between font-bold text-slate-900">
+                    <div className="flex justify-between items-center font-bold text-slate-900">
                       <span>{n.authorName} ({n.noteType})</span>
-                      <span className="text-[10px] text-slate-400">{new Date(n.createdAt).toLocaleString()}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400">{new Date(n.createdAt).toLocaleString()}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNote(n.id)}
+                          disabled={actionLoading}
+                          className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors cursor-pointer"
+                          title="Delete Note"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                     <p className="text-slate-700">{n.content}</p>
                   </div>
@@ -890,6 +1015,18 @@ export default function AdminCustomerDetailModal({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ORDER DRILLDOWN MODAL */}
+      {drilldownOrderId && (
+        <AdminOrderDetailModal
+          orderId={drilldownOrderId}
+          onClose={() => setDrilldownOrderId(null)}
+          onRefresh={() => {
+            fetchCustomerDetails();
+            onRefresh();
+          }}
+        />
       )}
 
     </div>

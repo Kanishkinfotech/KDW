@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Save, Mail, MapPin, Clock, HelpCircle, Book, Search, Ticket, Eye, CheckCircle2, AlertCircle, X, Send, Package, Filter, MessageSquare, AlertTriangle, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Save, Mail, MapPin, Clock, HelpCircle, Book, Search, Ticket, Eye, CheckCircle2, AlertCircle, X, Send, Package, Filter, MessageSquare, AlertTriangle, Trash2, PhoneCall } from 'lucide-react';
 import Button from '../../components/Button';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
@@ -257,18 +258,32 @@ export default function AdminSupportPage() {
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Support Page</h1>
-          <p className="text-slate-500 mt-1">View submitted customer support messages and configure page content.</p>
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 bg-sky-100 text-blue-600 rounded-xl border border-sky-200">
+              <PhoneCall className="w-5 h-5" />
+            </span>
+            <h1 className="text-2xl font-black text-slate-900">Support Page Settings</h1>
+          </div>
+          <p className="text-slate-500 mt-1">Configure public support & contact information and view inquiries connected to Support Management.</p>
         </div>
-        <Button 
-          variant="primary" 
-          onClick={handleSave} 
-          disabled={saving}
-          className="gap-2"
-        >
-          <Save size={20} />
-          {saving ? 'Saving...' : 'Save Changes'}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/admin/support/overview"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-blue-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl shadow-xs transition-all"
+          >
+            <PhoneCall className="w-4 h-4" />
+            <span>Support Workspace &rarr;</span>
+          </Link>
+          <Button 
+            variant="primary" 
+            onClick={handleSave} 
+            disabled={saving}
+            className="gap-2"
+          >
+            <Save size={20} />
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
       </div>
 
       {/* Support Messages Summary Cards */}
@@ -404,16 +419,27 @@ export default function AdminSupportPage() {
                       {getStatusBadge(t.status)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          fetchTicketDetails(t.id);
-                        }}
-                        className="p-2 text-slate-600 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                        title="View Full Message & Respond"
-                      >
-                        <Eye size={18} />
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Link
+                          to={`/admin/support/tickets/${t.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-blue-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors"
+                          title="Open in Support Ticket Desk"
+                        >
+                          <Ticket size={13} />
+                          <span>Desk</span>
+                        </Link>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fetchTicketDetails(t.id);
+                          }}
+                          className="p-2 text-slate-600 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                          title="View Full Message & Respond"
+                        >
+                          <Eye size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -501,9 +527,18 @@ export default function AdminSupportPage() {
                     <span className="font-mono text-xs font-bold text-slate-500">{ticketDetails.ticketNumber}</span>
                     <h2 className="text-xl font-bold text-slate-900 mt-0.5">{ticketDetails.subject}</h2>
                   </div>
-                  <button onClick={() => setSelectedTicketId(null)} className="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
-                    <X size={18} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/admin/support/tickets/${ticketDetails.id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-all"
+                    >
+                      <Ticket size={13} />
+                      <span>Open in Support Desk &rarr;</span>
+                    </Link>
+                    <button onClick={() => setSelectedTicketId(null)} className="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
+                      <X size={18} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50/50">

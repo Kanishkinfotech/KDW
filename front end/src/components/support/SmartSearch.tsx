@@ -73,40 +73,43 @@ export default function SmartSearch() {
         )}
       </div>
 
-      {/* Dropdown Results */}
+        {/* Dropdown Results */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 z-50">
           <div className="max-h-[60vh] overflow-y-auto p-2">
             
             {totalResults === 0 && !isSearching ? (
               <div className="p-8 text-center text-slate-500">
-                <p>No results found for "{query}"</p>
+                <p>No help articles found for "{query}"</p>
                 <button 
-                  onClick={() => navigate('/support/ticket')} 
-                  className="mt-4 text-primary font-bold hover:underline"
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigate('/support/contact');
+                  }} 
+                  className="mt-4 text-[#5b21b6] font-bold hover:underline cursor-pointer"
                 >
-                  Raise a Support Ticket
+                  Contact Customer Support &rarr;
                 </button>
               </div>
             ) : (
               <>
                 {results.articles.length > 0 && (
                   <div className="mb-4">
-                    <h4 className="px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Articles</h4>
+                    <h4 className="px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Knowledge Base Articles</h4>
                     <div className="space-y-1">
                       {results.articles.map((article: any) => (
                         <Link 
                           key={article.id} 
-                          to={`/docs/${article.slug}`}
+                          to={`/support/articles/${article.slug}`}
                           onClick={() => setIsOpen(false)}
-                          className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors group"
+                          className="flex items-start gap-3 p-3 hover:bg-[#ede9fe]/40 rounded-xl transition-colors group"
                         >
-                          <div className="bg-primary/10 text-primary p-2 rounded-lg mt-0.5">
+                          <div className="bg-[#ede9fe] text-[#5b21b6] p-2 rounded-lg mt-0.5 shrink-0">
                             <FileText size={16} />
                           </div>
                           <div>
-                            <h5 className="font-semibold text-slate-900 group-hover:text-primary transition-colors">{article.title}</h5>
-                            <p className="text-sm text-slate-500 line-clamp-1">{article.content.substring(0, 100)}...</p>
+                            <h5 className="font-bold text-slate-900 group-hover:text-[#5b21b6] transition-colors text-sm">{article.title}</h5>
+                            <p className="text-xs text-slate-500 line-clamp-1">{article.content.substring(0, 100)}...</p>
                           </div>
                         </Link>
                       ))}
@@ -116,20 +119,23 @@ export default function SmartSearch() {
 
                 {results.faqs.length > 0 && (
                   <div>
-                    <h4 className="px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">FAQs</h4>
+                    <h4 className="px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Frequently Asked Questions</h4>
                     <div className="space-y-1">
                       {results.faqs.map((faq: any) => (
                         <div 
                           key={faq.id} 
                           className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors group cursor-pointer"
-                          onClick={() => navigate('/faq')} // Should link to specific FAQ anchor if possible
+                          onClick={() => {
+                            setIsOpen(false);
+                            navigate('/faq');
+                          }}
                         >
-                          <div className="bg-accent/10 text-accent p-2 rounded-lg mt-0.5">
+                          <div className="bg-amber-50 text-amber-600 p-2 rounded-lg mt-0.5 shrink-0">
                             <HelpCircle size={16} />
                           </div>
                           <div>
-                            <h5 className="font-semibold text-slate-900">{faq.question}</h5>
-                            <p className="text-sm text-slate-500 line-clamp-1">{faq.answer}</p>
+                            <h5 className="font-semibold text-slate-900 text-sm">{faq.question}</h5>
+                            <p className="text-xs text-slate-500 line-clamp-1">{faq.answer}</p>
                           </div>
                         </div>
                       ))}
@@ -141,10 +147,14 @@ export default function SmartSearch() {
           </div>
           
           {totalResults > 0 && (
-            <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center text-sm">
-              <span className="text-slate-500 font-medium">Showing {totalResults} results</span>
-              <Link to="/docs" className="text-primary font-bold flex items-center gap-1 hover:underline">
-                View all <ArrowRight size={16} />
+            <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-medium">Found {totalResults} matching results</span>
+              <Link 
+                to="/support/articles" 
+                onClick={() => setIsOpen(false)}
+                className="text-[#5b21b6] font-bold flex items-center gap-1 hover:underline"
+              >
+                Browse All Guides <ArrowRight size={14} />
               </Link>
             </div>
           )}

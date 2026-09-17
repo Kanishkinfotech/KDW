@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../database/db';
 import { OrderFulfilmentService } from '../services/orderFulfilmentService';
 import { sendDigitalProductDeliveryEmail } from '../utils/emailService';
+import { reconcileStalePendingOrders } from './paymentController';
 
 // Helper to extract actor from request
 const getActor = (req: Request) => {
@@ -19,11 +20,16 @@ const getActor = (req: Request) => {
 // ============================================================================
 export const getAdminOrders = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Defensively reconcile stale pending orders older than 2 hours to FAILED
+    await reconcileStalePendingOrders(2).catch((err) => {
+      console.warn('[Orders] Stale orders auto-reconciliation warning:', err.message);
+    });
     const {
       page = '1',
       limit = '20',
       search,
       orderStatus,
+      status,
       paymentStatus,
       accessStatus,
       fulfilmentStatus,
@@ -35,6 +41,8 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       maxAmount,
       startDate,
       endDate,
+      datePreset,
+      days,
       sortBy = 'newest'
     } = req.query;
 
@@ -46,9 +54,25 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
 
     // 1. Specific sidebar / saved views filter logic
     if (view) {
-      switch (view) {
+      switch (String(view).toLowerCase()) {
         case 'new':
-          where.orderStatus = { in: ['PENDING_PAYMENT', 'PAYMENT_REVIEW'] };
+          if (!datePreset && !startDate && !endDate && !days) {
+            const past24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            where.createdAt = { gte: past24h };
+          }
+          break;
+        case 'pending':
+        case 'pending_payment':
+          where.OR = [
+            { orderStatus: { in: ['PENDING_PAYMENT', 'PAYMENT_REVIEW', 'PENDING'] } },
+            { paymentStatus: 'PENDING' }
+          ];
+          break;
+        case 'completed':
+          where.OR = [
+            { orderStatus: { in: ['FULFILLED', 'PAID', 'COMPLETED'] } },
+            { AND: [{ paymentStatus: { in: ['PAID', 'CAPTURED'] } }, { fulfilmentStatus: 'FULFILLED' }] }
+          ];
           break;
         case 'pending_payment':
           where.paymentStatus = 'PENDING';
@@ -115,7 +139,36 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
     }
 
     // 2. Direct filter params (override or refine view)
-    if (orderStatus) where.orderStatus = String(orderStatus).toUpperCase();
+    const effectiveStatus = (orderStatus || status) ? String(orderStatus || status).toUpperCase() : null;
+    if (effectiveStatus) {
+      if (effectiveStatus === 'COMPLETED') {
+        where.OR = [
+          { orderStatus: { in: ['FULFILLED', 'PAID', 'COMPLETED'] } },
+          { AND: [{ paymentStatus: { in: ['PAID', 'CAPTURED'] } }, { fulfilmentStatus: 'FULFILLED' }] }
+        ];
+      } else if (effectiveStatus === 'NEW') {
+        if (!datePreset && !startDate && !endDate && !days) {
+          const past24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          where.createdAt = { gte: past24h };
+        }
+      } else if (effectiveStatus === 'PENDING' || effectiveStatus === 'PENDING_PAYMENT') {
+        where.OR = [
+          { orderStatus: { in: ['PENDING_PAYMENT', 'PAYMENT_REVIEW', 'PENDING'] } },
+          { paymentStatus: 'PENDING' }
+        ];
+      } else if (effectiveStatus === 'FAILED') {
+        where.OR = [
+          { orderStatus: 'FAILED' },
+          { paymentStatus: 'FAILED' },
+          { fulfilmentStatus: 'FAILED' }
+        ];
+      } else if (effectiveStatus === 'CANCELLED') {
+        where.orderStatus = 'CANCELLED';
+      } else {
+        where.orderStatus = effectiveStatus;
+      }
+    }
+
     if (paymentStatus) where.paymentStatus = String(paymentStatus).toUpperCase();
     if (accessStatus) where.accessStatus = String(accessStatus).toUpperCase();
     if (fulfilmentStatus) where.fulfilmentStatus = String(fulfilmentStatus).toUpperCase();
@@ -130,8 +183,15 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       if (maxAmount) where.totalAmount.lte = parseFloat(maxAmount as string);
     }
 
-    // 4. Date Range
-    if (startDate || endDate) {
+    // 4. Date Range & Presets ('1day', '7days', 'custom')
+    const preset = String(datePreset || '').toLowerCase();
+    if (preset === '1day' || preset === 'today' || days === '1') {
+      const past24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      where.createdAt = { gte: past24h };
+    } else if (preset === '7days' || days === '7') {
+      const past7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      where.createdAt = { gte: past7d };
+    } else if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate as string);
       if (endDate) {
@@ -189,11 +249,14 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       orders,
       total,
       countAll,
+      countNewOrders,
+      countCompleted,
       countPendingPayment,
       countPaymentReview,
       countPaid,
       countAwaitingFulfilment,
       countFailed,
+      countCancelled,
       countRefunded,
       countDisputed,
       countWithoutAccess
@@ -228,7 +291,27 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       }),
       prisma.order.count({ where }),
       prisma.order.count(),
-      prisma.order.count({ where: { paymentStatus: 'PENDING' } }),
+      prisma.order.count({
+        where: {
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        }
+      }),
+      prisma.order.count({
+        where: {
+          OR: [
+            { orderStatus: { in: ['FULFILLED', 'PAID', 'COMPLETED'] } },
+            { AND: [{ paymentStatus: { in: ['PAID', 'CAPTURED'] } }, { fulfilmentStatus: 'FULFILLED' }] }
+          ]
+        }
+      }),
+      prisma.order.count({
+        where: {
+          OR: [
+            { orderStatus: { in: ['PENDING_PAYMENT', 'PAYMENT_REVIEW', 'PENDING'] } },
+            { paymentStatus: 'PENDING' }
+          ]
+        }
+      }),
       prisma.order.count({ where: { orderStatus: 'PAYMENT_REVIEW' } }),
       prisma.order.count({ where: { paymentStatus: { in: ['PAID', 'CAPTURED'] } } }),
       prisma.order.count({
@@ -240,6 +323,11 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       prisma.order.count({
         where: {
           OR: [{ orderStatus: 'FAILED' }, { paymentStatus: 'FAILED' }, { fulfilmentStatus: 'FAILED' }]
+        }
+      }),
+      prisma.order.count({
+        where: {
+          orderStatus: 'CANCELLED'
         }
       }),
       prisma.order.count({
@@ -275,11 +363,15 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       },
       counters: {
         all: countAll,
+        new_orders: countNewOrders,
+        pending_orders: countPendingPayment,
         pending_payment: countPendingPayment,
+        completed: countCompleted,
         payment_review: countPaymentReview,
         paid: countPaid,
         awaiting_fulfilment: countAwaitingFulfilment,
         failed: countFailed,
+        cancelled: countCancelled,
         refunded: countRefunded,
         disputed: countDisputed,
         without_access: countWithoutAccess
@@ -332,6 +424,7 @@ export const getOrderAnalytics = async (req: Request, res: Response, next: NextF
       analytics: {
         totalOrders,
         paidOrders,
+        refundedOrders,
         totalRevenue,
         averageOrderValue,
         paymentSuccessRate,
@@ -494,6 +587,48 @@ export const retryOrderFulfilment = async (req: Request, res: Response, next: Ne
 };
 
 // ============================================================================
+// 4B. BATCH FULFIL ALL UNFULFILLED PAID ORDERS
+// ============================================================================
+export const batchFulfilOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actor = getActor(req);
+    const unfulfilledPaidOrders = await prisma.order.findMany({
+      where: {
+        paymentStatus: { in: ['PAID', 'CAPTURED'] },
+        fulfilmentStatus: { not: 'FULFILLED' }
+      }
+    });
+
+    let fulfilledCount = 0;
+    let failedCount = 0;
+
+    for (const order of unfulfilledPaidOrders) {
+      try {
+        await OrderFulfilmentService.fulfilOrder(order.id, {
+          id: actor.id || undefined,
+          email: actor.email,
+          role: actor.role,
+          name: actor.name
+        });
+        fulfilledCount++;
+      } catch (err) {
+        failedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Batch fulfilment complete: ${fulfilledCount} orders fulfilled, ${failedCount} failed.`,
+      fulfilledCount,
+      failedCount,
+      totalProcessed: unfulfilledPaidOrders.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================================
 // 5. RESEND ACCESS NOTIFICATION (Rate-Limited to 3/hour)
 // ============================================================================
 export const resendOrderAccess = async (req: Request, res: Response, next: NextFunction) => {
@@ -545,14 +680,20 @@ export const resendOrderAccess = async (req: Request, res: Response, next: NextF
       driveUrl: item.deliveryLink
     }));
 
-    await sendDigitalProductDeliveryEmail({
+    const primaryLicence = order.licenceKeys?.[0]?.keyMasked;
+    const sendResult = await sendDigitalProductDeliveryEmail({
       recipientEmail,
       customerName: order.guestName || order.customer?.name || 'Valued Customer',
       orderNumber: order.orderNumber,
+      licenceKey: primaryLicence,
       items: deliveryLinksList.length > 0
         ? deliveryLinksList
         : [{ name: 'Digital Asset', driveUrl: delivery?.deliveryLink || 'http://localhost:5173/account/downloads' }]
     });
+
+    if (!sendResult.success && !sendResult.skipped) {
+      return res.status(500).json({ success: false, message: sendResult.error?.message || 'Failed to dispatch email via SMTP' });
+    }
 
     // Record Timeline & Audit Event
     await prisma.$transaction([
@@ -942,14 +1083,73 @@ export const addOrderNote = async (req: Request, res: Response, next: NextFuncti
 // ============================================================================
 export const exportOrders = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { type = 'sales', startDate, endDate } = req.query;
+    const { type = 'sales', startDate, endDate, view, orderStatus, status, datePreset, days } = req.query;
     const actor = getActor(req);
 
     const where: any = {};
-    if (startDate || endDate) {
+    if (view) {
+      const v = String(view).toLowerCase();
+      if (v === 'completed') {
+        where.OR = [
+          { orderStatus: { in: ['FULFILLED', 'PAID', 'COMPLETED'] } },
+          { AND: [{ paymentStatus: { in: ['PAID', 'CAPTURED'] } }, { fulfilmentStatus: 'FULFILLED' }] }
+        ];
+      } else if (v === 'new') {
+        if (!datePreset && !startDate && !endDate && !days) {
+          const past24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          where.createdAt = { gte: past24h };
+        }
+      } else if (v === 'pending' || v === 'pending_payment') {
+        where.OR = [
+          { orderStatus: { in: ['PENDING_PAYMENT', 'PAYMENT_REVIEW', 'PENDING'] } },
+          { paymentStatus: 'PENDING' }
+        ];
+      } else if (v === 'failed') {
+        where.OR = [{ orderStatus: 'FAILED' }, { paymentStatus: 'FAILED' }, { fulfilmentStatus: 'FAILED' }];
+      } else if (v === 'cancelled') {
+        where.orderStatus = 'CANCELLED';
+      }
+    }
+
+    const effectiveStatus = (orderStatus || status) ? String(orderStatus || status).toUpperCase() : null;
+    if (effectiveStatus) {
+      if (effectiveStatus === 'COMPLETED') {
+        where.OR = [
+          { orderStatus: { in: ['FULFILLED', 'PAID', 'COMPLETED'] } },
+          { AND: [{ paymentStatus: { in: ['PAID', 'CAPTURED'] } }, { fulfilmentStatus: 'FULFILLED' }] }
+        ];
+      } else if (effectiveStatus === 'NEW') {
+        if (!datePreset && !startDate && !endDate && !days) {
+          const past24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          where.createdAt = { gte: past24h };
+        }
+      } else if (effectiveStatus === 'PENDING' || effectiveStatus === 'PENDING_PAYMENT') {
+        where.OR = [
+          { orderStatus: { in: ['PENDING_PAYMENT', 'PAYMENT_REVIEW', 'PENDING'] } },
+          { paymentStatus: 'PENDING' }
+        ];
+      } else if (effectiveStatus === 'FAILED') {
+        where.OR = [{ orderStatus: 'FAILED' }, { paymentStatus: 'FAILED' }, { fulfilmentStatus: 'FAILED' }];
+      } else if (effectiveStatus === 'CANCELLED') {
+        where.orderStatus = 'CANCELLED';
+      } else {
+        where.orderStatus = effectiveStatus;
+      }
+    }
+
+    const preset = String(datePreset || '').toLowerCase();
+    if (preset === '1day' || preset === 'today' || days === '1') {
+      where.createdAt = { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) };
+    } else if (preset === '7days' || days === '7') {
+      where.createdAt = { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    } else if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate as string);
-      if (endDate) where.createdAt.lte = new Date(endDate as string);
+      if (endDate) {
+        const end = new Date(endDate as string);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
     }
 
     const orders = await prisma.order.findMany({
@@ -1042,3 +1242,152 @@ export const updateAdminOrderStatus = async (req: Request, res: Response, next: 
 };
 
 export const refundAdminOrder = processOrderRefund;
+
+export const getMyOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user?.id;
+    const userEmail = (req as any).user?.email?.toLowerCase();
+
+    if (!userId && !userEmail) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const orders = await prisma.order.findMany({
+      where: {
+        OR: [
+          ...(userId ? [{ customerId: userId }] : []),
+          ...(userEmail ? [{ customerEmail: userEmail }] : [])
+        ]
+      },
+      include: {
+        items: {
+          include: {
+            product: { select: { id: true, name: true, thumbnail: true, price: true, version: true, slug: true } },
+            bundle: { select: { id: true, title: true, coverImage: true, price: true, slug: true } }
+          }
+        },
+        licenceKeys: true,
+        purchases: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({ success: true, data: orders });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================================
+// 15. PUBLIC / GUEST ORDER STATUS LOOKUP (For Payment Success & Receipt Pages)
+// ============================================================================
+export const getPublicOrderById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawParam = req.params.id || req.query.query || req.query.id || req.query.orderNumber || '';
+    const orderRef = String(rawParam).trim();
+    if (!orderRef) {
+      return res.status(400).json({ success: false, message: 'Order reference is required' });
+    }
+
+    const order: any = await prisma.order.findFirst({
+      where: {
+        OR: [
+          { id: orderRef },
+          { orderNumber: orderRef },
+          { razorpayOrderId: orderRef }
+        ]
+      },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                thumbnail: true,
+                googleDriveLinks: true,
+                googleDriveFileId: true
+              }
+            },
+            bundle: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                coverImage: true
+              }
+            }
+          }
+        },
+        digitalDeliveries: true,
+        licenceKeys: true
+      }
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Return sanitized storefront order object
+    const isOrderPaid = order.paymentStatus === 'PAID' || order.orderStatus === 'PAID' || order.orderStatus === 'FULFILLED' || order.totalAmount === 0;
+
+    res.json({
+      success: true,
+      data: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: isOrderPaid ? 'PAID' : order.orderStatus,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        accessStatus: order.accessStatus,
+        fulfilmentStatus: order.fulfilmentStatus,
+        totalAmount: order.totalAmount,
+        subtotal: order.subtotal,
+        discountTotal: order.discountTotal,
+        currency: order.currency,
+        customerEmail: order.guestEmail,
+        customerName: order.guestName,
+        paidAt: order.paidAt,
+        fulfilledAt: order.fulfilledAt,
+        createdAt: order.createdAt,
+        items: (order.items || []).map((item: any) => ({
+          id: item.id,
+          productId: item.productId,
+          bundleId: item.bundleId,
+          name: item.productName || item.product?.name || item.bundle?.title,
+          price: item.unitPrice,
+          quantity: item.quantity,
+          downloadLinks: isOrderPaid ? (item.product?.googleDriveLinks || []) : []
+        })),
+        deliveries: isOrderPaid ? (order.digitalDeliveries || []) : [],
+        licenceKeys: isOrderPaid ? (order.licenceKeys || []).map((k: any) => ({
+          id: k.id,
+          key: k.keyMasked || k.id,
+          status: k.status
+        })) : []
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================================
+// 15. MANUAL / CRON TRIGGER: RECONCILE STALE ORDERS
+// ============================================================================
+export const triggerReconcileStaleOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const hours = req.body?.maxAgeHours ? Number(req.body.maxAgeHours) : 2;
+    const reconciledCount = await reconcileStalePendingOrders(hours);
+    return res.json({
+      success: true,
+      message: `Reconciled ${reconciledCount} stale pending order(s) to FAILED.`,
+      reconciledCount
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+

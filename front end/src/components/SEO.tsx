@@ -5,9 +5,11 @@ interface SEOProps {
   description: string;
   type?: string;
   image?: string;
+  keywords?: string;
+  canonical?: string;
 }
 
-export default function SEO({ title, description, type = 'website', image }: SEOProps) {
+export default function SEO({ title, description, type = 'website', image, keywords, canonical }: SEOProps) {
   const siteName = 'Kanishk Digital World';
   const fullTitle = `${title} | ${siteName}`;
 
@@ -16,6 +18,8 @@ export default function SEO({ title, description, type = 'website', image }: SEO
       {/* Standard metadata tags */}
       <title>{fullTitle}</title>
       <meta name='description' content={description} />
+      {keywords && <meta name='keywords' content={keywords} />}
+      {canonical && <link rel='canonical' href={canonical} />}
       
       {/* OpenGraph tags */}
       <meta property='og:title' content={fullTitle} />

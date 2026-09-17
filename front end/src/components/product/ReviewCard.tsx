@@ -82,8 +82,8 @@ const ReviewCard: React.FC<ReviewCardProps> = ({ review, onVote, onReport }) => 
                 className="absolute right-0 mt-2 w-36 bg-white  rounded-lg shadow-lg border border-gray-100  z-10 py-1"
               >
                 <button 
-                  onClick={() => { setShowOptions(false); onReport(review._id); }}
-                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50  flex items-center"
+                  onClick={() => { setShowOptions(false); onReport(review.id || review._id); }}
+                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center"
                 >
                   <Flag className="w-4 h-4 mr-2" /> Report
                 </button>
@@ -94,82 +94,75 @@ const ReviewCard: React.FC<ReviewCardProps> = ({ review, onVote, onReport }) => 
       </div>
 
       {review.title && (
-        <h5 className="font-semibold text-lg text-gray-900  mt-4">
+        <h5 className="font-semibold text-lg text-gray-900 mt-4">
           {review.title}
         </h5>
       )}
 
-      <div className="mt-2 text-gray-700  leading-relaxed">
+      {/* Comment Body */}
+      <p className="text-gray-700 mt-2 leading-relaxed whitespace-pre-line text-sm">
         {displayText}
-        {isLongText && (
-          <button 
-            onClick={() => setExpanded(!expanded)}
-            className="ml-2 font-medium text-blue-600 hover:text-blue-700   inline-flex items-center"
-          >
-            {expanded ? 'Show less' : 'Read more'}
-          </button>
-        )}
-      </div>
+      </p>
 
-      {/* Pros & Cons */}
-      {(review.pros?.length > 0 || review.cons?.length > 0) && (
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {review.pros?.length > 0 && (
-            <div className="bg-green-50/50  rounded-lg p-3 border border-green-100 ">
-              <h6 className="text-sm font-semibold text-green-700  mb-2 flex items-center">
-                <CheckCircle className="w-4 h-4 mr-1.5" /> Pros
-              </h6>
-              <ul className="list-disc list-inside text-sm text-gray-600  space-y-1">
-                {review.pros.map((pro: string, idx: number) => (
-                  <li key={idx}>{pro}</li>
-                ))}
-              </ul>
+      {isLongText && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-primary text-sm font-semibold mt-2 inline-flex items-center hover:underline"
+        >
+          {expanded ? (
+            <>Read Less <ChevronUp className="w-4 h-4 ml-1" /></>
+          ) : (
+            <>Read More <ChevronDown className="w-4 h-4 ml-1" /></>
+          )}
+        </button>
+      )}
+
+      {/* Pros and Cons */}
+      {(review.pros || review.cons) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 bg-gray-50 p-4 rounded-xl">
+          {review.pros && (
+            <div>
+              <span className="text-xs font-bold text-green-700 uppercase tracking-wider block mb-1">Pros</span>
+              <p className="text-sm text-gray-700">{review.pros}</p>
             </div>
           )}
-          {review.cons?.length > 0 && (
-            <div className="bg-red-50/50  rounded-lg p-3 border border-red-100 ">
-              <h6 className="text-sm font-semibold text-red-700  mb-2 flex items-center">
-                <div className="w-4 h-4 mr-1.5 flex items-center justify-center font-bold">-</div> Cons
-              </h6>
-              <ul className="list-disc list-inside text-sm text-gray-600  space-y-1">
-                {review.cons.map((con: string, idx: number) => (
-                  <li key={idx}>{con}</li>
-                ))}
-              </ul>
+          {review.cons && (
+            <div>
+              <span className="text-xs font-bold text-red-700 uppercase tracking-wider block mb-1">Cons</span>
+              <p className="text-sm text-gray-700">{review.cons}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Images/Videos */}
-      {(review.images?.length > 0 || review.videos?.length > 0) && (
-        <div className="mt-4 flex gap-2 flex-wrap">
-          {review.images?.map((img: string, idx: number) => (
-            <div key={`img-${idx}`} className="relative group rounded-lg overflow-hidden border border-gray-200  cursor-pointer w-20 h-20">
-              <img src={img} alt={`Review ${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
-            </div>
-          ))}
-          {review.videos?.map((vid: string, idx: number) => (
-            <div key={`vid-${idx}`} className="relative group rounded-lg overflow-hidden border border-gray-200  cursor-pointer w-32 h-20 bg-black">
-              <video src={vid} controls className="w-full h-full object-cover" />
-            </div>
+      {/* Images and Videos */}
+      {review.images && review.images.length > 0 && (
+        <div className="flex gap-2 mt-4 overflow-x-auto pb-2">
+          {review.images.map((img: string, index: number) => (
+            <img 
+              key={index} 
+              src={img} 
+              alt="Review attachment" 
+              className="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90"
+              onClick={() => window.open(img, '_blank')}
+            />
           ))}
         </div>
       )}
 
-      {/* Footer / Actions */}
-      <div className="mt-5 flex items-center justify-between">
+      {/* Card Actions (Helpful, Not Helpful, Share) */}
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
         <div className="flex items-center space-x-4">
-          <span className="text-sm font-medium text-gray-500">Helpful?</span>
+          <span>Was this review helpful?</span>
           <button 
-            onClick={() => onVote(review._id, 'helpful')}
-            className="flex items-center text-sm text-gray-600 hover:text-blue-600   transition-colors"
+            onClick={() => onVote(review.id || review._id, 'helpful')}
+            className="flex items-center text-sm text-gray-600 hover:text-primary transition-colors"
           >
             <ThumbsUp className="w-4 h-4 mr-1.5" /> {review.helpfulVotes || 0}
           </button>
           <button 
-            onClick={() => onVote(review._id, 'notHelpful')}
-            className="flex items-center text-sm text-gray-600 hover:text-red-600   transition-colors"
+            onClick={() => onVote(review.id || review._id, 'notHelpful')}
+            className="flex items-center text-sm text-gray-600 hover:text-red-600 transition-colors"
           >
             <ThumbsDown className="w-4 h-4 mr-1.5" /> {review.notHelpfulVotes || 0}
           </button>
@@ -186,20 +179,40 @@ const ReviewCard: React.FC<ReviewCardProps> = ({ review, onVote, onReport }) => 
         )}
       </div>
 
-      {/* Creator Reply */}
-      {review.creatorReply && review.creatorReply.text && (
-        <div className="mt-4 ml-6 p-4 bg-blue-50/50  rounded-xl border-l-4 border-blue-500">
-          <div className="flex items-center justify-between mb-2">
-            <h6 className="font-semibold text-sm text-gray-900  flex items-center">
-              <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mr-2 text-xs">C</span>
-              Creator Response
-              <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Official</span>
-            </h6>
-            <span className="text-xs text-gray-500">{formatDate(review.creatorReply.repliedAt)}</span>
-          </div>
-          <p className="text-sm text-gray-700 ">
-            {review.creatorReply.text}
-          </p>
+      {/* Official Staff / Creator Reply */}
+      {((review.replies && review.replies.length > 0) || (review.creatorReply && review.creatorReply.text)) && (
+        <div className="mt-4 ml-4 sm:ml-6 p-4 bg-blue-50/60 rounded-2xl border-l-4 border-blue-600 space-y-3">
+          {review.replies && review.replies.length > 0 ? (
+            review.replies.map((rep: any) => (
+              <div key={rep.id || rep._id}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h6 className="font-bold text-xs text-blue-950 flex items-center">
+                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center mr-2 text-[10px] font-bold">K</span>
+                    {rep.authorName || 'KDW Official Support'}
+                    <span className="ml-2 text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">Official Response</span>
+                  </h6>
+                  <span className="text-[11px] text-slate-500">{formatDate(rep.createdAt)}</span>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed font-normal">
+                  {rep.body}
+                </p>
+              </div>
+            ))
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <h6 className="font-bold text-xs text-blue-950 flex items-center">
+                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center mr-2 text-[10px] font-bold">K</span>
+                  {review.creatorReply.authorName || 'KDW Official Support'}
+                  <span className="ml-2 text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">Official Response</span>
+                </h6>
+                <span className="text-[11px] text-slate-500">{formatDate(review.creatorReply.repliedAt)}</span>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed font-normal">
+                {review.creatorReply.text}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

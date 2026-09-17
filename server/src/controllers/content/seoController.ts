@@ -3,14 +3,28 @@ import { prisma } from '../../database/db';
 
 export const getSeoAuditReport = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const [pages, blogs, faqs, banners] = await Promise.all([
+    const [pages, blogs, faqs, banners, categories] = await Promise.all([
       prisma.contentPage.findMany(),
       prisma.blogPost.findMany(),
       prisma.contentFaq.findMany({ where: { status: 'PUBLISHED' } }),
-      prisma.contentBanner.findMany({ where: { status: 'ACTIVE' } })
+      prisma.contentBanner.findMany({ where: { status: 'ACTIVE' } }),
+      prisma.category.findMany({ where: { status: { in: ['ACTIVE', 'PUBLISHED'] } } })
     ]);
 
     const issues: any[] = [];
+
+    // Check Categories
+    categories.forEach(c => {
+      if (!c.seoTitle || c.seoTitle.length < 10) {
+        issues.push({ item: `Category: ${c.name}`, issue: 'SEO Title missing or under 10 chars', severity: 'MEDIUM', type: 'CATEGORY', id: c.id });
+      }
+      if (!c.seoDescription || c.seoDescription.length < 30) {
+        issues.push({ item: `Category: ${c.name}`, issue: 'Meta Description missing or under 30 chars', severity: 'HIGH', type: 'CATEGORY', id: c.id });
+      }
+      if (!c.banner && !c.image) {
+        issues.push({ item: `Category: ${c.name}`, issue: 'Category banner/cover image missing', severity: 'MEDIUM', type: 'CATEGORY', id: c.id });
+      }
+    });
 
     // Check Pages
     pages.forEach(p => {

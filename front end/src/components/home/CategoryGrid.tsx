@@ -7,7 +7,13 @@ export default function CategoryGrid() {
 
   // Top level categories
   const topCategories = categories.filter((c: any) => !c.parentId);
-  const displayCats = topCategories.length > 0 ? topCategories : categories;
+  const baseCats = topCategories.length > 0 ? topCategories : categories;
+  const displayCats = [...baseCats].sort((a: any, b: any) => {
+    const aFeatured = (a.featured || a.featuredPlacement === 'HOMEPAGE_CARD') ? 1 : 0;
+    const bFeatured = (b.featured || b.featuredPlacement === 'HOMEPAGE_CARD') ? 1 : 0;
+    if (bFeatured !== aFeatured) return bFeatured - aFeatured;
+    return (b.featuredPriority || 0) - (a.featuredPriority || 0);
+  });
 
   const categoryIcons: Record<string, any> = {
     templates: <Layout className="text-purple-600" size={26} />,
@@ -73,18 +79,29 @@ export default function CategoryGrid() {
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center group-hover:scale-110 shadow-xs transition-transform">
-                      {icon}
+                    <div className="w-12 h-12 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center group-hover:scale-110 shadow-xs transition-transform overflow-hidden">
+                      {cat.image || cat.banner ? (
+                        <img src={cat.image || cat.banner} alt={cat.name} className="w-full h-full object-cover" />
+                      ) : (
+                        icon
+                      )}
                     </div>
-                    <span className="bg-slate-200/80 text-slate-700 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono">
-                      {count} {count === 1 ? 'Asset' : 'Assets'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {cat.featured && (
+                        <span className="bg-amber-400 text-amber-950 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono border border-amber-300 shadow-xs flex items-center gap-0.5">
+                          ★ Featured
+                        </span>
+                      )}
+                      <span className="bg-slate-200/80 text-slate-700 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono">
+                        {count} {count === 1 ? 'Asset' : 'Assets'}
+                      </span>
+                    </div>
                   </div>
                   <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-primary transition-colors mb-1.5 capitalize">
                     {cat.name}
                   </h3>
                   <p className="text-slate-500 text-xs font-medium line-clamp-2 leading-relaxed">
-                    {cat.description || `Explore premium ${cat.name} templates, files, and digital resources.`}
+                    {cat.description || cat.shortDescription || `Explore premium ${cat.name} templates, files, and digital resources.`}
                   </p>
                 </div>
 

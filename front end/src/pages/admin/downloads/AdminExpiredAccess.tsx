@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Archive, Search, RefreshCw, Clock, RotateCcw } from 'lucide-react';
 import SEO from '../../../components/SEO';
 import OverrideActionModal from '../../../components/admin/OverrideActionModal';
+import { authFetch } from '../../../api/apiClient';
 
 export default function AdminExpiredAccess() {
   const [loading, setLoading] = useState(true);
@@ -19,7 +20,7 @@ export default function AdminExpiredAccess() {
     setLoading(true);
     try {
       const query = new URLSearchParams({ page: String(page), limit: '20', search: search.trim() });
-      const res = await fetch(`/api/admin/downloads/expired-access?${query.toString()}`);
+      const res = await authFetch(`/api/admin/downloads/expired-access?${query.toString()}`);
       const json = await res.json();
       if (json.success) {
         setItems(json.data || []);
@@ -39,7 +40,7 @@ export default function AdminExpiredAccess() {
 
   const handleExtendConfirm = async ({ reason, extraData }: { reason: string; extraData?: any }) => {
     if (!selectedEnt) return;
-    const res = await fetch(`/api/admin/downloads/entitlements/${selectedEnt.id}/extend-expiry`, {
+    const res = await authFetch(`/api/admin/downloads/entitlements/${selectedEnt.id}/extend-expiry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ newExpiryDate: extraData, reason })

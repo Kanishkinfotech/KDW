@@ -54,12 +54,12 @@ export const getCustomerOverview = async (req: Request, res: Response, next: Nex
       prisma.user.findMany({
         where: { role: 'CUSTOMER' },
         include: {
-          orders: { where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } } },
+          orders: { where: { paymentStatus: { in: ['PAID', 'COMPLETED'] }, payments: { some: { status: 'CAPTURED' } } } },
           digitalEntitlements: true
         }
       }),
       prisma.order.findMany({
-        where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } },
+        where: { paymentStatus: { in: ['PAID', 'COMPLETED'] }, payments: { some: { status: 'CAPTURED' } } },
         include: { items: { include: { product: true } } },
         orderBy: { createdAt: 'asc' }
       }),
@@ -227,9 +227,12 @@ export const getNewCustomers = async (req: Request, res: Response, next: NextFun
     const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 15));
     const skip = (pageNum - 1) * limitNum;
 
-    // All orders ordered by time
+    // All orders ordered by time (verified captured payments only)
     const orders = await prisma.order.findMany({
-      where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } },
+      where: {
+        paymentStatus: { in: ['PAID', 'COMPLETED'] },
+        payments: { some: { status: 'CAPTURED' } }
+      },
       orderBy: { createdAt: 'asc' },
       include: {
         customer: true,
@@ -312,7 +315,10 @@ export const getReturningCustomers = async (req: Request, res: Response, next: N
     const skip = (pageNum - 1) * limitNum;
 
     const paidOrders = await prisma.order.findMany({
-      where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } },
+      where: {
+        paymentStatus: { in: ['PAID', 'COMPLETED'] },
+        payments: { some: { status: 'CAPTURED' } }
+      },
       orderBy: { createdAt: 'asc' },
       include: {
         customer: true,
@@ -406,7 +412,12 @@ export const getGuestCustomers = async (req: Request, res: Response, next: NextF
 
     const [guestOrders, guestClaims] = await Promise.all([
       prisma.order.findMany({
-        where: { customerId: null, guestEmail: { not: null }, paymentStatus: { in: ['PAID', 'COMPLETED'] } },
+        where: {
+          customerId: null,
+          guestEmail: { not: null },
+          paymentStatus: { in: ['PAID', 'COMPLETED'] },
+          payments: { some: { status: 'CAPTURED' } }
+        },
         include: { items: { include: { product: true } }, digitalEntitlements: true }
       }),
       prisma.guestOrderClaim.findMany()
@@ -479,7 +490,7 @@ export const getGuestCustomers = async (req: Request, res: Response, next: NextF
 export const getCustomerValue = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const [orders, refunds, users] = await Promise.all([
-      prisma.order.findMany({ where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } } }),
+      prisma.order.findMany({ where: { paymentStatus: { in: ['PAID', 'COMPLETED'] }, payments: { some: { status: 'CAPTURED' } } } }),
       prisma.refund.findMany({ where: { status: 'COMPLETED' } }),
       prisma.user.findMany({ where: { role: 'CUSTOMER' } })
     ]);
@@ -732,7 +743,7 @@ export const getCustomerRefunds = async (req: Request, res: Response, next: Next
       ];
     }
 
-    const [total, refunds] = await Promise.all([
+    const [total, refunds, allRefunds, paidOrdersCount] = await Promise.all([
       prisma.refund.count({ where }),
       prisma.refund.findMany({
         where,
@@ -745,14 +756,56 @@ export const getCustomerRefunds = async (req: Request, res: Response, next: Next
               customer: { select: { id: true, name: true, email: true } },
               items: { include: { product: true } }
             }
+          },
+          payment: {
+            select: {
+              id: true,
+              amount: true,
+              status: true,
+              method: true,
+              razorpayPaymentId: true,
+              verificationStatus: true
+            }
           }
         }
+      }),
+      prisma.refund.findMany({
+        select: {
+          amount: true,
+          status: true
+        }
+      }),
+      prisma.order.count({
+        where: { paymentStatus: { in: ['PAID', 'COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED'] } }
       })
     ]);
+
+    const totalRefundAmount = allRefunds
+      .filter(r => r.status === 'COMPLETED')
+      .reduce((sum, r) => sum + r.amount, 0);
+
+    const pendingRefunds = allRefunds.filter(
+      r => r.status === 'PENDING_APPROVAL' || r.status === 'REQUESTED'
+    ).length;
+
+    const completedRefunds = allRefunds.filter(r => r.status === 'COMPLETED').length;
+    const rejectedRefunds = allRefunds.filter(r => r.status === 'REJECTED').length;
+
+    const refundRate = paidOrdersCount > 0
+      ? parseFloat(((completedRefunds / paidOrdersCount) * 100).toFixed(1))
+      : 0;
 
     res.json({
       success: true,
       data: refunds,
+      kpis: {
+        totalRefundAmount: Math.round(totalRefundAmount),
+        totalRefunds: allRefunds.length,
+        pendingRefunds,
+        completedRefunds,
+        rejectedRefunds,
+        refundRate
+      },
       pagination: {
         total,
         page: pageNum,

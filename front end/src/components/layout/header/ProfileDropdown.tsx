@@ -97,23 +97,22 @@ export default function ProfileDropdown() {
 
             {/* Menu Items */}
             <div className="p-2 space-y-0.5">
-              <DropdownLink to="/account" icon={LayoutDashboard} label="My Account" onClick={() => setIsOpen(false)} />
-              <DropdownLink to="/account/library" icon={ShoppingBag} label="My Purchases" onClick={() => setIsOpen(false)} />
+              <DropdownLink to="/account" icon={LayoutDashboard} label="Overview" onClick={() => setIsOpen(false)} />
+              <DropdownLink to="/account/library" icon={ShoppingBag} label="My Library" onClick={() => setIsOpen(false)} />
               <DropdownLink to="/account/orders" icon={FileText} label="Orders & Invoices" onClick={() => setIsOpen(false)} />
               <DropdownLink to="/account/downloads" icon={Download} label="Downloads" onClick={() => setIsOpen(false)} />
-              <DropdownLink to="/wishlist" icon={Heart} label="Wishlist" onClick={() => setIsOpen(false)} />
-              <DropdownLink to="/account/licenses" icon={Key} label="Licences" onClick={() => setIsOpen(false)} />
-              <DropdownLink to="/support" icon={HelpCircle} label="Support" onClick={() => setIsOpen(false)} />
+              <DropdownLink to="/account/licenses" icon={Key} label="Licenses" onClick={() => setIsOpen(false)} />
+              <DropdownLink to="/account/support" icon={HelpCircle} label="Contact Support" onClick={() => setIsOpen(false)} />
               
               <div className="h-px bg-slate-100 my-1.5 mx-2"></div>
               
-              <DropdownLink to="/account/profile" icon={Settings} label="Profile & Settings" onClick={() => setIsOpen(false)} />
+              <DropdownLink to="/account/profile" icon={Settings} label="Profile Settings" onClick={() => setIsOpen(false)} />
               
               <button 
                 onClick={handleLogout}
                 className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-xl transition-colors font-bold mt-1 cursor-pointer"
               >
-                <LogOut size={15} /> <span>Logout</span>
+                <LogOut size={15} /> <span>Sign Out</span>
               </button>
             </div>
           </motion.div>

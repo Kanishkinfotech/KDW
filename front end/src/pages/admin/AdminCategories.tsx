@@ -1,18 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
-  FolderTree, Plus, Sparkles, Layers, Image as ImageIcon, 
-  Globe, Shuffle, Cpu, LineChart, RefreshCw, Eye, MoveRight, 
-  Copy, Trash2, Edit2, CheckCircle2, AlertCircle, FileText
+  FolderTree, Layers, LineChart, RefreshCw, FolderPlus
 } from 'lucide-react';
 import CategoryTable from '../../components/admin/categories/CategoryTable';
 import CategoryWizardModal from '../../components/admin/categories/CategoryWizardModal';
 import CategoryTreeView from '../../components/admin/categories/CategoryTreeView';
-import FeaturedCategoriesManager from '../../components/admin/categories/FeaturedCategoriesManager';
-import CategoryAttributesManager from '../../components/admin/categories/CategoryAttributesManager';
-import CategoryBannersManager from '../../components/admin/categories/CategoryBannersManager';
-import CategorySEOManager from '../../components/admin/categories/CategorySEOManager';
-import CategoryRedirectsManager from '../../components/admin/categories/CategoryRedirectsManager';
-import CategoryRulesEngine from '../../components/admin/categories/CategoryRulesEngine';
 import CategoryAnalyticsDashboard from '../../components/admin/categories/CategoryAnalyticsDashboard';
 import CategoryMoveModal from '../../components/admin/categories/CategoryMoveModal';
 import CategoryMergeModal from '../../components/admin/categories/CategoryMergeModal';
@@ -23,12 +16,6 @@ import axios from 'axios';
 type ActiveTabType = 
   | 'all' 
   | 'tree' 
-  | 'featured' 
-  | 'attributes' 
-  | 'banners' 
-  | 'seo' 
-  | 'redirects' 
-  | 'rules' 
   | 'analytics';
 
 export default function AdminCategories() {
@@ -39,6 +26,7 @@ export default function AdminCategories() {
   // Modals & Drawer States
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any | null>(null);
+  const [wizardLevel, setWizardLevel] = useState<'PRIMARY' | 'SUBCATEGORY'>('PRIMARY');
   
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [movingCategory, setMovingCategory] = useState<any | null>(null);
@@ -66,16 +54,56 @@ export default function AdminCategories() {
     }
   };
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   useEffect(() => {
     fetchCategories();
   }, []);
 
+  useEffect(() => {
+    if (searchParams.get('action') === 'add' || searchParams.get('new') === 'true') {
+      handleOpenAddWizard();
+      // Clean up search param so re-clicking or closing operates cleanly
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('action');
+        next.delete('new');
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams]);
+
   const handleOpenAddWizard = () => {
+    setWizardLevel('PRIMARY');
     setEditingCategory(null);
     setIsWizardOpen(true);
   };
 
+  const handleCreatePrimaryCategory = () => {
+    setWizardLevel('PRIMARY');
+    setEditingCategory(null);
+    setIsWizardOpen(true);
+  };
+
+  const handleCreateSubcategory = (parentCat?: any) => {
+    const primaryCategories = categories.filter(c => !c.parentId);
+    if (primaryCategories.length === 0) {
+      toast.error('Please create at least one Primary Category first before adding a Subcategory.');
+      return;
+    }
+    const defaultParent = parentCat?.id || '';
+    setWizardLevel('SUBCATEGORY');
+    setEditingCategory({
+      parentId: defaultParent,
+      name: '',
+      slug: '',
+      description: ''
+    });
+    setIsWizardOpen(true);
+  };
+
   const handleEdit = (cat: any) => {
+    setWizardLevel(cat.parentId ? 'SUBCATEGORY' : 'PRIMARY');
     setEditingCategory(cat);
     setIsWizardOpen(true);
   };
@@ -127,23 +155,12 @@ export default function AdminCategories() {
   };
 
   const handleAddSubcategory = (parentCat: any) => {
-    setEditingCategory({
-      parentId: parentCat.id,
-      name: '',
-      slug: ''
-    });
-    setIsWizardOpen(true);
+    handleCreateSubcategory(parentCat);
   };
 
   const tabs: { id: ActiveTabType; label: string; icon: any; count?: number }[] = [
     { id: 'all', label: 'All Categories', icon: FolderTree, count: categories.length },
     { id: 'tree', label: 'Category Tree', icon: Layers },
-    { id: 'featured', label: 'Featured Placements', icon: Sparkles, count: categories.filter(c => c.featured).length },
-    { id: 'attributes', label: 'Category Attributes', icon: FileText },
-    { id: 'banners', label: 'Banners & Media', icon: ImageIcon },
-    { id: 'seo', label: 'Category SEO', icon: Globe },
-    { id: 'redirects', label: 'URL Redirects', icon: Shuffle },
-    { id: 'rules', label: 'Auto Rules', icon: Cpu },
     { id: 'analytics', label: 'Analytics & Health', icon: LineChart },
   ];
 
@@ -163,7 +180,7 @@ export default function AdminCategories() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={fetchCategories}
             className="p-2.5 text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer shadow-2xs"
@@ -173,11 +190,19 @@ export default function AdminCategories() {
           </button>
 
           <button
-            onClick={handleOpenAddWizard}
+            onClick={handleCreatePrimaryCategory}
             className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-primary hover:bg-primary-dark rounded-xl shadow-md shadow-primary/20 transition-all cursor-pointer"
           >
-            <Plus size={16} />
-            <span>Add Category</span>
+            <FolderPlus size={15} />
+            <span>+ Create Primary Category</span>
+          </button>
+
+          <button
+            onClick={() => handleCreateSubcategory()}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl shadow-2xs transition-all cursor-pointer"
+          >
+            <Layers size={15} />
+            <span>+ Create Subcategory</span>
           </button>
         </div>
       </div>
@@ -240,41 +265,6 @@ export default function AdminCategories() {
           />
         )}
 
-        {activeTab === 'featured' && (
-          <FeaturedCategoriesManager
-            categories={categories}
-            onRefresh={fetchCategories}
-          />
-        )}
-
-        {activeTab === 'attributes' && (
-          <CategoryAttributesManager
-            categories={categories}
-            onRefresh={fetchCategories}
-          />
-        )}
-
-        {activeTab === 'banners' && (
-          <CategoryBannersManager
-            categories={categories}
-            onRefresh={fetchCategories}
-          />
-        )}
-
-        {activeTab === 'seo' && (
-          <CategorySEOManager
-            categories={categories}
-            onRefresh={fetchCategories}
-          />
-        )}
-
-        {activeTab === 'redirects' && (
-          <CategoryRedirectsManager />
-        )}
-
-        {activeTab === 'rules' && (
-          <CategoryRulesEngine categories={categories} />
-        )}
 
         {activeTab === 'analytics' && (
           <CategoryAnalyticsDashboard />
@@ -288,6 +278,7 @@ export default function AdminCategories() {
         onSuccess={fetchCategories}
         editCategory={editingCategory}
         categories={categories}
+        initialLevel={wizardLevel}
       />
 
       <CategoryMoveModal

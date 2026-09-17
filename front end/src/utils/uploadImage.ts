@@ -11,7 +11,7 @@ export const uploadImage = async (
 
   try {
     const token = localStorage.getItem('token');
-    const res = await axios.post('http://localhost:5000/api/upload', formData, {
+    const res = await axios.post('/api/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
         'Authorization': token ? `Bearer ${token}` : ''
@@ -25,7 +25,7 @@ export const uploadImage = async (
     });
 
     if (res.data.success) {
-      return `http://localhost:5000${res.data.url}`;
+      return res.data.url;
     } else {
       throw new Error(res.data.message || 'Upload failed');
     }

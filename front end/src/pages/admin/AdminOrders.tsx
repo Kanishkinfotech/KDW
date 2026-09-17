@@ -1,28 +1,59 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
   Search, Download, RefreshCw, Filter, ChevronLeft, ChevronRight,
-  Eye, Send, RotateCcw, Clock, Ban, DollarSign, MessageSquare,
-  Copy, Check, AlertCircle, HardDrive, Shield, CheckCircle2,
-  Calendar, Layers, FileText, ArrowUpDown, X
+  Eye, Copy, Check, AlertCircle, CheckCircle2,
+  Calendar, FileText, X, Clock, CheckCircle, XCircle, Ban, Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { formatCurrency } from '../../utils/currency';
 import AdminOrderDetailModal from '../../components/admin/AdminOrderDetailModal';
 
-export default function AdminOrders() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentView = searchParams.get('view') || '';
+interface AdminOrdersProps {
+  defaultView?: string;
+}
 
+export default function AdminOrders({ defaultView }: AdminOrdersProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 1. Resolve Effective View from Route path, defaultView prop, or Query Params
+  const currentView = useMemo(() => {
+    if (defaultView) return defaultView.toLowerCase();
+    const path = location.pathname.toLowerCase();
+    if (path.endsWith('/new')) return 'new';
+    if (path.endsWith('/pending')) return 'pending';
+    if (path.endsWith('/completed')) return 'completed';
+    if (path.endsWith('/failed')) return 'failed';
+    if (path.endsWith('/all')) return '';
+
+    const paramView = searchParams.get('view');
+    if (paramView) return paramView.toLowerCase();
+
+    const paramStatus = searchParams.get('status')?.toUpperCase();
+    if (paramStatus === 'COMPLETED' || paramStatus === 'PAID') return 'completed';
+    if (paramStatus === 'PENDING' || paramStatus === 'PENDING_PAYMENT') return 'pending';
+    if (paramStatus === 'NEW') return 'new';
+    if (paramStatus === 'FAILED') return 'failed';
+
+    return '';
+  }, [defaultView, location.pathname, searchParams]);
+
+  // 2. Orders & Counters State
   const [orders, setOrders] = useState<any[]>([]);
   const [counters, setCounters] = useState<any>({
     all: 0,
+    new_orders: 0,
+    pending_orders: 0,
+    completed: 0,
     pending_payment: 0,
     payment_review: 0,
     paid: 0,
     awaiting_fulfilment: 0,
     failed: 0,
+    cancelled: 0,
     refunded: 0,
     disputed: 0,
     without_access: 0
@@ -35,21 +66,34 @@ export default function AdminOrders() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
 
-  // Filters State
+  // 3. Date Presets & Filters State
+  // Presets: 'all' | '1day' | '7days' | 'custom'
+  const [datePreset, setDatePreset] = useState<'all' | '1day' | '7days' | 'custom'>(() => {
+    const p = searchParams.get('datePreset') || searchParams.get('days');
+    if (p === '1' || p === '1day' || p === 'today') return '1day';
+    if (p === '7' || p === '7days') return '7days';
+    if (searchParams.get('startDate') || searchParams.get('endDate')) return 'custom';
+    return 'all';
+  });
+
+  const [filterStartDate, setFilterStartDate] = useState(searchParams.get('startDate') || '');
+  const [filterEndDate, setFilterEndDate] = useState(searchParams.get('endDate') || '');
+
+  // Advanced Filters State
   const [showFilters, setShowFilters] = useState(false);
   const [filterOrderStatus, setFilterOrderStatus] = useState('');
   const [filterPaymentStatus, setFilterPaymentStatus] = useState('');
   const [filterAccessStatus, setFilterAccessStatus] = useState('');
   const [filterCustomerType, setFilterCustomerType] = useState('');
   const [filterSortBy, setFilterSortBy] = useState('newest');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
 
   // Modals & Selected Order
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
 
+  // 4. Fetch Orders
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
@@ -67,8 +111,18 @@ export default function AdminOrders() {
       if (filterPaymentStatus) params.paymentStatus = filterPaymentStatus;
       if (filterAccessStatus) params.accessStatus = filterAccessStatus;
       if (filterCustomerType) params.customerType = filterCustomerType;
-      if (filterStartDate) params.startDate = filterStartDate;
-      if (filterEndDate) params.endDate = filterEndDate;
+
+      // Date filter applies only when New Orders view is active
+      if (currentView === 'new') {
+        if (datePreset === '1day') {
+          params.datePreset = '1day';
+        } else if (datePreset === '7days') {
+          params.datePreset = '7days';
+        } else if (datePreset === 'custom') {
+          if (filterStartDate) params.startDate = filterStartDate;
+          if (filterEndDate) params.endDate = filterEndDate;
+        }
+      }
 
       const res = await axios.get('/api/admin/orders', {
         params,
@@ -89,7 +143,7 @@ export default function AdminOrders() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, currentView, searchTerm, filterOrderStatus, filterPaymentStatus, filterAccessStatus, filterCustomerType, filterSortBy, filterStartDate, filterEndDate]);
+  }, [page, limit, currentView, searchTerm, filterOrderStatus, filterPaymentStatus, filterAccessStatus, filterCustomerType, filterSortBy, datePreset, filterStartDate, filterEndDate]);
 
   useEffect(() => {
     fetchOrders();
@@ -102,14 +156,41 @@ export default function AdminOrders() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleSelectView = (viewKey: string) => {
+    setPage(1);
+    if (viewKey !== 'new') {
+      setDatePreset('all');
+      setFilterStartDate('');
+      setFilterEndDate('');
+    }
+    if (!viewKey || viewKey === 'all') {
+      navigate('/admin/orders');
+    } else if (['new', 'pending', 'completed', 'failed'].includes(viewKey)) {
+      navigate(`/admin/orders/${viewKey}`);
+    } else {
+      navigate(`/admin/orders?view=${viewKey}`);
+    }
+  };
+
+  const handleSelectDatePreset = (preset: 'all' | '1day' | '7days' | 'custom') => {
+    setDatePreset(preset);
+    setPage(1);
+    if (preset !== 'custom') {
+      setFilterStartDate('');
+      setFilterEndDate('');
+    }
+  };
+
   const handleExportCSV = async () => {
     try {
       setIsExporting(true);
       const token = localStorage.getItem('token');
       const res = await axios.get('/api/admin/orders/export', {
         params: {
-          startDate: filterStartDate,
-          endDate: filterEndDate
+          view: currentView,
+          datePreset: datePreset !== 'custom' ? datePreset : undefined,
+          startDate: datePreset === 'custom' ? filterStartDate : undefined,
+          endDate: datePreset === 'custom' ? filterEndDate : undefined
         },
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
@@ -118,7 +199,7 @@ export default function AdminOrders() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `kwd_orders_export_${Date.now()}.csv`);
+      link.setAttribute('download', `kwd_${currentView || 'all'}_orders_export_${Date.now()}.csv`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -130,6 +211,24 @@ export default function AdminOrders() {
     }
   };
 
+  const handleBatchFulfil = async () => {
+    try {
+      setIsBatchProcessing(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/admin/orders/batch-fulfil', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        toast.success(res.data.message || 'Batch fulfilment completed successfully!');
+        fetchOrders();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Batch fulfilment failed');
+    } finally {
+      setIsBatchProcessing(false);
+    }
+  };
+
   const handleClearFilters = () => {
     setSearchTerm('');
     setFilterOrderStatus('');
@@ -138,22 +237,79 @@ export default function AdminOrders() {
     setFilterCustomerType('');
     setFilterStartDate('');
     setFilterEndDate('');
+    setDatePreset('all');
     setFilterSortBy('newest');
     setSearchParams({});
     setPage(1);
+    if (currentView) {
+      navigate('/admin/orders');
+    }
   };
+
+  // 5. Header contextual metadata
+  const headerMeta = useMemo(() => {
+    switch (currentView) {
+      case 'new':
+        return {
+          title: 'New Orders',
+          subtitle: 'Recent customer orders placed within the last 24 hours (today) or incoming queue.',
+          icon: Sparkles,
+          color: 'text-sky-600',
+          badge: 'New Incoming (Last 24h)'
+        };
+      case 'pending':
+        return {
+          title: 'Pending Orders',
+          subtitle: 'Orders where customer added products to cart and proceeded to checkout but did not complete the payment.',
+          icon: Clock,
+          color: 'text-amber-600',
+          badge: 'Awaiting Payment'
+        };
+      case 'completed':
+        return {
+          title: 'Completed Orders',
+          subtitle: 'Orders with confirmed payment, captured funds, and provisioned digital download entitlements.',
+          icon: CheckCircle,
+          color: 'text-emerald-600',
+          badge: 'Paid & Fulfilled'
+        };
+      case 'failed':
+        return {
+          title: 'Failed Orders',
+          subtitle: 'Orders that failed during payment gateway processing, authentication, or token creation.',
+          icon: XCircle,
+          color: 'text-rose-600',
+          badge: 'Payment & Fulfilment Failures'
+        };
+      default:
+        return {
+          title: 'Orders Management',
+          subtitle: 'Operational dashboard for digital purchases, entitlements, licences, fulfilment, and refunds.',
+          icon: FileText,
+          color: 'text-blue-600',
+          badge: 'Master Order Registry'
+        };
+    }
+  }, [currentView]);
+
+  const HeaderIcon = headerMeta.icon;
 
   return (
     <div className="space-y-6 pb-12">
       {/* PAGE HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2.5">
-            <FileText className="text-primary" size={26} />
-            Orders Management
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2.5">
+              <HeaderIcon className={headerMeta.color} size={26} />
+              {headerMeta.title}
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+              {totalOrders} order{totalOrders === 1 ? '' : 's'}
+            </span>
+          </div>
           <p className="text-slate-500 text-sm mt-0.5">
-            Operational dashboard for digital purchases, entitlements, licences, fulfilment, and refunds.
+            {headerMeta.subtitle}
           </p>
         </div>
 
@@ -180,15 +336,45 @@ export default function AdminOrders() {
         </div>
       </div>
 
+      {/* PRIMARY ORDER SUB-VIEW TABS */}
+      <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/80 overflow-x-auto custom-scrollbar">
+        {[
+          { id: '', label: 'All Orders', count: counters.all },
+          { id: 'new', label: 'New Orders', count: counters.new_orders },
+          { id: 'pending', label: 'Pending Orders', count: counters.pending_orders || counters.pending_payment },
+          { id: 'completed', label: 'Completed Orders', count: counters.completed || counters.paid },
+          { id: 'failed', label: 'Failed Orders', count: counters.failed }
+        ].map(tab => {
+          const isActive = currentView === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => handleSelectView(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                isActive
+                  ? 'bg-white text-blue-900 shadow-xs ring-1 ring-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                isActive ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* LIVE STATUS COUNTERS STRIP */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         {[
           { id: '', label: 'All Orders', count: counters.all, color: 'border-slate-200 bg-white text-slate-900' },
-          { id: 'paid', label: 'Paid Orders', count: counters.paid, color: 'border-emerald-200 bg-emerald-50/50 text-emerald-950' },
-          { id: 'awaiting_fulfilment', label: 'Awaiting Fulfilment', count: counters.awaiting_fulfilment, color: 'border-blue-200 bg-blue-50/50 text-blue-950' },
-          { id: 'without_access', label: 'Without Access', count: counters.without_access, color: 'border-rose-300 bg-rose-50 text-rose-950 font-black' },
-          { id: 'pending_payment', label: 'Pending Payment', count: counters.pending_payment, color: 'border-amber-200 bg-amber-50/50 text-amber-950' },
-          { id: 'payment_review', label: 'Payment Review', count: counters.payment_review, color: 'border-indigo-200 bg-indigo-50/50 text-indigo-950' },
+          { id: 'new', label: 'New Orders (24h)', count: counters.new_orders, color: 'border-sky-200 bg-sky-50/50 text-sky-950' },
+          { id: 'pending', label: 'Pending Orders', count: counters.pending_orders || counters.pending_payment, color: 'border-amber-200 bg-amber-50/50 text-amber-950' },
+          { id: 'completed', label: 'Completed / Paid', count: counters.completed || counters.paid, color: 'border-emerald-200 bg-emerald-50/50 text-emerald-950' },
           { id: 'refunded', label: 'Refunded', count: counters.refunded, color: 'border-purple-200 bg-purple-50/50 text-purple-950' },
           { id: 'failed', label: 'Failed', count: counters.failed, color: 'border-rose-200 bg-rose-50/50 text-rose-950' }
         ].map(item => {
@@ -197,12 +383,9 @@ export default function AdminOrders() {
             <button
               key={item.id}
               type="button"
-              onClick={() => {
-                setSearchParams(item.id ? { view: item.id } : {});
-                setPage(1);
-              }}
+              onClick={() => handleSelectView(item.id)}
               className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${item.color} ${
-                isActive ? 'ring-2 ring-primary ring-offset-1 font-bold shadow-xs' : 'hover:border-slate-300'
+                isActive ? 'ring-2 ring-blue-600 ring-offset-1 font-bold shadow-xs' : 'hover:border-slate-300'
               }`}
             >
               <span className="text-[10px] font-bold uppercase tracking-wider block opacity-70 truncate">{item.label}</span>
@@ -211,6 +394,141 @@ export default function AdminOrders() {
           );
         })}
       </div>
+
+      {/* DATE RANGE FILTER BAR: SHOWN ONLY WHEN NEW ORDERS IS CLICKED */}
+      {currentView === 'new' && (
+        <div className="bg-white p-3.5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-3">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            
+            {/* Quick Date Presets */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mr-1">
+                <Calendar size={13} className="text-blue-600" />
+                Date Filter:
+              </span>
+
+              <button
+                type="button"
+                onClick={() => handleSelectDatePreset('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  datePreset === 'all'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All Time
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectDatePreset('1day')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  datePreset === '1day'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Clock size={12} />
+                1 Day Orders (Today)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectDatePreset('7days')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  datePreset === '7days'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Calendar size={12} />
+                Latest 7 Days Orders
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectDatePreset('custom')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  datePreset === 'custom'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Custom Date Orders
+              </button>
+            </div>
+
+            {/* Active Date Indicator / Clear */}
+            {datePreset !== 'all' && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 font-bold border border-blue-200 flex items-center gap-1.5">
+                  <Calendar size={12} />
+                  {datePreset === '1day' && 'Filtered: Past 24 Hours / Today'}
+                  {datePreset === '7days' && 'Filtered: Latest 7 Days'}
+                  {datePreset === 'custom' && (
+                    filterStartDate || filterEndDate 
+                      ? `Custom: ${filterStartDate || 'Start'} to ${filterEndDate || 'Today'}` 
+                      : 'Custom Range Selected'
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleSelectDatePreset('all')}
+                  className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Reset date filter"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Custom Date Pickers Drawer */}
+          {datePreset === 'custom' && (
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs animate-in fade-in duration-150">
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">From:</label>
+                <input
+                  type="date"
+                  value={filterStartDate}
+                  onChange={(e) => {
+                    setFilterStartDate(e.target.value);
+                    setPage(1);
+                  }}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">To:</label>
+                <input
+                  type="date"
+                  value={filterEndDate}
+                  onChange={(e) => {
+                    setFilterEndDate(e.target.value);
+                    setPage(1);
+                  }}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {(filterStartDate || filterEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStartDate('');
+                    setFilterEndDate('');
+                    setPage(1);
+                  }}
+                  className="px-2.5 py-1 text-slate-500 hover:text-rose-600 text-xs font-bold transition-colors"
+                >
+                  Clear Dates
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* CONTROLS BAR: SEARCH, FILTERS & SORT */}
       <div className="bg-white p-4 rounded-3xl border border-slate-200/90 shadow-2xs space-y-3">
@@ -227,7 +545,7 @@ export default function AdminOrders() {
                 setPage(1);
               }}
               placeholder="Search by Order #, Email, Name, Razorpay ID, Licence..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             />
           </div>
 
@@ -238,14 +556,14 @@ export default function AdminOrders() {
               onClick={() => setShowFilters(!showFilters)}
               className={`px-3.5 py-2.5 rounded-2xl border font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer ${
                 showFilters || filterOrderStatus || filterPaymentStatus || filterAccessStatus || filterCustomerType
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? 'border-blue-600 bg-blue-50 text-blue-700'
                   : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
               <Filter size={14} />
               Filters
               {(filterOrderStatus || filterPaymentStatus || filterAccessStatus || filterCustomerType) && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-blue-600" />
               )}
             </button>
 
@@ -257,7 +575,7 @@ export default function AdminOrders() {
                   setFilterSortBy(e.target.value);
                   setPage(1);
                 }}
-                className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
               >
                 <option value="newest">Newest First</option>
                 <option value="oldest">Oldest First</option>
@@ -268,12 +586,12 @@ export default function AdminOrders() {
               </select>
             </div>
 
-            {(searchTerm || filterOrderStatus || filterPaymentStatus || filterAccessStatus || filterCustomerType || currentView) && (
+            {(searchTerm || filterOrderStatus || filterPaymentStatus || filterAccessStatus || filterCustomerType || currentView || datePreset !== 'all') && (
               <button
                 type="button"
                 onClick={handleClearFilters}
                 className="p-2.5 text-slate-400 hover:text-rose-600 rounded-2xl hover:bg-rose-50 transition-colors cursor-pointer"
-                title="Clear all filters"
+                title="Clear all filters & return to All Orders"
               >
                 <X size={16} />
               </button>
@@ -298,7 +616,6 @@ export default function AdminOrders() {
                 <option value="FULFILMENT_PROCESSING">Fulfilment Processing</option>
                 <option value="FULFILLED">Fulfilled</option>
                 <option value="FAILED">Failed</option>
-                <option value="CANCELLED">Cancelled</option>
                 <option value="REFUNDED">Refunded</option>
                 <option value="PARTIALLY_REFUNDED">Partially Refunded</option>
                 <option value="DISPUTED">Disputed</option>
@@ -359,7 +676,7 @@ export default function AdminOrders() {
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xs overflow-hidden">
         {loading ? (
           <div className="p-16 text-center text-slate-400 space-y-3">
-            <RefreshCw className="animate-spin mx-auto text-primary" size={28} />
+            <RefreshCw className="animate-spin mx-auto text-blue-600" size={28} />
             <p className="text-sm font-medium">Loading orders from database...</p>
           </div>
         ) : orders.length === 0 ? (
@@ -367,7 +684,7 @@ export default function AdminOrders() {
             <AlertCircle className="mx-auto text-slate-400" size={32} />
             <h3 className="font-bold text-slate-800 text-base">No orders found</h3>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              No orders matched your active filters or search criteria. Try modifying your filters or clearing search.
+              No orders matched your active filters, date preset, or search criteria. Try selecting "All Time" or resetting filters.
             </p>
             <button
               type="button"
@@ -407,7 +724,7 @@ export default function AdminOrders() {
                           <button
                             type="button"
                             onClick={() => setSelectedOrderId(o.id)}
-                            className="font-mono font-black text-slate-900 hover:text-primary transition-colors cursor-pointer text-xs"
+                            className="font-mono font-black text-slate-900 hover:text-blue-600 transition-colors cursor-pointer text-xs"
                           >
                             {o.orderNumber}
                           </button>
@@ -415,6 +732,7 @@ export default function AdminOrders() {
                             type="button"
                             onClick={() => copyToClipboard(o.orderNumber, o.id)}
                             className="p-1 text-slate-300 group-hover:text-slate-500 rounded hover:bg-slate-200/50 transition-colors"
+                            title="Copy Order ID"
                           >
                             {copiedId === o.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
                           </button>
@@ -519,7 +837,7 @@ export default function AdminOrders() {
                           <button
                             type="button"
                             onClick={() => setSelectedOrderId(o.id)}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-primary hover:text-white text-slate-600 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 transition-colors cursor-pointer"
                             title="View Full Order Diagnostics & Actions"
                           >
                             <Eye size={14} />

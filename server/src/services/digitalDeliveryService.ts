@@ -185,7 +185,56 @@ export class DigitalDeliveryService {
           // If multi-product delivery is active, process each individual product
           let displayOrderIdx = 1;
           for (const bp of componentsList) {
-            const productDriveUrl = this.resolveDriveUrl(bp) || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/account/orders`;
+            // Create / find DigitalEntitlement for bundle component
+            const compDownloadLimit = (bp.downloadLimit === 999999 || bp.downloadLimit === 0)
+              ? 999999
+              : (bp.downloadLimit !== null && bp.downloadLimit !== undefined ? bp.downloadLimit : 10);
+
+            const compAccessExpiresAt = (bp.accessDurationDays === 999999 || !bp.accessDurationDays)
+              ? null
+              : new Date(Date.now() + bp.accessDurationDays * 24 * 60 * 60 * 1000);
+
+            const compTokenDuration = bp.tokenDurationMinutes || 60;
+            const compTokenExpiry = new Date(Date.now() + compTokenDuration * 60 * 1000);
+
+            let compDigitalEnt = await prisma.digitalEntitlement.findFirst({
+              where: { orderId: order.id, productId: bp.id, bundleId: b.id }
+            });
+
+            if (!compDigitalEnt) {
+              compDigitalEnt = await prisma.digitalEntitlement.create({
+                data: {
+                  orderId: order.id,
+                  orderItemId: item.id,
+                  customerId: order.customerId || null,
+                  customerEmail: recipientEmail,
+                  productId: bp.id,
+                  bundleId: b.id,
+                  productVersion: bp.version || '1.0.0',
+                  licenceType: bp.licenceType || b.licenceType || 'COMMERCIAL',
+                  downloadLimit: compDownloadLimit,
+                  downloadCount: 0,
+                  status: 'ACTIVE',
+                  accessExpiresAt: compAccessExpiresAt
+                }
+              });
+            }
+
+            const compSecureToken = crypto.randomBytes(32).toString('hex');
+            const compTokenHash = crypto.createHash('sha256').update(compSecureToken).digest('hex');
+
+            await prisma.downloadToken.create({
+              data: {
+                entitlementId: compDigitalEnt.id,
+                tokenHash: compTokenHash,
+                secureToken: compSecureToken,
+                status: 'ACTIVE',
+                expiresAt: compTokenExpiry
+              }
+            });
+
+            const baseAppUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const compDeliveryUrl = `${baseAppUrl}/api/purchases/download/${compSecureToken}`;
 
             // Record DigitalDeliveryItem
             await prisma.digitalDeliveryItem.create({
@@ -193,7 +242,7 @@ export class DigitalDeliveryService {
                 deliveryId: delivery.id,
                 productId: bp.id,
                 productName: bp.name,
-                deliveryLink: productDriveUrl,
+                deliveryLink: compDeliveryUrl,
                 displayOrder: displayOrderIdx++,
                 deliveryStatus: 'SENT'
               }
@@ -201,9 +250,6 @@ export class DigitalDeliveryService {
 
             // Create Component Entitlement (Clause 35)
             if (order.customerId && parentEntitlement) {
-              const compToken = `CMP-TOK-${crypto.randomBytes(16).toString('hex')}`;
-              const compTokenExpires = new Date(Date.now() + 15 * 60 * 1000);
-
               await prisma.componentEntitlement.create({
                 data: {
                   parentEntitlementId: parentEntitlement.id,
@@ -214,10 +260,10 @@ export class DigitalDeliveryService {
                   orderItemId: item.id,
                   productVersion: bp.version || '1.0.0',
                   licenceType: bp.licenceType || b.licenceType || 'COMMERCIAL',
-                  downloadLimit: 10,
+                  downloadLimit: compDownloadLimit,
                   downloadCount: 0,
-                  secureDownloadToken: compToken,
-                  tokenExpiresAt: compTokenExpires,
+                  secureDownloadToken: compSecureToken,
+                  tokenExpiresAt: compTokenExpiry,
                   status: 'ACTIVE'
                 }
               });
@@ -242,7 +288,7 @@ export class DigitalDeliveryService {
 
             deliveredItems.push({
               name: bp.name,
-              driveUrl: productDriveUrl,
+              driveUrl: compDeliveryUrl,
               bundleName: b.title
             });
           }
@@ -252,7 +298,54 @@ export class DigitalDeliveryService {
         // ====================================================================
         else if (item.productId && item.product) {
           const p = item.product;
-          const driveUrl = this.resolveDriveUrl(p) || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/account/orders`;
+
+          const downloadLimit = (p.downloadLimit === 999999 || p.downloadLimit === 0) 
+            ? 999999 
+            : (p.downloadLimit !== null && p.downloadLimit !== undefined ? p.downloadLimit : 5);
+
+          const accessExpiresAt = (p.accessDurationDays === 999999 || !p.accessDurationDays)
+            ? null
+            : new Date(Date.now() + p.accessDurationDays * 24 * 60 * 60 * 1000);
+
+          const tokenDurationMinutes = p.tokenDurationMinutes || 60;
+          const tokenExpiry = new Date(Date.now() + tokenDurationMinutes * 60 * 1000);
+
+          let digitalEntitlement = await prisma.digitalEntitlement.findFirst({
+            where: { orderId: order.id, productId: p.id }
+          });
+
+          if (!digitalEntitlement) {
+            digitalEntitlement = await prisma.digitalEntitlement.create({
+              data: {
+                orderId: order.id,
+                orderItemId: item.id,
+                customerId: order.customerId || null,
+                customerEmail: recipientEmail,
+                productId: p.id,
+                productVersion: p.version || '1.0.0',
+                status: 'ACTIVE',
+                downloadLimit,
+                downloadCount: 0,
+                accessExpiresAt
+              }
+            });
+          }
+
+          const secureToken = crypto.randomBytes(32).toString('hex');
+          const tokenHash = crypto.createHash('sha256').update(secureToken).digest('hex');
+
+          await prisma.downloadToken.create({
+            data: {
+              entitlementId: digitalEntitlement.id,
+              tokenHash,
+              secureToken,
+              status: 'ACTIVE',
+              expiresAt: tokenExpiry
+            }
+          });
+
+          const baseAppUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+          const secureDeliveryUrl = `${baseAppUrl}/api/purchases/download/${secureToken}`;
 
           const delivery = await prisma.digitalDelivery.create({
             data: {
@@ -261,7 +354,7 @@ export class DigitalDeliveryService {
               customerId: order.customerId,
               customerEmail: recipientEmail,
               deliveryType: 'GOOGLE_DRIVE',
-              deliveryLink: driveUrl,
+              deliveryLink: secureDeliveryUrl,
               bundleProductCount: 1,
               deliveryStatus: 'PROCESSING',
               emailStatus: 'PENDING',
@@ -274,7 +367,7 @@ export class DigitalDeliveryService {
               deliveryId: delivery.id,
               productId: p.id,
               productName: p.name,
-              deliveryLink: driveUrl,
+              deliveryLink: secureDeliveryUrl,
               displayOrder: 1,
               deliveryStatus: 'SENT'
             }
@@ -296,7 +389,7 @@ export class DigitalDeliveryService {
             }
           }
 
-          deliveredItems.push({ name: p.name, driveUrl });
+          deliveredItems.push({ name: p.name, driveUrl: secureDeliveryUrl });
         }
       }
 

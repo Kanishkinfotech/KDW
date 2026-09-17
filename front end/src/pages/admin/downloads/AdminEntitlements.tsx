@@ -6,6 +6,7 @@ import {
 import { Link } from 'react-router-dom';
 import SEO from '../../../components/SEO';
 import OverrideActionModal, { type OverrideType } from '../../../components/admin/OverrideActionModal';
+import { authFetch } from '../../../api/apiClient';
 
 export default function AdminEntitlements() {
   const [loading, setLoading] = useState(true);
@@ -43,7 +44,7 @@ export default function AdminEntitlements() {
         status,
         productId: selectedProduct
       });
-      const res = await fetch(`/api/admin/downloads/entitlements?${query.toString()}`);
+      const res = await authFetch(`/api/admin/downloads/entitlements?${query.toString()}`);
       const json = await res.json();
       if (json.success) {
         setEntitlements(json.data || []);
@@ -71,7 +72,7 @@ export default function AdminEntitlements() {
   // Quick Action Handlers
   const handleResendEmail = async (id: string) => {
     try {
-      const res = await fetch(`/api/admin/downloads/entitlements/${id}/resend-email`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/downloads/entitlements/${id}/resend-email`, { method: 'POST' });
       const json = await res.json();
       if (json.success) {
         setActionMessage({ text: json.message || 'Access email resent.', type: 'success' });
@@ -86,7 +87,7 @@ export default function AdminEntitlements() {
 
   const handleGenerateToken = async (id: string) => {
     try {
-      const res = await fetch(`/api/admin/downloads/entitlements/${id}/generate-token`, {
+      const res = await authFetch(`/api/admin/downloads/entitlements/${id}/generate-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ durationMinutes: 30 })
@@ -143,7 +144,7 @@ export default function AdminEntitlements() {
       body.versionNumber = extraData;
     }
 
-    const res = await fetch(endpoint, {
+    const res = await authFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)

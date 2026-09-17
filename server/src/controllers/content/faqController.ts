@@ -41,6 +41,7 @@ export const getFaqs = async (req: Request, res: Response, next: NextFunction) =
     res.json({
       success: true,
       data: faqs,
+      faqs,
       pagination: {
         total,
         page: pageNum,

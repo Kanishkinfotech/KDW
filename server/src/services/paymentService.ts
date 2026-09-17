@@ -2,7 +2,11 @@ import crypto from 'crypto';
 import { prisma } from '../database/db';
 import { OrderFulfilmentService } from './orderFulfilmentService';
 import { CouponService } from './couponService';
+import { OfferService } from './offerService';
 import { ReviewService } from './reviewService';
+import { CampaignService } from './campaignService';
+import { dashboardBroadcaster } from './dashboardBroadcastService';
+import { emitAutomationEvent } from '../controllers/automation/automationEventService';
 
 export interface PaymentActor {
   id?: string;
@@ -22,7 +26,6 @@ export class PaymentService {
     secret: string
   ): boolean {
     if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) return false;
-    if (razorpaySignature === 'sig_mock_dummy') return true; // Mock mode fallback
 
     try {
       const hmac = crypto.createHmac('sha256', secret);
@@ -49,7 +52,6 @@ export class PaymentService {
     secret: string
   ): boolean {
     if (!rawBody || !signature) return false;
-    if (signature === 'sig_mock_dummy') return true; // Mock mode fallback
 
     try {
       const hmac = crypto.createHmac('sha256', secret);
@@ -275,9 +277,77 @@ export class PaymentService {
       console.error('[PaymentService] Error redeeming coupon:', err);
     });
 
+    // Authoritatively attribute offer conversions for verified payment
+    OfferService.attributeVerifiedOrder(order.id).catch(err => {
+      console.error('[PaymentService] Error attributing verified offer order:', err);
+    });
+
+    // Attribute order revenue to marketing campaign if customer was targeted
+    (async () => {
+      try {
+        const conditions: any[] = [];
+        if (order.customerId) conditions.push({ customerId: order.customerId });
+        if (order.guestEmail) conditions.push({ email: { equals: order.guestEmail, mode: 'insensitive' as const } });
+
+        if (conditions.length > 0) {
+          const matchingRecipient = await prisma.campaignRecipient.findFirst({
+            where: {
+              OR: conditions
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+
+          if (matchingRecipient) {
+            await CampaignService.attributeOrderToCampaign({
+              orderId: order.id,
+              customerId: order.customerId || undefined,
+              campaignId: matchingRecipient.campaignId,
+              amount: order.totalAmount
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[PaymentService] Error attributing campaign revenue:', err);
+      }
+    })();
+
     // Execute Idempotent Digital Fulfilment Engine
     OrderFulfilmentService.fulfilOrder(order.id, data.actor).catch(err => {
       console.error('[PaymentService] Error executing order fulfilment:', err);
+    });
+
+    // Emit durable order.paid business event
+    emitAutomationEvent({
+      eventType: 'order.paid',
+      source: 'PAYMENT_SERVICE',
+      resourceType: 'ORDER',
+      resourceId: order.id,
+      orderId: order.id,
+      customerId: order.customerId || undefined,
+      customerEmail: order.guestEmail || order.customer?.email || undefined,
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        amount: data.amount,
+        currency: data.currency || order.currency,
+        itemsCount: order.items.length,
+        paymentId: data.razorpayPaymentId,
+        verificationType: data.verificationType,
+        customerName: order.guestName || order.customer?.name || 'Customer'
+      }
+    }).catch(err => {
+      console.error('[PaymentService] Error emitting order.paid automation event:', err);
+    });
+
+    // Real-time broadcast to all connected Admin Dashboard SSE clients
+    dashboardBroadcaster.broadcast('order.paid', {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amount: data.amount,
+      currency: data.currency || order.currency,
+      customerName: order.guestName || order.customer?.name || 'Customer',
+      customerEmail: order.guestEmail || order.customer?.email,
+      timestamp: new Date().toISOString()
     });
 
     // Schedule automated Review Request
@@ -362,6 +432,13 @@ export class PaymentService {
           description: `Payment attempt failed: ${data.failureDescription || data.failureCode || 'Declined'} [Category: ${failureCategory}]`,
           referenceId: data.razorpayPaymentId
         }
+      });
+
+      dashboardBroadcaster.broadcast('payment.failed', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        failureReason: data.failureDescription || data.failureCode || 'Declined',
+        timestamp: new Date().toISOString()
       });
     }
   }

@@ -35,7 +35,10 @@ export const getPurchaseOverview = async (req: Request, res: Response, next: Nex
 
     const paidOrders = await prisma.order.findMany({
       where: {
-        paymentStatus: { in: ['PAID', 'COMPLETED'] },
+        OR: [
+          { paymentStatus: { in: ['PAID', 'COMPLETED', 'CAPTURED'] } },
+          { payments: { some: { status: 'CAPTURED' } } }
+        ],
         createdAt: { gte: start, lte: end }
       },
       include: {
@@ -48,14 +51,14 @@ export const getPurchaseOverview = async (req: Request, res: Response, next: Nex
     const paidOrdersCount = paidOrders.length;
     const totalGrossRevenue = paidOrders.reduce((sum, o) => sum + o.totalAmount, 0);
     const totalRefunds = paidOrders.reduce((sum, o) => sum + (o.refundedAmount || 0), 0);
-    const netSales = totalGrossRevenue - totalRefunds;
+    const netSales = Math.max(0, totalGrossRevenue - totalRefunds);
 
     // AOV Formula = Net Sales / Paid Orders
     const aov = paidOrdersCount > 0 ? Math.round(netSales / paidOrdersCount) : 0;
 
     // Total items
     const totalPaidItems = paidOrders.reduce((sum, o) => sum + o.items.reduce((s, it) => s + it.quantity, 0), 0);
-    // Average Items per Order = Total Paid Order Items / Paid Orders
+    // Average Items per Order = Total Paid Order Items / Paid Orders (0 when 0 orders)
     const avgItemsPerOrder = paidOrdersCount > 0 ? parseFloat((totalPaidItems / paidOrdersCount).toFixed(1)) : 0;
 
     // Unique Purchasing Customers
@@ -70,9 +73,20 @@ export const getPurchaseOverview = async (req: Request, res: Response, next: Nex
 
     const uniquePurchasingCustomers = customerOrders.size;
     let customersWith2Plus = 0;
+    const intervalsDays: number[] = [];
+
     customerOrders.forEach(orders => {
-      if (orders.length >= 2) customersWith2Plus++;
+      if (orders.length >= 2) {
+        customersWith2Plus++;
+        const first = orders[0].createdAt.getTime();
+        const second = orders[1].createdAt.getTime();
+        intervalsDays.push(Math.round((second - first) / (24 * 60 * 60 * 1000)));
+      }
     });
+
+    intervalsDays.sort((a, b) => a - b);
+    // Genuine median days between 1st and 2nd purchase: 0 if no repeat orders!
+    const medianTimeToSecondPurchase = intervalsDays.length > 0 ? intervalsDays[Math.floor(intervalsDays.length / 2)] : 0;
 
     const repeatPurchaseRate = uniquePurchasingCustomers > 0
       ? parseFloat(((customersWith2Plus / uniquePurchasingCustomers) * 100).toFixed(1))
@@ -103,9 +117,11 @@ export const getPurchaseOverview = async (req: Request, res: Response, next: Nex
         repeatPurchaseRate,
         bundlePurchaseRate,
         guestPurchaseRate,
-        timeToSecondPurchaseDays: 14.5,
+        timeToSecondPurchaseDays: medianTimeToSecondPurchase,
         customersWith2PlusPurchases: customersWith2Plus,
-        revenuePerCustomer
+        revenuePerCustomer,
+        netSales,
+        totalPaidItems
       },
       metadata: {
         range,
@@ -129,10 +145,15 @@ export const getPurchaseOverview = async (req: Request, res: Response, next: Nex
 export const getFirstPurchaseAnalysis = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orders = await prisma.order.findMany({
-      where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } },
+      where: {
+        OR: [
+          { paymentStatus: { in: ['PAID', 'COMPLETED', 'CAPTURED'] } },
+          { payments: { some: { status: 'CAPTURED' } } }
+        ]
+      },
       orderBy: { createdAt: 'asc' },
       include: {
-        customer: true,
+        customer: { select: { id: true, name: true, email: true } },
         items: { include: { product: { include: { category: true } } } },
         couponRedemptions: { include: { coupon: true } },
         digitalEntitlements: true
@@ -148,7 +169,11 @@ export const getFirstPurchaseAnalysis = async (req: Request, res: Response, next
     });
 
     const productFirstMap: Record<string, { name: string; category: string; count: number; revenue: number }> = {};
+    const firstOrders: any[] = [];
+    let totalFirstRevenue = 0;
+
     firstOrderMap.forEach(o => {
+      totalFirstRevenue += o.totalAmount;
       const firstItem = o.items[0];
       const prodName = firstItem?.productName || firstItem?.product?.name || 'Digital Package';
       const catName = firstItem?.product?.category?.name || 'General';
@@ -158,13 +183,36 @@ export const getFirstPurchaseAnalysis = async (req: Request, res: Response, next
       }
       productFirstMap[prodName].count += 1;
       productFirstMap[prodName].revenue += o.totalAmount;
+
+      firstOrders.push({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        date: o.createdAt,
+        customerName: o.customer?.name || o.guestName || 'Customer',
+        customerEmail: o.customer?.email || o.guestEmail || '—',
+        productName: prodName,
+        category: catName,
+        totalAmount: o.totalAmount,
+        status: o.paymentStatus
+      });
     });
 
     const firstPurchaseProducts = Object.values(productFirstMap).sort((a, b) => b.count - a.count);
+    const topGatewayProduct = firstPurchaseProducts.length > 0 ? firstPurchaseProducts[0].name : 'None';
+    const totalFirstBuyers = firstOrderMap.size;
+    const avgFirstOrderValue = totalFirstBuyers > 0 ? Math.round(totalFirstRevenue / totalFirstBuyers) : 0;
 
     res.json({
       success: true,
-      gatewayProducts: firstPurchaseProducts
+      kpis: {
+        firstTimeBuyers: totalFirstBuyers,
+        firstPurchaseRevenue: totalFirstRevenue,
+        avgFirstOrderValue,
+        topGatewayProduct
+      },
+      gatewayProducts: firstPurchaseProducts,
+      firstOrders: firstOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      data: firstPurchaseProducts
     });
   } catch (error) {
     next(error);
@@ -177,8 +225,17 @@ export const getFirstPurchaseAnalysis = async (req: Request, res: Response, next
 export const getRepeatPurchaseAnalysis = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orders = await prisma.order.findMany({
-      where: { paymentStatus: { in: ['PAID', 'COMPLETED'] } },
-      orderBy: { createdAt: 'asc' }
+      where: {
+        OR: [
+          { paymentStatus: { in: ['PAID', 'COMPLETED', 'CAPTURED'] } },
+          { payments: { some: { status: 'CAPTURED' } } }
+        ]
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        customer: { select: { id: true, name: true, email: true } },
+        items: { include: { product: true } }
+      }
     });
 
     const customerOrders = new Map<string, typeof orders>();
@@ -194,36 +251,101 @@ export const getRepeatPurchaseAnalysis = async (req: Request, res: Response, nex
     let within30d = 0;
     let within90d = 0;
     let repeatCount = 0;
+    let repeatRevenue = 0;
 
-    customerOrders.forEach(custOrders => {
-      if (custOrders.length >= 2) {
+    const customerRepetitions: any[] = [];
+    const repeatProductsMap: Record<string, { name: string; count: number; revenue: number }> = {};
+
+    customerOrders.forEach((custOrders, key) => {
+      const firstCust = custOrders[0].customer;
+      const custName = firstCust?.name || custOrders[0].guestName || 'Customer';
+      const custEmail = firstCust?.email || custOrders[0].guestEmail || key;
+      const orderCount = custOrders.length;
+      const totalSpent = custOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+      const firstOrderDate = custOrders[0].createdAt;
+      const lastOrderDate = custOrders[orderCount - 1].createdAt;
+
+      // Extract all unique product names bought by this customer
+      const allProductNames = Array.from(new Set(
+        custOrders.flatMap(o => o.items.map(it => it.productName || it.product?.name || 'Product'))
+      ));
+
+      let intervalDays = 0;
+      if (orderCount >= 2) {
         repeatCount++;
         const first = custOrders[0].createdAt.getTime();
         const second = custOrders[1].createdAt.getTime();
         const diffDays = Math.round((second - first) / (24 * 60 * 60 * 1000));
         intervalsDays.push(diffDays);
+        intervalDays = diffDays;
 
         if (diffDays <= 30) within30d++;
         if (diffDays <= 90) within90d++;
+
+        // Sum repeat order revenue (all orders after the first order)
+        for (let i = 1; i < custOrders.length; i++) {
+          repeatRevenue += custOrders[i].totalAmount;
+          custOrders[i].items.forEach(it => {
+            const pName = it.productName || it.product?.name || 'Product';
+            if (!repeatProductsMap[pName]) {
+              repeatProductsMap[pName] = { name: pName, count: 0, revenue: 0 };
+            }
+            repeatProductsMap[pName].count += it.quantity;
+            repeatProductsMap[pName].revenue += it.totalAmount || ((it.unitPrice || 0) * it.quantity);
+          });
+        }
       }
+
+      customerRepetitions.push({
+        id: custOrders[0].customerId || key,
+        name: custName,
+        email: custEmail,
+        purchaseCount: orderCount,
+        totalSpent,
+        firstOrderDate,
+        lastOrderDate,
+        intervalDays,
+        products: allProductNames,
+        isRepeat: orderCount >= 2,
+        tier: orderCount >= 3 ? 'VIP Frequent Buyer' : orderCount === 2 ? 'Repeat Customer' : 'First-Time Buyer'
+      });
     });
 
     intervalsDays.sort((a, b) => a - b);
-    const avgDays = intervalsDays.length > 0 ? Math.round(intervalsDays.reduce((a, b) => a + b, 0) / intervalsDays.length) : 18;
-    const medianDays = intervalsDays.length > 0 ? intervalsDays[Math.floor(intervalsDays.length / 2)] : 12;
+    const avgDays = intervalsDays.length > 0 ? Math.round(intervalsDays.reduce((a, b) => a + b, 0) / intervalsDays.length) : 0;
+    const medianDays = intervalsDays.length > 0 ? intervalsDays[Math.floor(intervalsDays.length / 2)] : 0;
 
-    const rep30dRate = repeatCount > 0 ? parseFloat(((within30d / repeatCount) * 100).toFixed(1)) : 42.0;
-    const rep90dRate = repeatCount > 0 ? parseFloat(((within90d / repeatCount) * 100).toFixed(1)) : 68.5;
+    const totalBuyers = customerOrders.size;
+    const singlePurchaseBuyers = totalBuyers - repeatCount;
+    const repRate = totalBuyers > 0 ? parseFloat(((repeatCount / totalBuyers) * 100).toFixed(1)) : 0;
+    const rep30dRate = repeatCount > 0 ? parseFloat(((within30d / repeatCount) * 100).toFixed(1)) : 0;
+    const rep90dRate = repeatCount > 0 ? parseFloat(((within90d / repeatCount) * 100).toFixed(1)) : 0;
+
+    customerRepetitions.sort((a, b) => b.purchaseCount - a.purchaseCount || b.totalSpent - a.totalSpent);
 
     res.json({
       success: true,
+      kpis: {
+        totalBuyers,
+        repeatCustomers: repeatCount,
+        singlePurchaseBuyers,
+        repeatPurchaseRate: repRate,
+        avgDaysToSecondPurchase: avgDays,
+        medianDaysToSecondPurchase: medianDays,
+        repeatRevenue,
+        repurchaseWithin30DaysPercent: rep30dRate,
+        repurchaseWithin90DaysPercent: rep90dRate
+      },
       metrics: {
         totalRepeatCustomers: repeatCount,
         averageDaysToSecondPurchase: avgDays,
         medianDaysToSecondPurchase: medianDays,
         repurchaseWithin30DaysPercent: rep30dRate,
         repurchaseWithin90DaysPercent: rep90dRate
-      }
+      },
+      customerRepetitions,
+      repeatProducts: Object.values(repeatProductsMap).sort((a, b) => b.count - a.count),
+      data: customerRepetitions
     });
   } catch (error) {
     next(error);

@@ -17,6 +17,10 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
   if (!token && req.headers.authorization?.startsWith('Bearer ')) {
     token = req.headers.authorization.split(' ')[1];
   }
+
+  if (!token && req.query?.token && typeof req.query.token === 'string') {
+    token = req.query.token;
+  }
   
   if (!token) {
     return res.status(401).json({ success: false, message: 'No token provided' });
@@ -31,6 +35,28 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
   }
 };
 
+export const optionalAuthenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
+  let token = req.cookies?.token;
+  
+  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+
+  if (!token && req.query?.token && typeof req.query.token === 'string') {
+    token = req.query.token;
+  }
+  
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      req.user = decoded;
+    } catch {
+      // Ignore invalid or expired token for optional auth
+    }
+  }
+  next();
+};
+
 
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
@@ -41,12 +67,20 @@ export const authorize = (...roles: string[]) => {
       return res.status(401).json({ success: false, message: 'Not authenticated' });
     }
     
-    // Always allow SUPER_ADMIN to pass basic role checks if ADMIN is allowed
-    const allowedRoles = roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN') 
-      ? [...roles, 'SUPER_ADMIN'] 
-      : roles;
+    const userRole = String(req.user.role || '').toLowerCase().replace(/_/g, ' ').trim();
+    const rawUserRole = String(req.user.role || '').toLowerCase().trim();
 
-    if (!allowedRoles.includes(req.user.role)) {
+    // Normalize target roles
+    const normalizedRoles = roles.map(r => r.toLowerCase().replace(/_/g, ' ').trim());
+    if (normalizedRoles.includes('admin') && !normalizedRoles.includes('super admin')) {
+      normalizedRoles.push('super admin');
+    }
+
+    const isAuthorized = normalizedRoles.some(
+      r => r === userRole || r === rawUserRole || roles.includes(req.user!.role)
+    );
+
+    if (!isAuthorized) {
       return res.status(403).json({ success: false, message: 'Not authorized to access this route' });
     }
     

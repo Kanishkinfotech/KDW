@@ -6,6 +6,7 @@ import { z } from 'zod';
 import Button from '../../components/Button';
 import SEO from '../../components/SEO';
 import { useAuth } from '../../context/AuthContext';
+import { hasAdminRole } from '../../utils/authRoles';
 import { useEffect } from 'react';
 
 const loginSchema = z.object({
@@ -24,9 +25,8 @@ export default function AdminLogin() {
 
   useEffect(() => {
     // Only redirect if both global auth and local session storage are set
-    const role = (user && user.role) ? String(user.role).toLowerCase() : '';
     const hasSession = sessionStorage.getItem('admin_session') === 'true';
-    if (isAuthenticated && role === 'admin' && hasSession) {
+    if (isAuthenticated && hasAdminRole(user?.role) && hasSession) {
       navigate('/admin');
     }
   }, [isAuthenticated, user, navigate]);
@@ -56,22 +56,27 @@ export default function AdminLogin() {
       const userData = result.data || result.user || {}; // Fallback just in case
       const token = result.token || userData.token;
       
-      const role = userData.role ? String(userData.role).toLowerCase() : '';
-
-      if (role !== 'admin' && role !== 'super_admin') {
+      if (!hasAdminRole(userData.role)) {
         throw new Error('Access denied. You do not have admin privileges.');
       }
+
+      if (token) {
+        localStorage.setItem('token', token);
+        localStorage.setItem('authToken', token);
+        localStorage.setItem('adminAuth', token);
+      }
+      localStorage.setItem('user', JSON.stringify(userData));
 
       // Set the session flag before calling global login to trigger AdminLayout properly
       sessionStorage.setItem('admin_session', 'true');
       window.dispatchEvent(new Event('admin_session_updated'));
 
-      login( {
+      login({
         id: userData.id || userData._id,
         name: userData.name,
         email: userData.email,
         role: userData.role
-      });
+      }, token);
       
       navigate('/admin');
     } catch (error: any) {

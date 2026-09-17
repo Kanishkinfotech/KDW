@@ -46,18 +46,11 @@ export default function AdminExportCenter() {
       });
       const json = await res.json();
       if (json.success) {
-        setActionMessage(`Export "${json.job.fileName}" successfully created.`);
+        setActionMessage(`Export "${json.job?.fileName || 'Report'}" successfully created.`);
         fetchJobs();
 
-        // Trigger immediate browser download of mock CSV content
-        const dummyData = `Report,${reportType.toUpperCase()}\nGenerated At,${new Date().toISOString()}\nFormat,${format}\nStatus,Verified\nSample Data Row 1,100,5000\nSample Data Row 2,120,6200`;
-        const blob = new Blob([dummyData], { type: format === 'CSV' ? 'text/csv' : 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = json.job.fileName;
-        a.click();
-        URL.revokeObjectURL(url);
+        const downloadUrl = json.downloadUrl || json.job?.fileUrl || `/api/admin/reports/exports/download/${reportType}?format=${format}`;
+        window.open(downloadUrl, '_blank');
       }
     } catch (err: any) {
       setActionMessage('Failed to generate export file.');

@@ -3,9 +3,95 @@ import { persist } from 'zustand/middleware';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+// Helper to determine the currently authenticated customer identifier
+export const getCurrentCustomerKey = (): string => {
+  try {
+    const rawUser = localStorage.getItem('user');
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed?.id) return `cust_${parsed.id}`;
+      if (parsed?.email) return `cust_${parsed.email.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    }
+  } catch (e) {}
+  return 'guest';
+};
+
+// Customer-scoped storage keys
+export const getCustomerCartKey = (key: string = getCurrentCustomerKey()) => `kdw_cart_${key}`;
+export const getCustomerWishlistKey = (key: string = getCurrentCustomerKey()) => `kdw_wishlist_${key}`;
+
+// Safe JSON loaders for customer-scoped data
+export const loadCustomerCart = (key: string = getCurrentCustomerKey()): any[] => {
+  try {
+    const raw = localStorage.getItem(getCustomerCartKey(key));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
+export const loadCustomerWishlist = (key: string = getCurrentCustomerKey()): any[] => {
+  try {
+    const raw = localStorage.getItem(getCustomerWishlistKey(key));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
+// Safe JSON savers for customer-scoped data
+export const saveCustomerCart = (cart: any[], key: string = getCurrentCustomerKey()) => {
+  try {
+    localStorage.setItem(getCustomerCartKey(key), JSON.stringify(cart));
+  } catch (e) {}
+};
+
+export const saveCustomerWishlist = (wishlist: any[], key: string = getCurrentCustomerKey()) => {
+  try {
+    localStorage.setItem(getCustomerWishlistKey(key), JSON.stringify(wishlist));
+  } catch (e) {}
+};
+
+// Migrate initial legacy shared data to currently active customer once, then clear legacy shared data
+const performInitialCustomerMigration = () => {
+  try {
+    const activeKey = getCurrentCustomerKey();
+    const cartKey = getCustomerCartKey(activeKey);
+    const wishlistKey = getCustomerWishlistKey(activeKey);
+
+    const hasCustomerCart = localStorage.getItem(cartKey) !== null;
+    const hasCustomerWishlist = localStorage.getItem(wishlistKey) !== null;
+
+    if (!hasCustomerCart || !hasCustomerWishlist) {
+      const legacyStore = localStorage.getItem('kdw-store-v6');
+      if (legacyStore) {
+        const parsed = JSON.parse(legacyStore);
+        if (!hasCustomerCart && Array.isArray(parsed?.state?.cart) && parsed.state.cart.length > 0) {
+          saveCustomerCart(parsed.state.cart, activeKey);
+        }
+        if (!hasCustomerWishlist && Array.isArray(parsed?.state?.wishlist) && parsed.state.wishlist.length > 0) {
+          saveCustomerWishlist(parsed.state.wishlist, activeKey);
+        }
+        if (parsed?.state) {
+          parsed.state.cart = [];
+          parsed.state.wishlist = [];
+          localStorage.setItem('kdw-store-v6', JSON.stringify(parsed));
+        }
+      }
+    }
+  } catch (e) {}
+};
+
+performInitialCustomerMigration();
+
 interface StoreState {
   cart: any[];
   wishlist: any[];
+  currentCustomerKey: string;
   products: any[];
   categories: any[];
   bundles: any[];
@@ -16,12 +102,15 @@ interface StoreState {
   activeTestimonials: any[];
   isCartOpen: boolean;
   isWishlistOpen: boolean;
-  addToCart: (product: any) => void;
+  addToCart: (product: any, quantity?: number) => void;
+  updateCartQuantity: (productId: string, quantity: number) => void;
   removeFromCart: (productId: string) => void;
   toggleWishlist: (product: any) => void;
   setCartOpen: (isOpen: boolean) => void;
   setWishlistOpen: (isOpen: boolean) => void;
   clearCart: () => void;
+  clearWishlist: () => void;
+  syncCustomerData: (forcedCustomerKey?: string) => void;
   addProduct: (product: any) => void;
   updateProduct: (productId: string, updatedData: any) => void;
   removeProduct: (productId: string) => void;
@@ -42,11 +131,14 @@ interface StoreState {
   toggleRazorpayAccountActive: (accountId: string) => void;
 }
 
+const initialCustomer = getCurrentCustomerKey();
+
 export const useStore = create<StoreState>()(
   persist(
     (set) => ({
-      cart: [],
-      wishlist: [],
+      cart: loadCustomerCart(initialCustomer),
+      wishlist: loadCustomerWishlist(initialCustomer),
+      currentCustomerKey: initialCustomer,
       products: [],
       categories: [],
       bundles: [],
@@ -58,26 +150,72 @@ export const useStore = create<StoreState>()(
       isCartOpen: false,
       isWishlistOpen: false,
       
-      addToCart: (product) => set((state) => {
-        if (state.cart.find(item => item.id === product.id)) return state;
-        return { cart: [...state.cart, product], isCartOpen: true };
+      addToCart: (product, quantity = 1) => set((state) => {
+        const customerKey = getCurrentCustomerKey();
+        const existingIndex = state.cart.findIndex(item => item.id === product.id || item._id === product.id);
+        let newCart: any[];
+        if (existingIndex > -1) {
+          newCart = [...state.cart];
+          const currentQty = newCart[existingIndex].quantity || 1;
+          newCart[existingIndex] = {
+            ...newCart[existingIndex],
+            quantity: currentQty + quantity
+          };
+        } else {
+          newCart = [...state.cart, { ...product, quantity: Math.max(1, quantity) }];
+        }
+        saveCustomerCart(newCart, customerKey);
+        return { cart: newCart, currentCustomerKey: customerKey, isCartOpen: true };
+      }),
+
+      updateCartQuantity: (productId, quantity) => set((state) => {
+        const customerKey = getCurrentCustomerKey();
+        const newCart = quantity <= 0
+          ? state.cart.filter(item => item.id !== productId && item._id !== productId)
+          : state.cart.map(item => (item.id === productId || item._id === productId) ? { ...item, quantity } : item);
+        saveCustomerCart(newCart, customerKey);
+        return { cart: newCart, currentCustomerKey: customerKey };
       }),
       
-      removeFromCart: (productId) => set((state) => ({
-        cart: state.cart.filter(item => item.id !== productId)
-      })),
+      removeFromCart: (productId) => set((state) => {
+        const customerKey = getCurrentCustomerKey();
+        const newCart = state.cart.filter(item => item.id !== productId && item._id !== productId);
+        saveCustomerCart(newCart, customerKey);
+        return { cart: newCart, currentCustomerKey: customerKey };
+      }),
       
       toggleWishlist: (product) => set((state) => {
-        const exists = state.wishlist.find(item => item.id === product.id);
-        if (exists) {
-          return { wishlist: state.wishlist.filter(item => item.id !== product.id) };
-        }
-        return { wishlist: [...state.wishlist, product], isWishlistOpen: true };
+        const customerKey = getCurrentCustomerKey();
+        const targetId = product.id || product._id;
+        const exists = state.wishlist.find(item => item.id === targetId || item._id === targetId);
+        const newWishlist = exists
+          ? state.wishlist.filter(item => item.id !== targetId && item._id !== targetId)
+          : [...state.wishlist, product];
+        saveCustomerWishlist(newWishlist, customerKey);
+        return { wishlist: newWishlist, currentCustomerKey: customerKey, isWishlistOpen: !exists };
       }),
       
       setCartOpen: (isOpen) => set({ isCartOpen: isOpen }),
       setWishlistOpen: (isOpen) => set({ isWishlistOpen: isOpen }),
-      clearCart: () => set({ cart: [] }),
+      
+      clearCart: () => set(() => {
+        const customerKey = getCurrentCustomerKey();
+        saveCustomerCart([], customerKey);
+        return { cart: [], currentCustomerKey: customerKey };
+      }),
+
+      clearWishlist: () => set(() => {
+        const customerKey = getCurrentCustomerKey();
+        saveCustomerWishlist([], customerKey);
+        return { wishlist: [], currentCustomerKey: customerKey };
+      }),
+
+      syncCustomerData: (forcedCustomerKey?: string) => {
+        const key = forcedCustomerKey || getCurrentCustomerKey();
+        const newCart = loadCustomerCart(key);
+        const newWishlist = loadCustomerWishlist(key);
+        set({ cart: newCart, wishlist: newWishlist, currentCustomerKey: key });
+      },
 
       addProduct: (product) => set((state) => ({
         products: [product, ...state.products]
@@ -190,9 +328,13 @@ export const useStore = create<StoreState>()(
       },
       fetchBundles: async () => {
         try {
-          const response = await axios.get('/api/bundles?_t=' + Date.now());
+          const response = await axios.get('/api/bundles?status=ACTIVE&_t=' + Date.now());
           if (response.data.success) {
-            set({ bundles: response.data.data });
+            const activeOnly = (response.data.data || []).filter((b: any) => {
+              const st = (b.status || 'ACTIVE').toUpperCase();
+              return st === 'ACTIVE' || st === 'PUBLISHED';
+            });
+            set({ bundles: activeOnly });
           }
         } catch (error) {
           console.error("Error fetching bundles:", error);
@@ -278,11 +420,47 @@ export const useStore = create<StoreState>()(
     {
       name: 'kdw-store-v6',
       partialize: (state) => ({ 
-        cart: state.cart, 
-        wishlist: state.wishlist, 
         orders: state.orders,
         razorpayAccounts: state.razorpayAccounts
       }), 
     }
   )
 );
+
+// Cross-tab and Customer Authentication Listeners for isolated shopping data
+if (typeof window !== 'undefined') {
+  // Listen for customer change events (dispatched on login, logout, session refresh)
+  window.addEventListener('kdw:customer-changed', (e: any) => {
+    const key = e.detail?.customerKey || getCurrentCustomerKey();
+    useStore.getState().syncCustomerData(key);
+  });
+
+  // Listen for storage events (e.g. login/logout in another tab, or cart/wishlist sync)
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'user' || e.key === 'authToken') {
+      useStore.getState().syncCustomerData();
+    } else {
+      const activeKey = getCurrentCustomerKey();
+      if (e.key === getCustomerCartKey(activeKey)) {
+        if (e.newValue) {
+          try {
+            const updated = JSON.parse(e.newValue);
+            if (Array.isArray(updated)) useStore.setState({ cart: updated });
+          } catch {}
+        } else {
+          useStore.setState({ cart: [] });
+        }
+      } else if (e.key === getCustomerWishlistKey(activeKey)) {
+        if (e.newValue) {
+          try {
+            const updated = JSON.parse(e.newValue);
+            if (Array.isArray(updated)) useStore.setState({ wishlist: updated });
+          } catch {}
+        } else {
+          useStore.setState({ wishlist: [] });
+        }
+      }
+    }
+  });
+}
+

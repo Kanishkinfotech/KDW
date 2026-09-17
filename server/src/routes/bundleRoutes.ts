@@ -15,15 +15,15 @@ import {
   supportOverrideAction,
   secureDownloadBundle
 } from '../controllers/bundleController';
-import { authenticate, authorize } from '../middleware/authMiddleware';
+import { authenticate, authorize, optionalAuthenticate } from '../middleware/authMiddleware';
 
 const router = Router();
 
 // Public Storefront & Secure Download Routes
-router.get('/', getBundles);
+router.get('/', optionalAuthenticate, getBundles);
 router.get('/download/:token', secureDownloadBundle);
 router.get('/analytics/overview', getBundleAnalytics);
-router.get('/:id', getBundleById);
+router.get('/:id', optionalAuthenticate, getBundleById);
 
 // Admin Routes
 router.use(authenticate, authorize('ADMIN'));

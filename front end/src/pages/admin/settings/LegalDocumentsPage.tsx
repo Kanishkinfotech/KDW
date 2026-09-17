@@ -111,12 +111,21 @@ export default function LegalDocumentsPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          versionNumber: activeDoc?.currentVersion || 1
+          versionNumber: activeDoc?.currentVersion || 1,
+          title: formTitle,
+          content: formContent,
+          summary: formSummary,
+          changeLog: formChangeLog || 'Updated and published live'
         })
       });
       const json = await res.json();
       if (json.success) {
         toast.success(json.message);
+        // Dispatch settings update event so storefront policies update immediately
+        window.dispatchEvent(new CustomEvent('kdw:settings-updated'));
+        try {
+          localStorage.setItem('kdw_settings_updated', Date.now().toString());
+        } catch (e) {}
         fetchDocuments();
         fetchDocumentDetail(selectedSlug);
       } else {

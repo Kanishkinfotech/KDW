@@ -25,6 +25,7 @@ import {
   getBlogById,
   createBlog,
   updateBlog,
+  deleteBlog,
   publishBlog,
   scheduleBlog,
   archiveBlog,
@@ -156,6 +157,7 @@ router.patch('/blogs/:id', updateBlog);
 router.post('/blogs/:id/publish', publishBlog);
 router.post('/blogs/:id/schedule', scheduleBlog);
 router.post('/blogs/:id/archive', archiveBlog);
+router.delete('/blogs/:id', deleteBlog);
 router.post('/blogs/:id/featured', toggleFeaturedPost);
 router.get('/blogs/:id/analytics', getBlogAnalytics);
 

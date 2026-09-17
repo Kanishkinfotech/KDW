@@ -12,16 +12,64 @@ const generateProductCode = async (): Promise<string> => {
 
 // Helper to compute completeness score and validation checks
 export const calculateProductCompleteness = (p: any) => {
+  const isLicenceRequired = Boolean(p.licenceKeyRequired);
+  const isSubcategoryPlacement = p.placementType === 'SUBCATEGORY';
+
   const checks = [
-    { key: 'basicInfo', label: 'Basic Information', pass: Boolean(p.name && p.slug && p.description) },
-    { key: 'category', label: 'Category Assigned', pass: Boolean(p.categoryId) },
-    { key: 'pricing', label: 'Pricing Configured', pass: Boolean(p.price !== undefined && p.price >= 0) },
-    { key: 'coverImage', label: 'Cover Image / Preview', pass: Boolean(p.thumbnail || p.coverImage) },
-    { key: 'driveFile', label: 'Google Drive File Connected', pass: Boolean(p.googleDriveFileId && p.googleDriveFileId.trim() !== '') },
-    { key: 'accessPolicy', label: 'Access Policy Configured', pass: Boolean(p.downloadLimit !== undefined) },
-    { key: 'licence', label: 'Licence Type Assigned', pass: Boolean(p.licenceType) },
-    { key: 'seo', label: 'SEO Metadata', pass: Boolean(p.seoTitle || p.seoDescription) }
+    { 
+      key: 'driveFile', 
+      label: 'Stage 1: Google Drive Delivery', 
+      pass: Boolean(p.googleDriveFileId && p.googleDriveFileId.trim() !== '') 
+    },
+    { 
+      key: 'basicInfo', 
+      label: 'Stage 2: Basic Information', 
+      pass: Boolean(p.name && p.slug && p.shortDescription && p.description) 
+    },
+    { 
+      key: 'organization', 
+      label: 'Stage 3: Organization & Placement', 
+      pass: Boolean(p.categoryId && (!isSubcategoryPlacement || p.subcategoryId)) 
+    },
+    { 
+      key: 'pricing', 
+      label: 'Stage 4: Pricing & Tax', 
+      pass: Boolean(p.price !== undefined && p.price >= 0 && p.taxRate !== undefined) 
+    },
+    { 
+      key: 'media', 
+      label: 'Stage 5: Media & Preview', 
+      pass: Boolean(p.thumbnail || p.coverImage) 
+    },
+    { 
+      key: 'accessPolicy', 
+      label: 'Stage 6: Access & Download', 
+      pass: Boolean(p.downloadLimit !== undefined && p.accessDurationDays !== undefined) 
+    },
+    { 
+      key: 'licence', 
+      label: 'Stage 7: Licence Configuration', 
+      pass: !isLicenceRequired ? true : Boolean(p.licenceType && (p.activationLimit || p.activationLimit === 0)) 
+    },
+    { 
+      key: 'content', 
+      label: 'Stage 8: Content & FAQs', 
+      pass: Boolean(p.version) 
+    },
+    { 
+      key: 'seo', 
+      label: 'Stage 9: SEO & Social', 
+      pass: Boolean(p.seoTitle && (p.seoDescription || p.shortDescription)) 
+    },
+    { 
+      key: 'review', 
+      label: 'Stage 10: Final Review Gate', 
+      pass: false // evaluated below
+    }
   ];
+
+  const previousPassed = checks.slice(0, 9).every(c => c.pass);
+  checks[9].pass = previousPassed;
 
   const passedCount = checks.filter(c => c.pass).length;
   const percentage = Math.round((passedCount / checks.length) * 100);
@@ -31,32 +79,59 @@ export const calculateProductCompleteness = (p: any) => {
 
 // Map input body to Prisma Product model fields
 const mapProductData = async (body: any, existingId?: string) => {
-  let categoryName = body.category || 'Uncategorized';
+  const placementType = (body.placementType || (body.subcategoryId ? 'SUBCATEGORY' : 'PRIMARY')).toUpperCase();
+  let categoryId = body.categoryId || null;
+  let subcategoryId = body.subcategoryId || null;
   let subcategoryName = body.subcategory || null;
 
-  let dbCategory = await prisma.category.findFirst({
-    where: { 
-      OR: [
-        { id: body.categoryId || '' },
-        { name: { equals: categoryName, mode: 'insensitive' } },
-        { slug: { equals: categoryName.toLowerCase(), mode: 'insensitive' } }
-      ]
-    }
-  });
-  
-  if (!dbCategory) {
-    dbCategory = await prisma.category.create({
-      data: {
-        name: categoryName,
-        slug: categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  // 1. Resolve Primary Category
+  let dbCategory = null;
+  if (categoryId) {
+    dbCategory = await prisma.category.findUnique({ where: { id: categoryId } });
+  }
+
+  if (!dbCategory && body.category) {
+    dbCategory = await prisma.category.findFirst({
+      where: { 
+        OR: [
+          { name: { equals: body.category, mode: 'insensitive' } },
+          { slug: { equals: body.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'), mode: 'insensitive' } }
+        ]
       }
     });
   }
 
-  const rawName = body.name || body.title || 'Untitled Product';
+  if (!dbCategory) {
+    const catName = body.category || 'General Digital Assets';
+    dbCategory = await prisma.category.create({
+      data: {
+        name: catName,
+        slug: catName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        status: 'ACTIVE'
+      }
+    });
+  }
+
+  // 2. Validate Placement Rules
+  if (placementType === 'PRIMARY') {
+    subcategoryId = null;
+    subcategoryName = null;
+  } else if (placementType === 'SUBCATEGORY') {
+    if (subcategoryId) {
+      const childCategory = await prisma.category.findUnique({ where: { id: subcategoryId } });
+      if (childCategory) {
+        if (childCategory.parentId && childCategory.parentId !== dbCategory.id) {
+          throw new Error(`Subcategory "${childCategory.name}" does not belong to selected primary category "${dbCategory.name}".`);
+        }
+        subcategoryName = childCategory.name;
+      }
+    }
+  }
+
+  const rawName = (body.name || body.title || 'Untitled Product').trim();
   let slug = body.slug && body.slug.trim() !== '' 
-    ? body.slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') 
-    : rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    ? body.slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') 
+    : rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     
   if (!slug || slug === '-') {
     slug = `product-${Date.now()}`;
@@ -73,15 +148,17 @@ const mapProductData = async (body: any, existingId?: string) => {
     if (duplicate) slug = `${slug}-${Date.now().toString().slice(-4)}`;
   }
 
-  const basePrice = isNaN(parseFloat(body.price)) ? 0 : parseFloat(body.price);
+  const basePrice = isNaN(parseFloat(body.price)) ? 0 : Math.max(0, parseFloat(body.price));
   const discountPrice = !isNaN(parseFloat(body.discountPrice)) 
-    ? parseFloat(body.discountPrice) 
-    : (!isNaN(parseFloat(body.discount)) ? parseFloat(body.discount) : null);
+    ? Math.min(basePrice, parseFloat(body.discountPrice)) 
+    : (!isNaN(parseFloat(body.discount)) ? Math.min(basePrice, parseFloat(body.discount)) : null);
   const compareAtPrice = !isNaN(parseFloat(body.compareAtPrice)) ? parseFloat(body.compareAtPrice) : null;
   const costPrice = !isNaN(parseFloat(body.costPrice)) ? parseFloat(body.costPrice) : null;
 
   return {
+    placementType,
     categoryId: dbCategory.id,
+    subcategoryId,
     subcategory: subcategoryName,
     name: rawName,
     slug,
@@ -93,7 +170,7 @@ const mapProductData = async (body: any, existingId?: string) => {
     discountPrice,
     compareAtPrice,
     costPrice,
-    taxMode: body.taxMode || 'INCLUSIVE',
+    taxMode: (body.taxMode || 'INCLUSIVE').toUpperCase(),
     taxRate: body.taxRate !== undefined ? parseFloat(body.taxRate) : 18.0,
     offerStartAt: body.offerStartAt ? new Date(body.offerStartAt) : null,
     offerEndAt: body.offerEndAt ? new Date(body.offerEndAt) : null,
@@ -107,16 +184,17 @@ const mapProductData = async (body: any, existingId?: string) => {
     driveParentId: body.driveParentId || null,
     driveAccessStatus: body.driveAccessStatus || (body.googleDriveFileId || body.googleDriveUrl || body.driveUrl ? 'CONNECTED' : 'NOT_CONNECTED'),
     driveLastVerifiedAt: (body.googleDriveFileId || body.googleDriveUrl || body.driveUrl) ? new Date() : null,
-    downloadLimit: body.downloadLimit !== undefined ? (body.downloadLimit === 'Unlimited' ? 999999 : parseInt(body.downloadLimit) || 5) : 5,
-    accessDurationDays: body.accessDurationDays !== undefined ? (body.accessDurationDays === 'Never' ? 999999 : parseInt(body.accessDurationDays) || 365) : 365,
-    tokenDurationMinutes: body.tokenDurationMinutes ? parseInt(body.tokenDurationMinutes) : 60,
+    downloadLimit: body.downloadLimit !== undefined ? (body.downloadLimit === 'Unlimited' || body.downloadLimit === 999999 || body.downloadLimit === '999999' || body.downloadLimit === 0 || body.downloadLimit === '0' ? 999999 : (!isNaN(parseInt(body.downloadLimit, 10)) && parseInt(body.downloadLimit, 10) > 0 ? parseInt(body.downloadLimit, 10) : 5)) : 5,
+    accessDurationDays: body.accessDurationDays !== undefined ? (body.accessDurationDays === 'Never' || body.accessDurationDays === 'Lifetime' || body.accessDurationDays === 999999 || body.accessDurationDays === '999999' || body.accessDurationDays === 0 || body.accessDurationDays === '0' ? 999999 : (!isNaN(parseInt(body.accessDurationDays, 10)) && parseInt(body.accessDurationDays, 10) > 0 ? parseInt(body.accessDurationDays, 10) : 365)) : 365,
+    tokenDurationMinutes: body.tokenDurationMinutes ? (parseInt(body.tokenDurationMinutes, 10) || 60) : 60,
+    maxActiveTokens: body.maxActiveTokens ? (parseInt(body.maxActiveTokens, 10) || 3) : 3,
     refundPolicy: body.refundPolicy || 'REVOKE_ACCESS',
     licenceType: (body.licenceType || 'COMMERCIAL').toUpperCase(),
     licenceTerms: body.licenceTerms || null,
     licenceKeyRequired: Boolean(body.licenceKeyRequired),
-    activationLimit: body.activationLimit ? parseInt(body.activationLimit) : 1,
-    domainLimit: body.domainLimit ? parseInt(body.domainLimit) : 1,
-    deviceLimit: body.deviceLimit ? parseInt(body.deviceLimit) : 1,
+    activationLimit: body.activationLimit !== undefined ? parseInt(body.activationLimit) : 1,
+    domainLimit: body.domainLimit !== undefined ? parseInt(body.domainLimit) : 1,
+    deviceLimit: body.deviceLimit !== undefined ? parseInt(body.deviceLimit) : 1,
     storefrontContent: body.storefrontContent ? (typeof body.storefrontContent === 'string' ? (()=>{ try { return JSON.parse(body.storefrontContent); } catch(e){ return { text: body.storefrontContent }; } })() : body.storefrontContent) : (body.heroHighlight ? { heroHighlight: body.heroHighlight } : null),
     requirements: body.requirements ? (typeof body.requirements === 'string' ? (()=>{ try { return JSON.parse(body.requirements); } catch(e){ return { text: body.requirements }; } })() : body.requirements) : null,
     faqs: body.faqs ? (typeof body.faqs === 'string' ? (()=>{ try { return JSON.parse(body.faqs); } catch(e){ return null; } })() : body.faqs) : null,
@@ -125,7 +203,7 @@ const mapProductData = async (body: any, existingId?: string) => {
     seoTitle: body.seoTitle || null,
     seoDescription: body.seoDescription || null,
     seoKeywords: body.seoKeywords || body.metaKeywords || null,
-    canonicalUrl: body.canonicalUrl || null,
+    canonicalUrl: body.canonicalUrl || (body.urlPrefix ? `${body.urlPrefix.replace(/\/+$/, '')}/${slug}` : `/product/${slug}`),
     ogImage: body.ogImage || null,
     thumbnail: body.coverImage || body.thumbnail || null,
     previewImages: Array.isArray(body.previewImages) ? JSON.stringify(body.previewImages) : (Array.isArray(body.images) ? JSON.stringify(body.images) : (typeof body.previewImages === 'string' ? body.previewImages : null)),
@@ -139,6 +217,7 @@ const mapProductData = async (body: any, existingId?: string) => {
     status: body.status ? body.status.toUpperCase() : 'DRAFT',
     featured: Boolean(body.isFeatured || body.featured),
     bestSeller: Boolean(body.isBestSeller || body.bestSeller),
+    sortOrder: body.sortOrder !== undefined ? parseInt(body.sortOrder) : 0,
     updatedBy: body.updatedBy || 'admin'
   };
 };
@@ -150,6 +229,22 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       category, subcategory, search, minPrice, maxPrice, sort, 
       status, productType, driveStatus, featured, version, page = 1, limit = 50 
     } = req.query;
+
+    // Auto-publish any scheduled products whose time has passed
+    try {
+      await prisma.product.updateMany({
+        where: {
+          status: 'SCHEDULED',
+          publishScheduledAt: { lte: new Date() }
+        },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt: new Date()
+        }
+      });
+    } catch (e) {
+      // Non-blocking auto-publish sweep
+    }
 
     const where: any = {};
 
@@ -208,12 +303,32 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 
     // Subcategory Filter
     if (subcategory && subcategory !== 'all' && subcategory !== 'All') {
-      const subStr = String(subcategory).toLowerCase();
-      const subWhere = [
-        { subcategory: { equals: String(subcategory), mode: 'insensitive' } },
-        { category: { name: { equals: String(subcategory), mode: 'insensitive' } } },
-        { category: { slug: { equals: subStr, mode: 'insensitive' } } }
+      const subStr = String(subcategory).trim();
+      const subCat = await prisma.category.findFirst({
+        where: {
+          OR: [
+            { id: subStr },
+            { name: { equals: subStr, mode: 'insensitive' } },
+            { slug: { equals: subStr.toLowerCase(), mode: 'insensitive' } }
+          ]
+        }
+      });
+
+      const subWhere: any[] = [
+        { subcategory: { equals: subStr, mode: 'insensitive' } },
+        { category: { name: { equals: subStr, mode: 'insensitive' } } },
+        { category: { slug: { equals: subStr.toLowerCase(), mode: 'insensitive' } } }
       ];
+
+      if (subCat) {
+        subWhere.push(
+          { subcategoryId: subCat.id },
+          { subcategory: { equals: subCat.name, mode: 'insensitive' } },
+          { categoryId: subCat.id }
+        );
+      } else {
+        subWhere.push({ subcategoryId: subStr });
+      }
 
       if (where.OR) {
         where.AND = [{ OR: where.OR }, { OR: subWhere }];
@@ -239,6 +354,7 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
         { slug: { contains: queryStr, mode: 'insensitive' } },
         { description: { contains: queryStr, mode: 'insensitive' } },
         { shortDescription: { contains: queryStr, mode: 'insensitive' } },
+        { brand: { contains: queryStr, mode: 'insensitive' } },
         { tags: { contains: queryStr, mode: 'insensitive' } }
       ];
 
@@ -253,12 +369,18 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     }
 
     // Sorting
-    let orderBy: any = { createdAt: 'desc' };
-    if (sort === 'price-low') orderBy = { price: 'asc' };
-    if (sort === 'price-high') orderBy = { price: 'desc' };
-    if (sort === 'name-asc') orderBy = { name: 'asc' };
-    if (sort === 'name-desc') orderBy = { name: 'desc' };
-    if (sort === 'updated-desc') orderBy = { updatedAt: 'desc' };
+    let orderBy: any = [{ sortOrder: 'asc' }, { updatedAt: 'desc' }];
+    if (sort === 'sortOrder-asc') orderBy = { sortOrder: 'asc' };
+    else if (sort === 'sortOrder-desc') orderBy = { sortOrder: 'desc' };
+    else if (sort === 'featured') orderBy = [{ featured: 'desc' }, { updatedAt: 'desc' }];
+    else if (sort === 'price-low') orderBy = { price: 'asc' };
+    else if (sort === 'price-high') orderBy = { price: 'desc' };
+    else if (sort === 'name-asc') orderBy = { name: 'asc' };
+    else if (sort === 'name-desc') orderBy = { name: 'desc' };
+    else if (sort === 'updated-desc') orderBy = { updatedAt: 'desc' };
+    else if (sort === 'updated-asc') orderBy = { updatedAt: 'asc' };
+    else if (sort === 'newest') orderBy = { createdAt: 'desc' };
+    else if (sort === 'oldest') orderBy = { createdAt: 'asc' };
 
     const products = await prisma.product.findMany({
       where,
@@ -297,7 +419,18 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       if (item.productId) downloadMap.set(item.productId, item._sum.downloadCount || 0);
     }
 
-    const mapped = products.map(p => {
+    const now = new Date();
+    const activeProductPromos = await prisma.offer.findMany({
+      where: {
+        status: 'ACTIVE',
+        offerType: { in: ['PRODUCT_DISCOUNT', 'FLASH_SALE', 'TIME_LIMITED', 'CATEGORY_DISCOUNT', 'STOREWIDE'] },
+        OR: [{ startAt: null }, { startAt: { lte: now } }],
+        AND: [{ OR: [{ endAt: null }, { endAt: { gte: now } }] }]
+      },
+      orderBy: { priority: 'asc' }
+    });
+
+    let mapped = products.map(p => {
       const reviewCount = p.reviews ? p.reviews.length : 0;
       const avgRating = reviewCount > 0 
         ? p.reviews.reduce((acc, r) => acc + r.rating, 0) / reviewCount 
@@ -306,6 +439,67 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       const totalUnitsSold = salesMap.get(p.id) || 0;
       const totalDownloads = downloadMap.get(p.id) || 0;
       const completeness = calculateProductCompleteness(p);
+
+      // Match active promotional offer
+      const matchingOffer = activeProductPromos.find(offer => {
+        const placement = offer.displayPlacement || 'ALL_PLACEMENTS';
+        if (placement !== 'ALL_PLACEMENTS' && placement !== 'BANNER_AND_PRODUCT') {
+          return false;
+        }
+
+        let pIds: string[] = [];
+        let cIds: string[] = [];
+        try {
+          if (offer.productIds) {
+            pIds = typeof offer.productIds === 'string' ? JSON.parse(offer.productIds) : offer.productIds;
+          }
+        } catch {}
+        try {
+          if (offer.categoryIds) {
+            cIds = typeof offer.categoryIds === 'string' ? JSON.parse(offer.categoryIds) : offer.categoryIds;
+          }
+        } catch {}
+
+        if (Array.isArray(pIds) && pIds.length > 0 && pIds.includes(p.id)) return true;
+        if (Array.isArray(cIds) && cIds.length > 0 && (cIds.includes(p.categoryId) || (p.subcategoryId && cIds.includes(p.subcategoryId)))) return true;
+        // Storewide discount (when no specific products or categories are targeted)
+        if ((!pIds || pIds.length === 0) && (!cIds || cIds.length === 0)) {
+          return true;
+        }
+        return false;
+      });
+
+      let promoPrice = p.price;
+      let activeDeal: any = null;
+
+      if (matchingOffer) {
+        if (matchingOffer.discountType === 'PERCENTAGE') {
+          let discountAmt = Math.round((p.price * matchingOffer.discountValue) / 100);
+          if (matchingOffer.maxDiscountAmount && matchingOffer.maxDiscountAmount > 0) {
+            discountAmt = Math.min(discountAmt, Number(matchingOffer.maxDiscountAmount));
+          }
+          promoPrice = Math.max(0, p.price - discountAmt);
+        } else if (matchingOffer.discountType === 'FIXED') {
+          promoPrice = Math.max(0, p.price - matchingOffer.discountValue);
+        } else if (matchingOffer.discountType === 'FLAT_PRICE') {
+          promoPrice = matchingOffer.discountValue;
+        }
+
+        activeDeal = {
+          id: matchingOffer.id,
+          name: matchingOffer.name,
+          offerType: matchingOffer.offerType,
+          badgeText: matchingOffer.badgeText || (matchingOffer.discountType === 'PERCENTAGE' ? `${matchingOffer.discountValue}% OFF` : 'SPECIAL DEAL'),
+          bannerText: matchingOffer.bannerText || null,
+          discountType: matchingOffer.discountType,
+          discountValue: matchingOffer.discountValue,
+          effectivePrice: promoPrice,
+          originalPrice: p.price,
+          endAt: matchingOffer.endAt,
+          startAt: matchingOffer.startAt,
+          displayPlacement: matchingOffer.displayPlacement
+        };
+      }
         
       return {
         ...p,
@@ -318,6 +512,13 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
         parentCategory: p.category?.parent?.name || null,
         parentCategorySlug: p.category?.parent?.slug || null,
         subcategory: p.subcategory || (p.category?.parent ? p.category?.name : null),
+        price: promoPrice,
+        originalPrice: p.price,
+        effectivePrice: promoPrice,
+        compareAtPrice: activeDeal ? p.price : (p.compareAtPrice || p.price),
+        discountPrice: activeDeal ? promoPrice : p.discountPrice,
+        activeDeal,
+        isDealActive: Boolean(activeDeal),
         rating: avgRating,
         reviews: reviewCount,
         totalUnitsSold,
@@ -327,6 +528,13 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
         currentVersion: p.version || 'v1.0.0'
       };
     });
+
+    // In-memory sort for derived aggregates if requested
+    if (sort === 'downloads-desc' || sort === 'most-downloads') {
+      mapped.sort((a, b) => b.totalDownloads - a.totalDownloads);
+    } else if (sort === 'sales-desc' || sort === 'most-sales') {
+      mapped.sort((a, b) => b.totalUnitsSold - a.totalUnitsSold);
+    }
 
     // Summary Statistics for the 4 Product Summary Cards
     const totalCount = await prisma.product.count();
@@ -338,6 +546,7 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     res.json({ 
       success: true, 
       data: mapped,
+      total: mapped.length,
       summary: {
         totalProducts: totalCount,
         draftProducts: draftCount,
@@ -353,12 +562,20 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 // GET /api/products/:id — Product Detail Hub (Supports both UUID and Slug)
 export const getProductById = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const rawParam = decodeURIComponent(req.params.id || '').trim();
+    const cleanSlugOrId = rawParam.replace(/^\/+|\/+$/g, '').split('/').pop() || rawParam;
+
     const product = await prisma.product.findFirst({
       where: {
         OR: [
-          { id },
-          { slug: id }
+          { id: rawParam },
+          { slug: rawParam },
+          { slug: cleanSlugOrId },
+          { productCode: rawParam },
+          { canonicalUrl: rawParam },
+          { canonicalUrl: `/${rawParam.replace(/^\/+/, '')}` },
+          { canonicalUrl: { endsWith: `/${cleanSlugOrId}`, mode: 'insensitive' } },
+          { slug: { equals: cleanSlugOrId, mode: 'insensitive' } }
         ]
       },
       include: { 
@@ -402,6 +619,77 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
 
     const completeness = calculateProductCompleteness(product);
 
+    // Fetch active promotional offer matching this product
+    const nowSingle = new Date();
+    const activeProductPromos = await prisma.offer.findMany({
+      where: {
+        status: 'ACTIVE',
+        offerType: { in: ['PRODUCT_DISCOUNT', 'FLASH_SALE', 'TIME_LIMITED', 'CATEGORY_DISCOUNT', 'STOREWIDE'] },
+        OR: [{ startAt: null }, { startAt: { lte: nowSingle } }],
+        AND: [{ OR: [{ endAt: null }, { endAt: { gte: nowSingle } }] }]
+      },
+      orderBy: { priority: 'asc' }
+    });
+
+    const matchingOffer = activeProductPromos.find(offer => {
+      const placement = offer.displayPlacement || 'ALL_PLACEMENTS';
+      if (placement !== 'ALL_PLACEMENTS' && placement !== 'BANNER_AND_PRODUCT') {
+        return false;
+      }
+
+      let pIds: string[] = [];
+      let cIds: string[] = [];
+      try {
+        if (offer.productIds) {
+          pIds = typeof offer.productIds === 'string' ? JSON.parse(offer.productIds) : offer.productIds;
+        }
+      } catch {}
+      try {
+        if (offer.categoryIds) {
+          cIds = typeof offer.categoryIds === 'string' ? JSON.parse(offer.categoryIds) : offer.categoryIds;
+        }
+      } catch {}
+
+      if (Array.isArray(pIds) && pIds.length > 0 && pIds.includes(product.id)) return true;
+      if (Array.isArray(cIds) && cIds.length > 0 && (cIds.includes(product.categoryId) || (product.subcategoryId && cIds.includes(product.subcategoryId)))) return true;
+      if ((!pIds || pIds.length === 0) && (!cIds || cIds.length === 0)) {
+        return true;
+      }
+      return false;
+    });
+
+    let promoPrice = product.price;
+    let activeDeal: any = null;
+
+    if (matchingOffer) {
+      if (matchingOffer.discountType === 'PERCENTAGE') {
+        let discountAmt = Math.round((product.price * matchingOffer.discountValue) / 100);
+        if (matchingOffer.maxDiscountAmount && matchingOffer.maxDiscountAmount > 0) {
+          discountAmt = Math.min(discountAmt, Number(matchingOffer.maxDiscountAmount));
+        }
+        promoPrice = Math.max(0, product.price - discountAmt);
+      } else if (matchingOffer.discountType === 'FIXED') {
+        promoPrice = Math.max(0, product.price - matchingOffer.discountValue);
+      } else if (matchingOffer.discountType === 'FLAT_PRICE') {
+        promoPrice = matchingOffer.discountValue;
+      }
+
+      activeDeal = {
+        id: matchingOffer.id,
+        name: matchingOffer.name,
+        offerType: matchingOffer.offerType,
+        badgeText: matchingOffer.badgeText || (matchingOffer.discountType === 'PERCENTAGE' ? `${matchingOffer.discountValue}% OFF` : 'SPECIAL DEAL'),
+        bannerText: matchingOffer.bannerText || null,
+        discountType: matchingOffer.discountType,
+        discountValue: matchingOffer.discountValue,
+        effectivePrice: promoPrice,
+        originalPrice: product.price,
+        endAt: matchingOffer.endAt,
+        startAt: matchingOffer.startAt,
+        displayPlacement: matchingOffer.displayPlacement
+      };
+    }
+
     res.json({ 
       success: true, 
       data: {
@@ -414,6 +702,13 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
         categorySlug: product.category?.slug || 'uncategorized',
         parentCategory: product.category?.parent?.name || null,
         subcategory: product.subcategory || (product.category?.parent ? product.category?.name : null),
+        price: promoPrice,
+        originalPrice: product.price,
+        effectivePrice: promoPrice,
+        compareAtPrice: activeDeal ? product.price : (product.compareAtPrice || product.price),
+        discountPrice: activeDeal ? promoPrice : product.discountPrice,
+        activeDeal,
+        isDealActive: Boolean(activeDeal),
         rating: avgRating,
         reviewsCount: reviewCount,
         completeness,
@@ -484,7 +779,9 @@ export const getRelatedProducts = async (req: Request, res: Response, next: Next
         rating: avg,
         reviews: revs.length,
         isFeatured: p.featured,
+        featured: p.featured,
         isBestSeller: p.bestSeller,
+        bestSeller: p.bestSeller,
         downloadLimit: p.downloadLimit,
         accessDurationDays: p.accessDurationDays,
         licenceType: p.licenceType
@@ -558,19 +855,36 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
     const { id } = req.params;
     const adminId = (req as any).user?.id || 'admin';
     
-    const existing = await prisma.product.findUnique({ where: { id } });
+    const existing = await prisma.product.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id }
+        ]
+      }
+    });
     if (!existing) return res.status(404).json({ success: false, message: 'Product not found' });
 
-    const data = await mapProductData(req.body, id);
+    const canonicalId = existing.id;
+
+    if (req.body.sortOrder !== undefined && Object.keys(req.body).length <= 2) {
+      const updated = await prisma.product.update({
+        where: { id: canonicalId },
+        data: { sortOrder: Number(req.body.sortOrder) }
+      });
+      return res.json({ success: true, data: updated });
+    }
+
+    const data = await mapProductData(req.body, canonicalId);
     data.updatedBy = adminId;
 
     const product = await prisma.product.update({
-      where: { id },
+      where: { id: canonicalId },
       data,
       include: { category: true }
     });
 
-    await logAdminAction(adminId, 'UPDATE_PRODUCT', 'Product', `Updated product "${product.name}" (${product.productCode || id})`);
+    await logAdminAction(adminId, 'UPDATE_PRODUCT', 'Product', `Updated product "${product.name}" (${product.productCode || canonicalId})`);
 
     res.json({ success: true, data: product });
   } catch (error) {
@@ -585,21 +899,37 @@ export const publishProduct = async (req: Request, res: Response, next: NextFunc
     const { id } = req.params;
     const adminId = (req as any).user?.id || 'admin';
 
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id }
+        ]
+      },
       include: { category: true }
     });
 
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
 
-    // Mandatory Publish Validation
+    // Mandatory Publish Validation Gate Across All 10 Stages
     const validationErrors: string[] = [];
-    if (!product.name || product.name.trim() === '') validationErrors.push('Product name is required.');
-    if (!product.slug || product.slug.trim() === '') validationErrors.push('Product slug is required.');
-    if (!product.categoryId) validationErrors.push('Category selection is required.');
-    if (product.price === undefined || product.price < 0) validationErrors.push('Valid price is required.');
     if (!product.googleDriveFileId || product.googleDriveFileId.trim() === '') {
-      validationErrors.push('Private Google Drive link or File ID must be connected before publishing.');
+      validationErrors.push('Stage 1: Google Drive link or File ID must be connected before publishing.');
+    }
+    if (!product.name || product.name.trim() === '') validationErrors.push('Stage 2: Product Name is required.');
+    if (!product.slug || product.slug.trim() === '') validationErrors.push('Stage 2: Product URL Slug is required.');
+    if (!product.shortDescription || product.shortDescription.trim() === '') validationErrors.push('Stage 2: Short Description is required.');
+    if (!product.description || product.description.trim() === '') validationErrors.push('Stage 2: Full Product Description is required.');
+    if (!product.categoryId) validationErrors.push('Stage 3: Category selection is required.');
+    if (product.placementType === 'SUBCATEGORY' && !product.subcategoryId) {
+      validationErrors.push('Stage 3: Subcategory selection is required when Subcategory placement is selected.');
+    }
+    if (product.price === undefined || product.price < 0) validationErrors.push('Stage 4: Valid selling price is required.');
+    if (!product.thumbnail || product.thumbnail.trim() === '') validationErrors.push('Stage 5: Product Cover Image is required.');
+    if (product.downloadLimit === undefined || product.downloadLimit === null) validationErrors.push('Stage 6: Download limit setting is required.');
+    if (product.accessDurationDays === undefined || product.accessDurationDays === null) validationErrors.push('Stage 6: Access duration setting is required.');
+    if (product.licenceKeyRequired && (!product.licenceType || product.licenceType.trim() === '')) {
+      validationErrors.push('Stage 7: Licence Type is required when Licence Key is enabled.');
     }
 
     if (validationErrors.length > 0) {
@@ -613,7 +943,7 @@ export const publishProduct = async (req: Request, res: Response, next: NextFunc
     const fallbackThumbnail = product.thumbnail || '/uploads/products/placeholder.png';
 
     const updated = await prisma.product.update({
-      where: { id },
+      where: { id: product.id },
       data: {
         status: 'PUBLISHED',
         thumbnail: fallbackThumbnail,
@@ -622,7 +952,7 @@ export const publishProduct = async (req: Request, res: Response, next: NextFunc
       }
     });
 
-    await logAdminAction(adminId, 'PUBLISH_PRODUCT', 'Product', `Published product "${updated.name}" (${updated.productCode || id})`);
+    await logAdminAction(adminId, 'PUBLISH_PRODUCT', 'Product', `Published product "${updated.name}" (${updated.productCode || product.id})`);
 
     res.json({ success: true, data: updated, message: 'Product published successfully!' });
   } catch (error) {
@@ -639,8 +969,13 @@ export const scheduleProduct = async (req: Request, res: Response, next: NextFun
 
     if (!scheduledDate) return res.status(400).json({ success: false, message: 'Scheduled date is required' });
 
+    const existing = await prisma.product.findFirst({
+      where: { OR: [{ id }, { slug: id }] }
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Product not found' });
+
     const updated = await prisma.product.update({
-      where: { id },
+      where: { id: existing.id },
       data: {
         status: 'SCHEDULED',
         publishScheduledAt: new Date(scheduledDate),
@@ -662,8 +997,13 @@ export const pauseProduct = async (req: Request, res: Response, next: NextFuncti
     const { id } = req.params;
     const adminId = (req as any).user?.id || 'admin';
 
+    const existing = await prisma.product.findFirst({
+      where: { OR: [{ id }, { slug: id }] }
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Product not found' });
+
     const updated = await prisma.product.update({
-      where: { id },
+      where: { id: existing.id },
       data: { status: 'PAUSED', updatedBy: adminId }
     });
 
@@ -681,17 +1021,24 @@ export const archiveProduct = async (req: Request, res: Response, next: NextFunc
     const { id } = req.params;
     const adminId = (req as any).user?.id || 'admin';
 
+    const existing = await prisma.product.findFirst({
+      where: { OR: [{ id }, { slug: id }] }
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const canonicalId = existing.id;
+
     // Impact Assessment Check
     const paidOrdersCount = await prisma.orderItem.count({
-      where: { productId: id, order: { paymentStatus: 'PAID' } }
+      where: { productId: canonicalId, order: { paymentStatus: 'PAID' } }
     });
     const activePurchasesCount = await prisma.purchase.count({
-      where: { productId: id, accessStatus: 'ACTIVE' }
+      where: { productId: canonicalId, accessStatus: 'ACTIVE' }
     });
-    const reviewsCount = await prisma.review.count({ where: { productId: id } });
+    const reviewsCount = await prisma.review.count({ where: { productId: canonicalId } });
 
     const updated = await prisma.product.update({
-      where: { id },
+      where: { id: canonicalId },
       data: { status: 'ARCHIVED', archivedAt: new Date(), updatedBy: adminId }
     });
 
@@ -1397,6 +1744,337 @@ export const searchProducts = async (req: Request, res: Response, next: NextFunc
         }
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/products/bulk-action — Multi-select bulk lifecycle operations
+export const bulkProductAction = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { action, ids, categoryId } = req.body;
+    const adminId = (req as any).user?.id || 'admin';
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Please select at least one product' });
+    }
+
+    const actionUpper = String(action || '').toUpperCase();
+    const affected: string[] = [];
+    const skipped: { id: string; reason: string }[] = [];
+
+    if (actionUpper === 'PUBLISH') {
+      for (const id of ids) {
+        const prod = await prisma.product.findUnique({ where: { id } });
+        if (!prod) {
+          skipped.push({ id, reason: 'Not found' });
+          continue;
+        }
+        if (!prod.name || !prod.slug || !prod.categoryId) {
+          skipped.push({ id, reason: 'Missing name, slug, or category' });
+          continue;
+        }
+        await prisma.product.update({
+          where: { id },
+          data: { status: 'PUBLISHED', publishedAt: new Date(), updatedBy: adminId }
+        });
+        await logAdminAction(adminId, 'BULK_PUBLISH', 'Product', `Bulk published product "${prod.name}" (${id})`);
+        affected.push(id);
+      }
+    } else if (actionUpper === 'DRAFT' || actionUpper === 'MOVE_TO_DRAFT') {
+      for (const id of ids) {
+        const prod = await prisma.product.findUnique({ where: { id } });
+        if (!prod) {
+          skipped.push({ id, reason: 'Not found' });
+          continue;
+        }
+        await prisma.product.update({
+          where: { id },
+          data: { status: 'DRAFT', updatedBy: adminId }
+        });
+        await logAdminAction(adminId, 'BULK_DRAFT', 'Product', `Bulk moved product "${prod.name}" (${id}) to Draft`);
+        affected.push(id);
+      }
+    } else if (actionUpper === 'ARCHIVE') {
+      for (const id of ids) {
+        const prod = await prisma.product.findUnique({ where: { id } });
+        if (!prod) {
+          skipped.push({ id, reason: 'Not found' });
+          continue;
+        }
+        await prisma.product.update({
+          where: { id },
+          data: { status: 'ARCHIVED', archivedAt: new Date(), updatedBy: adminId }
+        });
+        await logAdminAction(adminId, 'BULK_ARCHIVE', 'Product', `Bulk archived product "${prod.name}" (${id})`);
+        affected.push(id);
+      }
+    } else if (actionUpper === 'RESTORE') {
+      for (const id of ids) {
+        const prod = await prisma.product.findUnique({ where: { id } });
+        if (!prod) {
+          skipped.push({ id, reason: 'Not found' });
+          continue;
+        }
+        await prisma.product.update({
+          where: { id },
+          data: { status: 'DRAFT', archivedAt: null, updatedBy: adminId }
+        });
+        await logAdminAction(adminId, 'BULK_RESTORE', 'Product', `Bulk restored product "${prod.name}" (${id}) to Draft`);
+        affected.push(id);
+      }
+    } else if (actionUpper === 'DELETE') {
+      for (const id of ids) {
+        const prod = await prisma.product.findUnique({ where: { id } });
+        if (!prod) {
+          skipped.push({ id, reason: 'Not found' });
+          continue;
+        }
+        const ordersCount = await prisma.orderItem.count({ where: { productId: id } });
+        const purchasesCount = await prisma.purchase.count({ where: { productId: id } });
+        if (ordersCount > 0 || purchasesCount > 0) {
+          skipped.push({ id, reason: `Has ${ordersCount} order(s) & ${purchasesCount} customer entitlement(s). Archive instead.` });
+          continue;
+        }
+        await prisma.product.delete({ where: { id } });
+        await logAdminAction(adminId, 'BULK_DELETE', 'Product', `Bulk deleted product "${prod.name}" (${id})`);
+        affected.push(id);
+      }
+    } else if (actionUpper === 'CHANGE_CATEGORY') {
+      if (!categoryId) {
+        return res.status(400).json({ success: false, message: 'Category ID is required for CHANGE_CATEGORY' });
+      }
+      const category = await prisma.category.findUnique({ where: { id: categoryId } });
+      if (!category) {
+        return res.status(400).json({ success: false, message: 'Target category not found' });
+      }
+      for (const id of ids) {
+        await prisma.product.update({
+          where: { id },
+          data: { categoryId, updatedBy: adminId }
+        });
+        affected.push(id);
+      }
+      await logAdminAction(adminId, 'BULK_CATEGORY_CHANGE', 'Product', `Bulk changed category for ${affected.length} products to "${category.name}"`);
+    } else {
+      return res.status(400).json({ success: false, message: `Unsupported action: ${action}` });
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk ${actionUpper} completed: ${affected.length} succeeded${skipped.length > 0 ? `, ${skipped.length} skipped` : ''}.`,
+      affectedCount: affected.length,
+      affected,
+      skipped
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/products/:id/submit-review — Submit Product for Review
+export const submitProductForReview = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const adminId = (req as any).user?.id || 'admin';
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const updated = await prisma.product.update({
+      where: { id },
+      data: { status: 'PENDING_REVIEW', updatedBy: adminId }
+    });
+    await logAdminAction(adminId, 'SUBMIT_REVIEW', 'Product', `Submitted product "${updated.name}" for review`);
+    res.json({ success: true, data: updated, message: 'Product submitted for review.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/products/:id/approve — Approve Pending Product
+export const approveProduct = async (req: Request, res: Response, next: NextFunction) => {
+  return publishProduct(req, res, next);
+};
+
+// POST /api/products/:id/reject — Reject Pending Product with feedback
+export const rejectProduct = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = (req as any).user?.id || 'admin';
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const updated = await prisma.product.update({
+      where: { id },
+      data: { status: 'DRAFT', updatedBy: adminId }
+    });
+    await logAdminAction(adminId, 'REJECT_PRODUCT', 'Product', `Rejected product "${updated.name}". Reason: ${reason || 'Changes requested'}`);
+    res.json({ success: true, data: updated, message: 'Product returned to Draft with feedback.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/products/:id/orders — Real Customer Order History for Product
+export const getProductOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const orderItems = await prisma.orderItem.findMany({
+      where: { productId: id },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            customerId: true,
+            guestName: true,
+            guestEmail: true,
+            totalAmount: true,
+            currency: true,
+            orderStatus: true,
+            paymentStatus: true,
+            createdAt: true
+          }
+        }
+      },
+      orderBy: { id: 'desc' },
+      take: 50
+    });
+    res.json({ success: true, data: orderItems });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/products/:id/downloads — Real Download Activity for Product
+export const getProductDownloads = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const [purchases, downloadHistories, failures] = await Promise.all([
+      prisma.purchase.findMany({
+        where: { productId: id },
+        include: {
+          customer: { select: { id: true, name: true, email: true } },
+          order: { select: { id: true, orderNumber: true, createdAt: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      }),
+      prisma.downloadHistory.findMany({
+        where: { productId: id },
+        orderBy: { downloadedAt: 'desc' },
+        take: 50
+      }),
+      prisma.downloadFailure.findMany({
+        where: { productId: id },
+        orderBy: { attemptedAt: 'desc' },
+        take: 20
+      })
+    ]);
+    res.json({ success: true, data: { purchases, downloadHistories, failures } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/products/:id/licences — Real Licence Key Records for Product
+export const getProductLicences = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const licences = await prisma.licenceKey.findMany({
+      where: { productId: id },
+      include: {
+        order: { select: { id: true, orderNumber: true, guestEmail: true, createdAt: true } }
+      },
+      orderBy: { issuedAt: 'desc' },
+      take: 50
+    });
+    res.json({ success: true, data: licences });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/products/:id/analytics — Real Product Financial & Operational Analytics
+export const getProductAnalytics = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: {
+        reviews: { where: { status: 'APPROVED' } },
+        _count: { select: { orderItems: true, purchases: true, reviews: true } }
+      }
+    });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    // Aggregate paid orders
+    const paidItems = await prisma.orderItem.findMany({
+      where: {
+        productId: id,
+        order: { paymentStatus: 'PAID', orderStatus: { not: 'CANCELLED' } }
+      },
+      include: { order: true }
+    });
+
+    const totalRevenue = paidItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const totalUnitsSold = paidItems.reduce((sum, item) => sum + item.quantity, 0);
+
+    const downloadAgg = await prisma.purchase.aggregate({
+      where: { productId: id },
+      _sum: { downloadCount: true }
+    });
+
+    const reviewCount = product.reviews.length;
+    const avgRating = reviewCount > 0
+      ? product.reviews.reduce((acc, r) => acc + r.rating, 0) / reviewCount
+      : 5.0;
+
+    res.json({
+      success: true,
+      data: {
+        productId: id,
+        productName: product.name,
+        totalRevenue,
+        totalUnitsSold,
+        totalOrders: paidItems.length,
+        totalDownloads: downloadAgg._sum.downloadCount || 0,
+        averageRating: Number(avgRating.toFixed(1)),
+        reviewCount,
+        status: product.status,
+        price: product.price,
+        discountPrice: product.discountPrice
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/products/:id/audit-logs — Audit Log Records for Product
+export const getProductAuditLogs = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { details: { contains: id } },
+          { details: { contains: product.name } },
+          { details: { contains: product.productCode || 'NON_EXISTENT' } }
+        ]
+      },
+      include: {
+        admin: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 50
+    });
+
+    res.json({ success: true, data: logs });
   } catch (error) {
     next(error);
   }

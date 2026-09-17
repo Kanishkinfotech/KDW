@@ -1,253 +1,281 @@
-import { useState } from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Star, Heart, Eye, X, ArrowRight, CheckCircle2, ShieldCheck, Download } from 'lucide-react';
-import type { Product } from '../data/mockData';
+import { Plus, Check, Heart, ArrowUpRight } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useSettings } from '../context/SettingsContext';
 import { formatCurrency } from '../utils/currency';
-import SafeImage from './ui/SafeImage';
+import { toast } from 'react-hot-toast';
+import { getBundleEffectivePricing } from '../utils/bundlePricing';
+import { trackOfferView, trackOfferClick } from '../utils/offerTracking';
 
-interface ProductCardProps {
-  product: Product;
+export interface ProductCardProps {
+  product: any;
   viewMode?: 'grid' | 'list';
+  attached?: boolean;
 }
 
-export default function ProductCard({ product, viewMode = 'grid' }: ProductCardProps) {
-  const { addToCart, toggleWishlist, wishlist } = useStore();
-  const [showQuickView, setShowQuickView] = useState(false);
-  const isWishlisted = wishlist.some(item => item.id === product.id);
-  
-  // Handle price and discount logic based on schema
-  const currentPrice = product.price;
-  const discountAmount = (product as any).discountPrice || 0;
-  const originalPrice = (product as any).compareAtPrice || ((product as any).discountPrice ? currentPrice + discountAmount : currentPrice);
-  const hasDiscount = discountAmount > 0 || ((product as any).compareAtPrice && (product as any).compareAtPrice > currentPrice);
+export default function ProductCard({ product, viewMode = 'grid', attached = false }: ProductCardProps) {
+  const { settings } = useSettings();
+  const { cart, wishlist, addToCart, toggleWishlist } = useStore();
+  const isInCart = cart.some((item) => item.id === product.id);
+  const isWishlisted = wishlist.some((item) => item.id === product.id);
 
-  const rawRating = (product as any).rating;
-  const actualRating = typeof rawRating === 'number' && !isNaN(rawRating) && rawRating > 0
-    ? rawRating
-    : ((product as any).reviews && Array.isArray((product as any).reviews) && (product as any).reviews.length > 0
-      ? (product as any).reviews.reduce((sum: number, r: any) => sum + (r.rating || 0), 0) / (product as any).reviews.length
-      : 5.0);
+  const isBundle = product.type === 'bundle';
+  const bundlePricing = isBundle ? getBundleEffectivePricing(product) : null;
+  const activeDeal = product.activeDeal;
+  const isDealActive = Boolean(activeDeal && (!activeDeal.endAt || new Date(activeDeal.endAt) >= new Date()));
+  const dealOfferId = activeDeal?.offerId || bundlePricing?.activeDeal?.offerId;
+  const isAnyDealActive = isDealActive || Boolean(bundlePricing?.isDealActive);
+  const effectivePrice = bundlePricing 
+    ? bundlePricing.effectivePrice 
+    : (isDealActive ? activeDeal.effectivePrice : (Number(product.price) || 0));
+  const originalPrice = bundlePricing
+    ? bundlePricing.originalPrice
+    : (isDealActive ? activeDeal.originalPrice : (product.compareAtPrice || product.price));
 
-  const reviewCount = (product as any).reviews && Array.isArray((product as any).reviews)
-    ? (product as any).reviews.length
-    : (typeof (product as any).reviews === 'number' ? (product as any).reviews : 0);
+  useEffect(() => {
+    if (dealOfferId && isAnyDealActive) {
+      trackOfferView(dealOfferId);
+    }
+  }, [dealOfferId, isAnyDealActive]);
 
-  const productLink = `/products/${product.slug || product.id}`;
+  const handleDealClick = () => {
+    if (dealOfferId && isAnyDealActive) {
+      trackOfferClick(dealOfferId);
+    }
+  };
+
+  const productLink = product.canonicalUrl || (isBundle ? `/bundles/${product.slug || product.id}` : `/product/${product.slug || product.id}`);
   const categoryName = typeof product.category === 'object' 
-    ? (product.category as any)?.name 
-    : (product.category || 'Digital Asset');
+    ? (product.category?.name || 'Digital System') 
+    : (product.category || 'Digital System');
 
-  // =========================================================================
-  // LIST VIEW LAYOUT (Horizontal Row Card)
-  // =========================================================================
-  if (viewMode === 'list') {
-    return (
-      <div className="group bg-white rounded-2xl border border-slate-200/80 hover:border-primary/40 hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] transition-all duration-300 p-4 sm:p-5 flex flex-col sm:flex-row gap-5 items-start sm:items-center relative">
-        {/* Left: Thumbnail image */}
-        <Link to={productLink} className="relative w-full sm:w-48 aspect-[4/3] sm:aspect-square rounded-xl overflow-hidden bg-slate-100 shrink-0 block">
-          <SafeImage 
-            src={product.coverImage || (product as any).thumbnail || ''}
-            alt={product.title || (product as any).name || 'Product'} 
-            fallbackType="product"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
-          />
-          <span className="absolute top-2 left-2 px-2 py-0.5 bg-slate-900/90 text-white rounded text-[10px] font-black uppercase tracking-wider">
-            {categoryName}
-          </span>
-        </Link>
+  const isNew = product.isNew || product.badge === 'NEW';
+  const isFeatured = Boolean(product.featured || product.isFeatured || product.badge === 'FEATURED');
+  const isBestSeller = Boolean(product.bestSeller || product.isBestSeller || product.badge === 'BESTSELLER');
 
-        {/* Center: Details */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
-              {categoryName}
-            </span>
-            {product.isBestSeller && (
-              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/80 rounded-md text-[9px] font-black uppercase">
-                Best Seller
-              </span>
-            )}
-            {product.isHot && (
-              <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-md text-[9px] font-black uppercase">
-                Hot Deal
-              </span>
-            )}
-          </div>
+  // Determine cover gradient tone based on product title or category
+  const getCoverGradient = (title: string, category: string) => {
+    const t = `${title} ${category}`.toLowerCase();
+    if (t.includes('proposal') || t.includes('agreement') || t.includes('sales') || t.includes('amber')) {
+      return 'from-[#78350f] via-[#92400e] to-[#1c1917]'; // Deep amber noir
+    }
+    if (t.includes('social') || t.includes('marketing') || t.includes('creator') || t.includes('rose') || t.includes('media')) {
+      return 'from-[#831843] via-[#9d174d] to-[#1c1917]'; // Deep wine noir
+    }
+    if (t.includes('website') || t.includes('launch') || t.includes('ui') || t.includes('sky')) {
+      return 'from-[#075985] via-[#0369a1] to-[#0f172a]'; // Deep slate blue
+    }
+    if (t.includes('automation') || t.includes('lead') || t.includes('workflow') || t.includes('emerald')) {
+      return 'from-[#065f46] via-[#047857] to-[#022c22]'; // Deep pine noir
+    }
+    return 'from-[#3b0764] via-[#4c1d95] to-[#0f172a]'; // Deep royal violet
+  };
 
-          <Link to={productLink} className="block group-hover:text-primary transition-colors">
-            <h3 className="text-base sm:text-lg font-bold text-slate-900 line-clamp-1 mb-1">
-              {product.title || (product as any).name || 'Untitled Product'}
-            </h3>
-          </Link>
+  const gradientClass = getCoverGradient(product.title || product.name || '', categoryName);
 
-          <p className="text-slate-500 text-xs sm:text-sm line-clamp-2 mb-3 leading-relaxed">
-            {(product as any).shortDescription || product.description || 'Instant digital download with Google Drive access and lifetime updates.'}
-          </p>
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleDealClick();
+    if (isInCart) {
+      toast('Item is already in your selection', { icon: 'ℹ️' });
+      return;
+    }
+    addToCart({
+      ...product,
+      price: effectivePrice
+    });
+    toast.success(`Added "${product.title || product.name}" to selection`);
+  };
 
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            <div className="flex items-center gap-1 text-amber-500 font-bold">
-              <Star size={13} className="fill-amber-400 text-amber-400" />
-              <span className="text-slate-800">{actualRating.toFixed(1)}</span>
-              {reviewCount > 0 && <span className="text-slate-400 font-normal">({reviewCount})</span>}
-            </div>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-600 font-medium">Instant Digital Delivery</span>
-          </div>
-        </div>
+  const handleToggleWishlist = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleWishlist(product);
+  };
 
-        {/* Right: Pricing & CTA */}
-        <div className="w-full sm:w-auto flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 shrink-0">
-          <div className="text-left sm:text-right">
-            {currentPrice === 0 ? (
-              <span className="font-black text-sm text-emerald-600 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-md uppercase tracking-wider">
-                FREE
-              </span>
-            ) : (
-              <div>
-                <div className="text-xl font-black text-slate-900 tracking-tight">
-                  {formatCurrency(currentPrice)}
-                </div>
-                {hasDiscount && (
-                  <span className="text-xs text-slate-400 line-through font-medium block">
-                    {formatCurrency(originalPrice)}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                toggleWishlist(product);
-              }}
-              className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                isWishlisted 
-                  ? 'bg-rose-50 border-rose-200 text-rose-600' 
-                  : 'bg-white border-slate-200 text-slate-500 hover:text-rose-500 hover:border-rose-200'
-              }`}
-              title="Add to Wishlist"
-            >
-              <Heart size={16} className={isWishlisted ? "fill-current" : ""} />
-            </button>
-
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                addToCart(product);
-              }}
-              className="px-4 py-2.5 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold shadow-sm shadow-primary/25 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-            >
-              <ShoppingCart size={15} />
-              <span>Add to Cart</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // GRID VIEW LAYOUT (Apple-Style Minimal Card)
-  // =========================================================================
   return (
-    <div className="group bg-white flex flex-col h-full hover:shadow-[0_12px_36px_rgb(0,0,0,0.06)] hover:-translate-y-1 transition-all duration-300 rounded-2xl border border-slate-200/80 hover:border-primary/40 relative">
-      <Link to={productLink} className="relative aspect-[4/3] overflow-hidden bg-slate-100 block rounded-t-2xl">
-        <SafeImage 
-          src={product.coverImage || (product as any).thumbnail || ''}
-          alt={product.title || (product as any).name || 'Product'} 
-          fallbackType="product"
-          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
-        />
+    <div className="group flex flex-col justify-between overflow-hidden relative bg-white border border-[#e2e8f0] transition-all duration-300 hover:border-[#5b21b6] hover:shadow-xl select-none">
+      {/* Product Link wrapper */}
+      <Link to={productLink} onClick={handleDealClick} className="block relative">
         
-        {/* Subtle hover gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-        
-        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 pr-12">
-          <span className="px-2.5 py-1 bg-slate-900/90 backdrop-blur-sm rounded-lg text-[10px] uppercase tracking-wider font-black text-white shadow-xs">
-            {categoryName}
-          </span>
-          {product.isBestSeller && (
-            <span className="px-2 py-0.5 bg-amber-500 text-slate-950 rounded-md text-[9px] uppercase tracking-wider font-black shadow-xs">
-              Best Seller
-            </span>
+        {/* ======================================================== */}
+        {/* 1. UPPER VISUAL COVER MOTIF (Clean & Uncluttered)        */}
+        {/* ======================================================== */}
+        <div className={`relative h-52 sm:h-56 w-full overflow-hidden bg-gradient-to-br ${gradientClass} p-4 flex flex-col justify-between select-none`}>
+          {/* Product Image */}
+          {(product.coverImage || product.thumbnail || product.image) && (
+            <img 
+              src={product.coverImage || product.thumbnail || product.image} 
+              alt={product.title || product.name || 'Product Cover'} 
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108 z-0"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
           )}
-          {product.isHot && (
-            <span className="px-2 py-0.5 bg-gradient-to-r from-orange-500 to-rose-500 text-white rounded-md text-[9px] uppercase tracking-wider font-black shadow-xs">
-              Hot
-            </span>
-          )}
-        </div>
-        
-        <button 
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            toggleWishlist(product);
-          }}
-          className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-200 shadow-sm z-10 cursor-pointer ${
-            isWishlisted ? 'bg-rose-500 text-white' : 'bg-white/90 text-slate-700 hover:text-rose-500 hover:bg-white'
-          }`}
-          aria-label="Toggle wishlist"
-        >
-          <Heart size={15} className={isWishlisted ? "fill-current" : ""} />
-        </button>
-      </Link>
-      
-      <div className="p-4 flex flex-col flex-1 relative">
-        <Link to={productLink} className="flex-col group/link mb-3 block">
-          <h3 className="text-sm font-bold text-slate-900 mb-1 line-clamp-1 group-hover/link:text-primary transition-colors">
-            {product.title || (product as any).name || 'Untitled Product'}
-          </h3>
-          <p className="text-slate-500 text-xs line-clamp-1 font-medium">
-            {(product as any).shortDescription || product.category || 'Digital Resource'}
-          </p>
-        </Link>
-        
-        <div className="mt-auto">
-          <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-            <div>
-              {currentPrice === 0 ? (
-                <span className="font-black text-xs text-emerald-600 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                  FREE
+
+          {/* Dark gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/50 z-1 pointer-events-none" />
+
+          {/* Fine dotted grid */}
+          <div className="absolute inset-0 kdw-cover-grid opacity-25 pointer-events-none z-1" />
+
+          {/* Top badges & Wishlist Button */}
+          <div className="relative z-10 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="px-2 py-0.5 text-[9px] font-mono font-bold tracking-widest uppercase bg-black/80 text-white/90 border border-white/20 backdrop-blur-xs">
+                {product.type === 'bundle' ? 'KDW BUNDLE' : 'KDW SYSTEM'}
+              </span>
+              {isDealActive && (
+                <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider bg-gradient-to-r from-rose-600 to-amber-600 text-white border border-rose-400 shadow-xs flex items-center gap-0.5">
+                  ⚡ {activeDeal?.badgeText || 'SPECIAL DEAL'}
                 </span>
-              ) : (
-                <div className="flex items-baseline gap-1.5">
-                  <span className="font-black text-base text-slate-900">
-                    {formatCurrency(currentPrice)}
-                  </span>
-                  {hasDiscount && currentPrice > 0 && (
-                    <span className="text-[11px] text-slate-400 line-through font-medium">
-                      {formatCurrency(originalPrice)}
-                    </span>
-                  )}
-                </div>
+              )}
+              {isFeatured && (
+                <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 border border-amber-300 shadow-xs flex items-center gap-0.5">
+                  ★ FEATURED
+                </span>
+              )}
+              {isBestSeller && (
+                <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider bg-purple-600 text-white border border-purple-400">
+                  BEST SELLER
+                </span>
+              )}
+              {isNew && (
+                <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider bg-amber-400 text-amber-950">
+                  NEW
+                </span>
               )}
             </div>
-            
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded-md text-slate-700">
-                <Star className="fill-amber-400 text-amber-400" size={11} />
-                <span className="text-xs font-bold">{actualRating > 0 ? actualRating.toFixed(1) : '5.0'}</span>
+
+            {/* Quick Wishlist Button (Sharp Square) */}
+            <button
+              onClick={handleToggleWishlist}
+              className={`w-7 h-7 flex items-center justify-center backdrop-blur-md transition-colors border ${
+                isWishlisted
+                  ? 'bg-rose-600 text-white border-rose-500'
+                  : 'bg-black/60 text-white/80 hover:bg-black/90 hover:text-white border-white/20'
+              }`}
+              title={isWishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+              aria-label={isWishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+            >
+              <Heart className={`w-3.5 h-3.5 ${isWishlisted ? 'fill-white' : ''}`} />
+            </button>
+          </div>
+
+          {/* ======================================================== */}
+          {/* HOVER OVERLAY: REVEALS DESCRIPTION ON CURSOR MOVE        */}
+          {/* ======================================================== */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/85 to-black/60 p-5 flex flex-col justify-end opacity-0 group-hover:opacity-100 transition-all duration-300 ease-in-out z-20 pointer-events-none">
+            <div className="transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300 ease-out">
+              <span className="text-[9px] font-mono uppercase tracking-widest text-emerald-400 font-bold block mb-1.5">
+                DIGITAL OVERVIEW
+              </span>
+              <p className="text-xs text-slate-200 line-clamp-4 leading-relaxed font-sans mb-3">
+                {product.shortDescription || product.description || 'Production-grade templates, customizable assets, and modular foundations for independent teams.'}
+              </p>
+              <div className="pt-2 border-t border-white/15 flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <span className="text-slate-300">Commercial Licence</span>
+                <span className="text-white font-medium flex items-center gap-0.5">
+                  Explore <ArrowUpRight className="w-3 h-3 text-[#c4b5fd]" />
+                </span>
               </div>
-              <button 
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  addToCart(product);
-                }}
-                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-primary text-slate-700 hover:text-white flex items-center justify-center transition-all duration-200 shadow-xs focus-visible:outline-none hover:scale-105 active:scale-95 cursor-pointer"
-                aria-label={`Add to cart`}
-              >
-                <ShoppingCart size={14} />
-              </button>
             </div>
           </div>
         </div>
+
+        {/* ======================================================== */}
+        {/* 2. PRODUCT CARD BODY (Sharp Square Typography)           */}
+        {/* ======================================================== */}
+        <div className="p-5 space-y-2.5">
+          {/* Category eyebrow */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-mono font-bold tracking-[0.18em] uppercase text-[#5b21b6]">
+              {categoryName}
+            </span>
+            {product.type === 'bundle' && (
+              <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase bg-[#ede9fe] text-[#5b21b6] font-bold border border-[#ddd6fe]">
+                BUNDLE
+              </span>
+            )}
+          </div>
+
+          {/* Product Title */}
+          <h3 className="text-base font-serif font-bold text-[#171325] group-hover:text-[#5b21b6] transition-colors line-clamp-1 leading-snug">
+            {product.title || product.name}
+          </h3>
+
+          {/* Description Section with Smooth Hover Expand */}
+          <div className="relative">
+            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed font-sans transition-colors group-hover:text-slate-700">
+              {product.shortDescription || product.description || 'Production-grade templates, customizable assets, and modular foundations for independent teams.'}
+            </p>
+          </div>
+
+          {/* Square tags */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {(settings?.show_licence_summary ?? true) && (
+              <span className="px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-mono uppercase tracking-wider">
+                Commercial Licence
+              </span>
+            )}
+            {(settings?.show_download_format ?? true) && product.format && (
+              <span className="px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-mono uppercase tracking-wider">
+                {product.format}
+              </span>
+            )}
+            {(settings?.show_file_size ?? true) && product.fileSize && (
+              <span className="px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-mono uppercase tracking-wider">
+                {product.fileSize}
+              </span>
+            )}
+            {(settings?.show_version ?? true) && product.version && (
+              <span className="px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-mono uppercase tracking-wider">
+                v{product.version}
+              </span>
+            )}
+            <span className="px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-mono uppercase tracking-wider">
+              Instant Delivery
+            </span>
+          </div>
+        </div>
+      </Link>
+
+      {/* ======================================================== */}
+      {/* 3. BOTTOM ROW: PRICE & SQUARE ACTION BUTTON              */}
+      {/* ======================================================== */}
+      <div className="px-5 pb-5 pt-3 border-t border-[#e2e8f0] flex items-center justify-between mt-auto bg-slate-50/50">
+        <div>
+          <div className="flex items-baseline gap-1.5">
+            <div className="text-lg font-bold font-mono text-[#171325]">
+              {formatCurrency(Number(effectivePrice) || 0)}
+            </div>
+            {((bundlePricing && bundlePricing.originalPrice > bundlePricing.effectivePrice && bundlePricing.discount > 0) || (isDealActive && originalPrice > effectivePrice)) && (
+              <div className="text-xs text-slate-400 line-through font-mono">
+                {formatCurrency(originalPrice)}
+              </div>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono block">
+            {bundlePricing?.isDealActive || isDealActive ? `⚡ ${activeDeal?.name || 'Limited-time deal'}` : 'One-time purchase'}
+          </span>
+        </div>
+
+        {/* Sharp Square Plus Button */}
+        <button
+          onClick={handleAddToCart}
+          className={`w-9 h-9 flex items-center justify-center transition-all kdw-button-press ${
+            isInCart
+              ? 'bg-[#5b21b6] text-white'
+              : 'border border-[#cbd5e1] bg-white text-[#171325] hover:border-[#5b21b6] hover:bg-[#5b21b6] hover:text-white'
+          }`}
+          title={isInCart ? 'Already in selection' : 'Add to selection'}
+          aria-label={`Add ${product.title || product.name} to selection`}
+        >
+          {isInCart ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+        </button>
       </div>
     </div>
   );

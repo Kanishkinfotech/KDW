@@ -33,10 +33,16 @@ export const getCouponOverview = async (req: Request, res: Response, next: NextF
     const { range = '30d', from, to } = req.query;
     const { start, end } = parseDateRange(String(range), from as string, to as string);
 
-    const [coupons, redemptions, orders] = await Promise.all([
-      prisma.coupon.findMany({ where: { status: 'ACTIVE' } }),
+    const [coupons, redemptions, orders, totalPaidOrdersCount] = await Promise.all([
+      prisma.coupon.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: { createdAt: 'desc' }
+      }),
       prisma.couponRedemption.findMany({
-        where: { createdAt: { gte: start, lte: end } },
+        where: {
+          createdAt: { gte: start, lte: end },
+          status: 'REDEEMED'
+        },
         include: { order: true, coupon: true }
       }),
       prisma.order.findMany({
@@ -46,11 +52,17 @@ export const getCouponOverview = async (req: Request, res: Response, next: NextF
           createdAt: { gte: start, lte: end }
         },
         include: { refunds: true }
+      }),
+      prisma.order.count({
+        where: {
+          paymentStatus: { in: ['PAID', 'COMPLETED'] },
+          createdAt: { gte: start, lte: end }
+        }
       })
     ]);
 
     const activeCouponsCount = coupons.length;
-    const totalRedemptions = redemptions.filter(r => r.status === 'REDEEMED' || r.status === 'CONFIRMED').length;
+    const totalRedemptions = redemptions.length;
     const discountValue = orders.reduce((sum, o) => sum + (o.discountTotal || 0), 0);
     const grossSales = orders.reduce((sum, o) => sum + o.totalAmount + (o.discountTotal || 0), 0);
     const refundValue = orders.reduce((sum, o) => sum + (o.refundedAmount || 0), 0);
@@ -59,7 +71,26 @@ export const getCouponOverview = async (req: Request, res: Response, next: NextF
     const netSales = grossSales - discountValue - refundValue;
     const avgCouponAov = orders.length > 0 ? Math.round(orders.reduce((sum, o) => sum + o.totalAmount, 0) / orders.length) : 0;
 
-    const remainingRedemptions = coupons.reduce((sum, c) => sum + ((c.totalUsageLimit || 100) - c.usedCount), 0);
+    // Remaining redemptions calculation without fake 100 assumption
+    let limitedCouponsRemaining = 0;
+    let unlimitedCount = 0;
+    coupons.forEach(c => {
+      if (c.totalUsageLimit !== null && c.totalUsageLimit !== undefined) {
+        limitedCouponsRemaining += Math.max(0, c.totalUsageLimit - c.usedCount);
+      } else {
+        unlimitedCount += 1;
+      }
+    });
+
+    const remainingRedemptionsLabel = unlimitedCount > 0 && limitedCouponsRemaining === 0
+      ? 'Unlimited'
+      : unlimitedCount > 0
+        ? `${limitedCouponsRemaining} (+${unlimitedCount} unl.)`
+        : `${limitedCouponsRemaining}`;
+
+    const couponConversionRate = totalPaidOrdersCount > 0
+      ? parseFloat(((orders.length / totalPaidOrdersCount) * 100).toFixed(1))
+      : 0;
 
     res.json({
       success: true,
@@ -72,8 +103,9 @@ export const getCouponOverview = async (req: Request, res: Response, next: NextF
         netSales: Math.round(netSales),
         averageCouponOrderValue: avgCouponAov,
         refundValue: Math.round(refundValue),
-        couponConversionRate: 18.4,
-        remainingRedemptions: Math.max(0, remainingRedemptions)
+        couponConversionRate,
+        remainingRedemptions: limitedCouponsRemaining,
+        remainingRedemptionsLabel
       },
       coupons: coupons.map(c => ({
         id: c.id,
@@ -81,7 +113,7 @@ export const getCouponOverview = async (req: Request, res: Response, next: NextF
         discountType: c.discountType,
         discountValue: c.discountValue,
         usedCount: c.usedCount,
-        maxUses: c.totalUsageLimit || 'Unlimited',
+        maxUses: c.totalUsageLimit !== null && c.totalUsageLimit !== undefined ? c.totalUsageLimit : 'Unlimited',
         status: c.status
       }))
     });
@@ -91,7 +123,7 @@ export const getCouponOverview = async (req: Request, res: Response, next: NextF
 };
 
 // ============================================================================
-// 2. COUPON USAGE (6-STATE LIFECYCLE)
+// 2. COUPON USAGE (6-STATE LIFECYCLE) - Preserved for API backward compatibility
 // ============================================================================
 export const getCouponUsage = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -138,39 +170,70 @@ export const getCouponUsage = async (req: Request, res: Response, next: NextFunc
 };
 
 // ============================================================================
-// 3. COUPON REVENUE & PROFITABILITY
+// 3. COUPON REVENUE & PROFITABILITY (NET REVENUE IMPACT)
 // ============================================================================
 export const getCouponRevenue = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { range = '30d', from, to } = req.query;
+    const { start, end } = parseDateRange(String(range), from as string, to as string);
+
     const coupons = await prisma.coupon.findMany({
       include: {
         redemptions: {
+          where: {
+            createdAt: { gte: start, lte: end },
+            status: 'REDEEMED'
+          },
           include: { order: true }
         }
-      }
+      },
+      orderBy: { createdAt: 'desc' }
     });
+
+    let totalGross = 0;
+    let totalDiscounts = 0;
+    let totalRefunds = 0;
+    let totalNet = 0;
+    let totalUses = 0;
 
     const couponProfits = coupons.map(c => {
       const validRedemptions = c.redemptions.filter(r => r.order && (r.order.paymentStatus === 'PAID' || r.order.paymentStatus === 'COMPLETED'));
-      const gross = validRedemptions.reduce((sum, r) => sum + (r.order?.totalAmount || 0) + r.discountAmount, 0);
-      const discounts = validRedemptions.reduce((sum, r) => sum + r.discountAmount, 0);
+      const gross = validRedemptions.reduce((sum, r) => sum + (r.order?.totalAmount || 0) + (r.discountAmount || 0), 0);
+      const discounts = validRedemptions.reduce((sum, r) => sum + (r.discountAmount || 0), 0);
       const refunds = validRedemptions.reduce((sum, r) => sum + (r.order?.refundedAmount || 0), 0);
       const net = gross - discounts - refunds;
+
+      totalGross += gross;
+      totalDiscounts += discounts;
+      totalRefunds += refunds;
+      totalNet += net;
+      totalUses += validRedemptions.length;
 
       return {
         id: c.id,
         code: c.code,
+        discountType: c.discountType,
+        discountRate: c.discountValue,
+        status: c.status,
         uses: validRedemptions.length,
         discountValue: Math.round(discounts),
         grossSales: Math.round(gross),
         refunds: Math.round(refunds),
-        netSales: Math.round(net)
+        netSales: Math.round(net),
+        roi: discounts > 0 ? parseFloat((net / discounts).toFixed(2)) : (net > 0 ? parseFloat(net.toFixed(2)) : 0)
       };
     });
 
     res.json({
       success: true,
-      data: couponProfits.sort((a, b) => b.netSales - a.netSales)
+      summary: {
+        grossSales: Math.round(totalGross),
+        discountValue: Math.round(totalDiscounts),
+        refunds: Math.round(totalRefunds),
+        netSales: Math.round(totalNet),
+        totalUses
+      },
+      data: couponProfits.sort((a, b) => b.netSales - a.netSales || b.uses - a.uses)
     });
   } catch (error) {
     next(error);
@@ -178,13 +241,13 @@ export const getCouponRevenue = async (req: Request, res: Response, next: NextFu
 };
 
 // ============================================================================
-// 4. COUPON CUSTOMERS
+// 4. COUPON CUSTOMERS - Preserved for API backward compatibility
 // ============================================================================
 export const getCouponCustomers = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const redemptions = await prisma.couponRedemption.findMany({
       include: {
-        order: { include: { customer: { include: { orders: true } } }, }
+        order: { include: { customer: { include: { orders: true } } } }
       }
     });
 
@@ -202,14 +265,18 @@ export const getCouponCustomers = async (req: Request, res: Response, next: Next
       }
     });
 
+    const totalRedemptions = redemptions.length;
+    const repeatUsers = returningCustUses;
+    const secondPurchaseRate = totalRedemptions > 0 ? parseFloat(((repeatUsers / totalRedemptions) * 100).toFixed(1)) : 0;
+
     res.json({
       success: true,
       metrics: {
         newCustomerRedemptions: newCustUses,
         returningCustomerRedemptions: returningCustUses,
         guestRedemptions: guestUses,
-        secondPurchaseRateOfCouponUsers: 34.2,
-        couponCustomerRefundRate: 2.1
+        secondPurchaseRateOfCouponUsers: secondPurchaseRate,
+        couponCustomerRefundRate: 0
       }
     });
   } catch (error) {
@@ -218,28 +285,73 @@ export const getCouponCustomers = async (req: Request, res: Response, next: Next
 };
 
 // ============================================================================
-// 5. COUPON PRODUCTS
+// 5. COUPON PRODUCTS (DISCOUNTED PRODUCTS)
 // ============================================================================
 export const getCouponProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { range = '30d', from, to } = req.query;
+    const { start, end } = parseDateRange(String(range), from as string, to as string);
+
     const orders = await prisma.order.findMany({
-      where: { discountTotal: { gt: 0 }, paymentStatus: 'PAID' },
-      include: { items: { include: { product: true } } }
+      where: {
+        discountTotal: { gt: 0 },
+        paymentStatus: { in: ['PAID', 'COMPLETED'] },
+        createdAt: { gte: start, lte: end }
+      },
+      include: {
+        items: {
+          include: { product: true }
+        },
+        couponRedemptions: {
+          include: { coupon: true }
+        }
+      }
     });
 
-    const productMap: Record<string, { name: string; discountedOrdersCount: number; revenue: number }> = {};
+    const productMap: Record<string, {
+      productId: string;
+      name: string;
+      discountedOrdersCount: number;
+      unitsSold: number;
+      revenue: number;
+      usedCoupons: Set<string>;
+    }> = {};
+
     orders.forEach(o => {
+      const couponCodes = o.couponRedemptions.map(cr => cr.coupon?.code).filter(Boolean);
       o.items.forEach(it => {
+        const prodId = it.productId || it.product?.id || 'unknown';
         const name = it.product?.name || it.productName || 'Digital Product';
-        if (!productMap[name]) productMap[name] = { name, discountedOrdersCount: 0, revenue: 0 };
-        productMap[name].discountedOrdersCount += 1;
-        productMap[name].revenue += (it.totalAmount || (it.unitPrice * it.quantity));
+        if (!productMap[prodId]) {
+          productMap[prodId] = {
+            productId: prodId,
+            name,
+            discountedOrdersCount: 0,
+            unitsSold: 0,
+            revenue: 0,
+            usedCoupons: new Set()
+          };
+        }
+        productMap[prodId].discountedOrdersCount += 1;
+        productMap[prodId].unitsSold += (it.quantity || 1);
+        productMap[prodId].revenue += (it.totalAmount || (it.unitPrice * (it.quantity || 1)));
+        couponCodes.forEach(c => productMap[prodId].usedCoupons.add(c as string));
       });
     });
 
+    const productList = Object.values(productMap).map(p => ({
+      productId: p.productId,
+      name: p.name,
+      discountedOrdersCount: p.discountedOrdersCount,
+      unitsSold: p.unitsSold,
+      revenue: Math.round(p.revenue),
+      avgDiscountedPrice: p.unitsSold > 0 ? Math.round(p.revenue / p.unitsSold) : 0,
+      couponsApplied: Array.from(p.usedCoupons)
+    }));
+
     res.json({
       success: true,
-      products: Object.values(productMap).sort((a, b) => b.discountedOrdersCount - a.discountedOrdersCount)
+      products: productList.sort((a, b) => b.discountedOrdersCount - a.discountedOrdersCount || b.revenue - a.revenue)
     });
   } catch (error) {
     next(error);
@@ -247,7 +359,7 @@ export const getCouponProducts = async (req: Request, res: Response, next: NextF
 };
 
 // ============================================================================
-// 6. COUPON ABUSE DETECTION
+// 6. COUPON ABUSE DETECTION - Preserved for API backward compatibility
 // ============================================================================
 export const getCouponAbuse = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -261,8 +373,8 @@ export const getCouponAbuse = async (req: Request, res: Response, next: NextFunc
       logs: abuseLogs,
       kpis: {
         totalIncidents: abuseLogs.length,
-        flaggedAccounts: 2,
-        preventedDiscountLoss: 14500
+        flaggedAccounts: 0,
+        preventedDiscountLoss: 0
       }
     });
   } catch (error) {

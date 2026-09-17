@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import { dashboardBroadcaster } from '../../services/dashboardBroadcastService';
 
 const prisma = new PrismaClient();
 
@@ -241,25 +242,88 @@ export const requestFinanceReview = async (req: Request, res: Response, next: Ne
         }
       });
 
+      let resolvedOrderId = ticket.orderId;
+      if (!resolvedOrderId && (ticket.userId || ticket.customerEmail)) {
+        const foundOrder = await tx.order.findFirst({
+          where: {
+            OR: [
+              ...(ticket.userId ? [{ customerId: ticket.userId }] : []),
+              ...(ticket.customerEmail ? [{ customer: { email: ticket.customerEmail } }, { guestEmail: ticket.customerEmail }] : [])
+            ]
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (foundOrder) {
+          resolvedOrderId = foundOrder.id;
+          await tx.supportTicket.update({
+            where: { id: ticketId },
+            data: { orderId: foundOrder.id }
+          });
+        }
+      }
+
+      if (resolvedOrderId) {
+        const existing = await tx.refund.findFirst({
+          where: { orderId: resolvedOrderId }
+        });
+
+        if (existing) {
+          await tx.refund.update({
+            where: { id: existing.id },
+            data: { status: 'PENDING_APPROVAL' }
+          });
+        } else {
+          const ord = await tx.order.findUnique({
+            where: { id: resolvedOrderId },
+            include: { payments: true }
+          });
+          if (ord) {
+            const capturedPayment = ord.payments.find(p => p.status === 'CAPTURED' || p.status === 'PARTIALLY_REFUNDED');
+            await tx.refund.create({
+              data: {
+                orderId: ord.id,
+                paymentId: capturedPayment?.id || ord.payments[0]?.id || null,
+                amount: refundAmount ? parseFloat(refundAmount) : ord.totalAmount,
+                currency: 'INR',
+                reason: ticket.description || ticket.subject,
+                status: 'PENDING_APPROVAL',
+                requestedBy: ticket.customerName || 'Customer',
+                accessRevoked: false,
+                licenceRevoked: false,
+                submittedAt: new Date()
+              }
+            });
+          }
+        }
+      }
+
       await tx.supportTicketEvent.create({
         data: {
           ticketId,
           eventType: 'REFUND_REQUESTED',
-          actorId: authUser.id,
-          actorName: authUser.name,
-          actorRole: authUser.role,
+          actorId: authUser?.id || null,
+          actorName: authUser?.name || 'Support Staff',
+          actorRole: authUser?.role || 'SUPPORT_AGENT',
           oldValue: ticket.status,
           newValue: 'PENDING_FINANCE',
-          reason: reason || `Submitted for Finance Manager review (Amount: $${refundAmount || 'Full'})`
+          reason: reason || `Submitted for Finance Manager review (Amount: ₹${refundAmount || 'Full'})`
         }
       });
 
       return t;
     });
 
+    try {
+      dashboardBroadcaster.broadcast('refund.requested', {
+        ticketId,
+        orderId: ticket.orderId,
+        status: 'PENDING_APPROVAL'
+      });
+    } catch {}
+
     res.json({
       success: true,
-      message: 'Refund request escalated to Finance Queue for authorized review.',
+      message: 'Refund request accepted and escalated to Payment Refunds queue for finance payout approval.',
       ticket: updated
     });
   } catch (error) {
@@ -307,7 +371,7 @@ export const approveRefund = async (req: Request, res: Response, next: NextFunct
           amount: refundValue,
           reason: reason || 'Approved via Support Ticket #' + ticket.ticketNumber,
           status: 'COMPLETED',
-          processedAt: new Date()
+          completedAt: new Date()
         }
       });
 
@@ -358,12 +422,12 @@ export const rejectRefund = async (req: Request, res: Response, next: NextFuncti
     const authUser = (req as any).user;
 
     const userRole = String(authUser?.role || '').toUpperCase();
-    const canReject = userRole === 'SUPER_ADMIN' || userRole === 'FINANCE_MANAGER';
+    const canReject = ['SUPER_ADMIN', 'ADMIN', 'FINANCE_MANAGER', 'STAFF', 'SUPPORT_AGENT', 'STORE_MANAGER'].includes(userRole);
 
     if (!canReject) {
       return res.status(403).json({
         success: false,
-        message: 'Unauthorized: Only Finance Managers or Super Admins can reject refunds.'
+        message: 'Unauthorized: Only authorized staff can reject refunds.'
       });
     }
 
@@ -382,25 +446,61 @@ export const rejectRefund = async (req: Request, res: Response, next: NextFuncti
     await prisma.$transaction(async (tx) => {
       await tx.supportTicket.update({
         where: { id: ticketId },
-        data: { status: 'OPEN' }
+        data: { status: 'CLOSED', closedAt: new Date() }
       });
+
+      if (ticket.orderId) {
+        await tx.refund.updateMany({
+          where: { orderId: ticket.orderId, status: { in: ['REQUESTED', 'PENDING_APPROVAL'] } },
+          data: {
+            status: 'REJECTED',
+            rejectionReason: String(reason).trim(),
+            rejectedBy: authUser?.name || 'Support Staff',
+            completedAt: new Date()
+          }
+        });
+      }
 
       await tx.supportTicketEvent.create({
         data: {
           ticketId,
           eventType: 'REFUND_REJECTED',
-          actorId: authUser.id,
-          actorName: authUser.name,
-          actorRole: authUser.role,
+          actorId: authUser?.id || null,
+          actorName: authUser?.name || 'Support Staff',
+          actorRole: authUser?.role || 'SUPPORT_AGENT',
           newValue: 'Refund Rejected',
           reason: String(reason).trim()
         }
       });
     });
 
+    try {
+      if (ticket.userId) {
+        await prisma.notification.create({
+          data: {
+            userId: ticket.userId,
+            title: `Refund Request Declined`,
+            message: `Your refund request was declined. Reason: ${String(reason).trim()}`,
+            type: 'Refund',
+            link: '/dashboard'
+          }
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[SupportActions] Failed to notify customer:', notifErr);
+    }
+
+    try {
+      dashboardBroadcaster.broadcast('refund.processed', {
+        ticketId,
+        orderId: ticket.orderId,
+        status: 'REJECTED'
+      });
+    } catch {}
+
     res.json({
       success: true,
-      message: 'Refund rejected and documented with reason.'
+      message: 'Refund rejected and customer notified with reason.'
     });
   } catch (error) {
     next(error);

@@ -49,6 +49,10 @@ export default function StoreSettingsPage() {
       if (json.success) {
         toast.success('Store settings saved successfully');
         setInitialSettings(settings);
+        window.dispatchEvent(new CustomEvent('kdw:settings-updated'));
+        try {
+          localStorage.setItem('kdw_settings_updated', Date.now().toString());
+        } catch (e) {}
       } else {
         toast.error(json.message || 'Failed to save settings');
       }

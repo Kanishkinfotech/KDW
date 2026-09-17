@@ -28,9 +28,9 @@ export const getCheckoutSettings = async (req: Request, res: Response, next: Nex
       send_payment_failure_email: settings.send_payment_failure_email ?? true,
 
       // Terms & Policy Acceptance at Checkout
-      require_terms_acceptance: settings.require_terms_acceptance ?? true,
-      require_refund_policy_acceptance: settings.require_refund_policy_acceptance ?? true,
-      require_privacy_acceptance: settings.require_privacy_acceptance ?? true
+      require_terms_acceptance: settings.require_terms_acceptance ?? false,
+      require_refund_policy_acceptance: settings.require_refund_policy_acceptance ?? false,
+      require_privacy_acceptance: settings.require_privacy_acceptance ?? false
     };
 
     res.json({ success: true, data: response });

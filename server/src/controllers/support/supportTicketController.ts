@@ -143,13 +143,13 @@ export const getTicketById = async (req: Request, res: Response, next: NextFunct
         },
         order: {
           include: {
-            orderItems: {
+            items: {
               include: { product: { select: { id: true, name: true, version: true } } }
             },
             payments: {
               take: 3,
               orderBy: { createdAt: 'desc' },
-              select: { id: true, paymentMethod: true, paymentStatus: true, razorpayPaymentId: true, amount: true, currency: true }
+              select: { id: true, method: true, status: true, razorpayPaymentId: true, amount: true, currency: true }
             },
             refunds: true
           }
@@ -358,6 +358,18 @@ export const replyTicket = async (req: Request, res: Response, next: NextFunctio
     );
 
     const senderType = isStaff ? 'AGENT' : 'CUSTOMER';
+    let senderName = authUser?.name || (isStaff ? 'Support Staff' : (ticket.customerName || 'Customer'));
+    let senderEmail = authUser?.email || (ticket.customerEmail || '');
+
+    if (!isStaff && !authUser) {
+      const guestEmail = String(req.body.email || '').trim().toLowerCase();
+      if (ticket.customerEmail && guestEmail && String(ticket.customerEmail).toLowerCase() !== guestEmail) {
+        return res.status(403).json({ success: false, message: 'Email address does not match this ticket record.' });
+      }
+      senderName = String(req.body.name || ticket.customerName || 'Customer').trim();
+      senderEmail = guestEmail || ticket.customerEmail || '';
+    }
+
     const now = new Date();
 
     const createdMsg = await prisma.$transaction(async (tx) => {
@@ -367,8 +379,8 @@ export const replyTicket = async (req: Request, res: Response, next: NextFunctio
           ticketId: ticket.id,
           senderId: authUser?.id || null,
           senderType,
-          senderName: authUser?.name || 'Support Staff',
-          senderEmail: authUser?.email || '',
+          senderName,
+          senderEmail,
           message: String(message).trim(),
           visibility: 'CUSTOMER',
           channel: 'PORTAL',
@@ -403,9 +415,13 @@ export const replyTicket = async (req: Request, res: Response, next: NextFunctio
         }
       } else {
         // Customer replied, reopen or move to IN_PROGRESS
-        if (ticket.status === 'WAITING_FOR_CUSTOMER' || ticket.status === 'RESOLVED') {
-          updateData.status = 'IN_PROGRESS';
-        }
+        updateData.status = 'IN_PROGRESS';
+
+        // Also update linked CustomerRequest to UNDER_REVIEW
+        await tx.customerRequest.updateMany({
+          where: { ticketId: ticket.id },
+          data: { status: 'UNDER_REVIEW' }
+        });
       }
 
       await tx.supportTicket.update({
@@ -757,7 +773,10 @@ export const escalateTicket = async (req: Request, res: Response, next: NextFunc
 export const bulkUpdateTickets = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { ticketIds, action, value, reason } = req.body;
-    const authUser = (req as any).user;
+    const authUser = (req as any).user || { id: 'admin', name: 'Staff Admin', role: 'ADMIN' };
+    const actorId = authUser.id || 'admin';
+    const actorName = authUser.name || 'Staff Admin';
+    const actorRole = authUser.role || 'ADMIN';
 
     if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
       return res.status(400).json({ success: false, message: 'No tickets selected' });
@@ -775,9 +794,9 @@ export const bulkUpdateTickets = async (req: Request, res: Response, next: NextF
             data: {
               ticketId: tid,
               eventType: 'STATUS_CHANGE',
-              actorId: authUser.id,
-              actorName: authUser.name,
-              actorRole: authUser.role,
+              actorId,
+              actorName,
+              actorRole,
               newValue: value,
               reason: reason || 'Bulk status change'
             }
@@ -796,9 +815,9 @@ export const bulkUpdateTickets = async (req: Request, res: Response, next: NextF
             data: {
               ticketId: tid,
               eventType: 'ASSIGNED',
-              actorId: authUser.id,
-              actorName: authUser.name,
-              actorRole: authUser.role,
+              actorId,
+              actorName,
+              actorRole,
               newValue: value || 'Unassigned',
               reason: reason || 'Bulk assignment'
             }
@@ -817,9 +836,9 @@ export const bulkUpdateTickets = async (req: Request, res: Response, next: NextF
             data: {
               ticketId: tid,
               eventType: 'PRIORITY_CHANGE',
-              actorId: authUser.id,
-              actorName: authUser.name,
-              actorRole: authUser.role,
+              actorId,
+              actorName,
+              actorRole,
               newValue: value,
               reason: reason || 'Bulk priority change'
             }
@@ -836,3 +855,38 @@ export const bulkUpdateTickets = async (req: Request, res: Response, next: NextF
     next(error);
   }
 };
+
+// 11. Delete Ticket
+export const deleteTicket = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const authUser = (req as any).user;
+
+    const userRole = String(authUser?.role || '').toUpperCase();
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(userRole)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized: Only Admins can delete tickets.' });
+    }
+
+    const ticket = await prisma.supportTicket.findUnique({ where: { id } });
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: 'Ticket not found.' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.supportMessage.deleteMany({ where: { ticketId: id } });
+      await tx.supportTicketEvent.deleteMany({ where: { ticketId: id } });
+      await tx.supportSlaRecord.deleteMany({ where: { ticketId: id } });
+      await tx.supportSatisfaction.deleteMany({ where: { ticketId: id } });
+      await tx.customerRequest.deleteMany({ where: { ticketId: id } });
+      await tx.supportTicket.delete({ where: { id } });
+    });
+
+    res.json({
+      success: true,
+      message: `Ticket #${ticket.ticketNumber} deleted successfully.`
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

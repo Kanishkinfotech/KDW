@@ -95,6 +95,10 @@ export const createBlog = async (req: Request, res: Response, next: NextFunction
       contentJson,
       categoryId,
       categoryName,
+      authorName,
+      readingTimeMinutes,
+      status = 'DRAFT',
+      isFeatured = false,
       tags,
       coverImage,
       relatedProductIds,
@@ -122,7 +126,8 @@ export const createBlog = async (req: Request, res: Response, next: NextFunction
       return res.status(400).json({ success: false, message: `An article with slug "/${cleanSlug}" already exists.` });
     }
 
-    const readingTime = calculateReadingTime(contentJson);
+    const readingTime = readingTimeMinutes ? parseInt(readingTimeMinutes, 10) || 5 : calculateReadingTime(contentJson);
+    const isPublished = status === 'PUBLISHED';
 
     const post = await prisma.blogPost.create({
       data: {
@@ -131,13 +136,17 @@ export const createBlog = async (req: Request, res: Response, next: NextFunction
         excerpt,
         contentJson: contentJson || [],
         authorId: actor.id,
-        authorName: actor.name,
+        authorName: authorName || actor.name,
         categoryId: categoryId || null,
         categoryName: categoryName || null,
         tags: tags || [],
         coverImage,
         readingTimeMinutes: readingTime,
-        status: 'DRAFT',
+        status: isPublished ? 'PUBLISHED' : 'DRAFT',
+        publishedAt: isPublished ? new Date() : null,
+        reviewerId: isPublished ? actor.id : null,
+        reviewerName: isPublished ? actor.name : null,
+        isFeatured: Boolean(isFeatured),
         relatedProductIds: relatedProductIds || [],
         relatedCategoryIds: relatedCategoryIds || [],
         relatedBundleIds: relatedBundleIds || [],
@@ -163,12 +172,16 @@ export const createBlog = async (req: Request, res: Response, next: NextFunction
         contentSnapshot: post,
         changedById: actor.id,
         changedByName: actor.name,
-        changeSummary: 'Initial Article Draft Created',
-        statusSnapshot: 'DRAFT'
+        changeSummary: isPublished ? 'Article Published Live' : 'Initial Article Draft Created',
+        statusSnapshot: post.status
       }
     });
 
-    res.status(201).json({ success: true, post, message: 'Blog draft created successfully.' });
+    res.status(201).json({
+      success: true,
+      post,
+      message: isPublished ? 'Article published live to storefront.' : 'Blog draft created successfully.'
+    });
   } catch (error) {
     next(error);
   }
@@ -189,6 +202,10 @@ export const updateBlog = async (req: Request, res: Response, next: NextFunction
       contentJson,
       categoryId,
       categoryName,
+      authorName,
+      readingTimeMinutes,
+      isFeatured,
+      status,
       tags,
       coverImage,
       relatedProductIds,
@@ -232,7 +249,11 @@ export const updateBlog = async (req: Request, res: Response, next: NextFunction
       }
     }
 
-    const readingTime = contentJson ? calculateReadingTime(contentJson) : existing.readingTimeMinutes;
+    const calculatedReadingTime = contentJson ? calculateReadingTime(contentJson) : existing.readingTimeMinutes;
+    const finalReadingTime = readingTimeMinutes !== undefined ? parseInt(readingTimeMinutes, 10) || 5 : calculatedReadingTime;
+
+    const nextStatus = status !== undefined ? status : (existing.status === 'PUBLISHED' ? 'UPDATED' : existing.status);
+    const shouldSetPublishedAt = nextStatus === 'PUBLISHED' && !existing.publishedAt;
 
     const updated = await prisma.blogPost.update({
       where: { id },
@@ -243,9 +264,11 @@ export const updateBlog = async (req: Request, res: Response, next: NextFunction
         ...(contentJson !== undefined && { contentJson }),
         ...(categoryId !== undefined && { categoryId }),
         ...(categoryName !== undefined && { categoryName }),
+        ...(authorName !== undefined && { authorName }),
+        ...(isFeatured !== undefined && { isFeatured: Boolean(isFeatured) }),
+        readingTimeMinutes: finalReadingTime,
         ...(tags !== undefined && { tags }),
         ...(coverImage !== undefined && { coverImage }),
-        readingTimeMinutes: readingTime,
         ...(relatedProductIds !== undefined && { relatedProductIds }),
         ...(relatedCategoryIds !== undefined && { relatedCategoryIds }),
         ...(relatedBundleIds !== undefined && { relatedBundleIds }),
@@ -259,7 +282,8 @@ export const updateBlog = async (req: Request, res: Response, next: NextFunction
         ...(ogImage !== undefined && { ogImage }),
         ...(noindex !== undefined && { noindex: Boolean(noindex) }),
         ...(includeInSitemap !== undefined && { includeInSitemap: Boolean(includeInSitemap) }),
-        status: existing.status === 'PUBLISHED' ? 'UPDATED' : existing.status
+        status: nextStatus,
+        ...(shouldSetPublishedAt && { publishedAt: new Date(), reviewerId: actor.id, reviewerName: actor.name })
       }
     });
 
@@ -278,6 +302,27 @@ export const updateBlog = async (req: Request, res: Response, next: NextFunction
     });
 
     res.json({ success: true, post: updated, message: 'Article updated successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteBlog = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const existing = await prisma.blogPost.findUnique({ where: { id } });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Article not found.' });
+    }
+
+    await prisma.contentRevision.deleteMany({
+      where: { contentType: 'BLOG', contentId: id }
+    });
+
+    await prisma.blogPost.delete({ where: { id } });
+
+    res.json({ success: true, message: 'Article deleted successfully.' });
   } catch (error) {
     next(error);
   }

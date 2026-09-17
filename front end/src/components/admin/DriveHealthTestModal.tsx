@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, HardDrive, CheckCircle2, AlertCircle, RefreshCw, Wrench } from 'lucide-react';
+import { authFetch } from '../../api/apiClient';
 
 interface DriveHealthTestModalProps {
   isOpen: boolean;
@@ -26,7 +27,7 @@ export default function DriveHealthTestModal({
     setTesting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/downloads/product-files/${record.id}/test`, {
+      const res = await authFetch(`/api/admin/downloads/product-files/${record.id}/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -50,7 +51,7 @@ export default function DriveHealthTestModal({
     setRepairing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/downloads/product-files/${record.id}/repair`, {
+      const res = await authFetch(`/api/admin/downloads/product-files/${record.id}/repair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newDriveFileId: newDriveId.trim() })

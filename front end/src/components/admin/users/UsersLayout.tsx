@@ -23,36 +23,28 @@ interface UsersLayoutProps {
 
 export const UsersLayout: React.FC<UsersLayoutProps> = ({ children, onRefresh, isLoading }) => {
   const navItems = [
-    { name: 'Admin Users', href: '/admin/users/admin-users', icon: Users },
-    { name: 'Staff Profiles', href: '/admin/users/staff', icon: ShieldCheck },
-    { name: 'Roles', href: '/admin/users/roles', icon: KeyRound },
-    { name: 'Permissions', href: '/admin/users/permissions', icon: Lock },
-    { name: 'Teams & Depts', href: '/admin/users/teams', icon: Layers },
-    { name: 'Invitations', href: '/admin/users/invitations', icon: Mail },
-    { name: 'Active Sessions', href: '/admin/users/sessions', icon: Smartphone },
-    { name: 'Activity Logs', href: '/admin/users/activity-logs', icon: Activity },
-    { name: 'Access Reviews', href: '/admin/users/access-reviews', icon: UserCheck },
-    { name: 'Suspended Users', href: '/admin/users/suspended', icon: UserX },
-    { name: 'User Settings', href: '/admin/users/settings', icon: Settings }
+    { name: 'Admin Users & Staff', href: '/admin/users/admin-users', icon: Users },
+    { name: 'Roles & Permissions', href: '/admin/users/roles', icon: KeyRound },
+    { name: 'Activity Logs', href: '/admin/users/activity-logs', icon: Activity }
   ];
 
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50 border border-sky-200 rounded-2xl p-6 shadow-xs text-slate-900">
         <div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
               RBAC & Zero-Trust Governance Active
             </span>
-            <span className="text-xs text-slate-400">Least-Privilege Scopes Enforced</span>
+            <span className="text-xs text-slate-500 font-medium">Least-Privilege Scopes Enforced</span>
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight mt-1">
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
             Users, Staff & Access Governance
           </h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            Admin personnel, staff profiles, 10 default roles, granular scoped permissions, invitations, and active sessions.
+          <p className="text-sm text-slate-600 mt-0.5">
+            Admin personnel, staff directory, 3 roles (Super Admin, Admin, Inventory Manager), and audit logging.
           </p>
         </div>
 
@@ -60,7 +52,7 @@ export const UsersLayout: React.FC<UsersLayoutProps> = ({ children, onRefresh, i
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className="self-start md:self-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition border border-slate-700 flex items-center gap-2"
+            className="self-start md:self-auto px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition border border-slate-200 shadow-2xs flex items-center gap-2 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-blue-400' : ''}`} />
             Refresh Directory

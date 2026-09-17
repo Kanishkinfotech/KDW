@@ -43,8 +43,7 @@ model User {
   masterCustomerId   String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
-
-  roleDetails        Role?     @relation(fields: [role], references: [name])
+  permissions        String[]  @default([])
 
   orders                Order[]
   purchases             Purchase[]
@@ -94,7 +93,6 @@ model Role {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  users              User[]
   permissionMappings RolePermissionMapping[]
 }
 
@@ -146,7 +144,9 @@ model Category {
 model Product {
   id                  String    @id @default(uuid())
   productCode         String?
+  placementType       String?   @default("PRIMARY") // PRIMARY, SUBCATEGORY
   categoryId          String
+  subcategoryId       String?
   subcategory         String?
   name                String
   slug                String    @unique
@@ -177,6 +177,7 @@ model Product {
   downloadLimit       Int?      @default(5)
   accessDurationDays  Int?      @default(365)
   tokenDurationMinutes Int?     @default(60)
+  maxActiveTokens     Int?      @default(3)
   refundPolicy        String?   @default("REVOKE_ACCESS")
   licenceType         String?   @default("COMMERCIAL")
   licenceTerms        String?
@@ -208,6 +209,7 @@ model Product {
   status              String    @default("ACTIVE")
   featured            Boolean   @default(false)
   bestSeller          Boolean   @default(false)
+  sortOrder           Int?      @default(0)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -301,6 +303,7 @@ model Order {
   downloadLogs          DownloadLog[]
   downloadFailures      DownloadFailure[]
   guestClaims           GuestOrderClaim[]
+  offerApplications     OfferApplication[]
 
   @@index([orderNumber])
   @@index([customerId])
@@ -523,7 +526,9 @@ model GatewaySetting {
   id                      String    @id @default(uuid())
   gatewayName             String    @unique @default("RAZORPAY")
   keyId                   String?
+  keySecret               String?
   keySecretMasked         String?
+  webhookSecret           String?
   webhookSecretMasked     String?
   currency                String    @default("INR")
   captureMode             String    @default("AUTO") // AUTO, MANUAL
@@ -819,6 +824,8 @@ model Offer {
   priority          Int         @default(1) // 1=Product Sale, 2=Bundle, 3=Coupon, 4=Cart
   stackingPolicy    String      @default("EXCLUSIVE") // EXCLUSIVE, COMPATIBLE, HIGHEST_PRIORITY
   displayPlacement  String?     @default("BANNER_AND_PRODUCT")
+  badgeText         String?     @default("HOT DEAL")
+  bannerText        String?
   campaignId        String?
   status            String      @default("ACTIVE") // DRAFT, SCHEDULED, ACTIVE, PAUSED, EXPIRED, DISABLED
   viewsCount        Int         @default(0)
@@ -833,6 +840,7 @@ model Offer {
 
   campaign          Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   rules             OfferRule[]
+  applications      OfferApplication[]
 
   @@index([status])
   @@index([offerType])
@@ -853,6 +861,23 @@ model OfferRule {
   @@index([offerId])
 }
 
+model OfferApplication {
+  id              String    @id @default(uuid())
+  offerId         String
+  orderId         String
+  customerId      String?
+  discountAmount  Float
+  eligibleAmount  Float
+  createdAt       DateTime  @default(now())
+
+  offer           Offer     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([offerId])
+  @@index([orderId])
+  @@index([customerId])
+}
+
 model Campaign {
   id                  String              @id @default(uuid())
   name                String
@@ -870,6 +895,7 @@ model Campaign {
   emailSubject        String?
   emailPreviewText    String?
   emailFromName       String?
+  senderEmail         String?
   emailReplyTo        String?
   emailBodyHtml       String?
   emailBodyPlain      String?
@@ -1349,6 +1375,57 @@ model SupportCategoryConfig {
   isActive              Boolean   @default(true)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+}
+
+model SupportCategory {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  slug        String           @unique
+  description String?
+  icon        String?
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  articles    SupportArticle[]
+  faqs        SupportFAQ[]
+
+  @@index([slug])
+}
+
+model SupportArticle {
+  id             String           @id @default(uuid())
+  title          String
+  slug           String           @unique
+  content        String
+  categoryId     String
+  authorId       String?
+  authorName     String?          @default("Support Team")
+  tags           String?
+  views          Int              @default(0)
+  helpfulVotes   Int              @default(0)
+  unhelpfulVotes Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  category       SupportCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([slug])
+  @@index([categoryId])
+}
+
+model SupportFAQ {
+  id         String           @id @default(uuid())
+  question   String
+  answer     String
+  categoryId String
+  sortOrder  Int              @default(0)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  category   SupportCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([categoryId])
 }
 
 model AuditLog {
@@ -2653,24 +2730,33 @@ model DataRetentionRule {
 
 model SystemErrorLog {
   id              String    @id @default(uuid())
-  errorCode       String    // e.g. DRIVE_PERMISSION_DENIED, RAZORPAY_SIGNATURE_MISMATCH, DB_CONNECTION_TIMEOUT, EMAIL_BOUNCE
+  errorCode       String    @default("INTERNAL_SERVER_ERROR") // e.g. DRIVE_PERMISSION_DENIED, DB_ERROR, INTERNAL_SERVER_ERROR
   severity        String    @default("ERROR") // DEBUG, INFO, WARNING, ERROR, CRITICAL, SECURITY
-  service         String    // API, DATABASE, PAYMENT, WEBHOOK, DOWNLOAD, EMAIL, WORKER, STORAGE, AUTH
+  service         String    @default("API") // API, DATABASE, PAYMENT, WEBHOOK, DOWNLOAD, EMAIL, WORKER, STORAGE, AUTH
   environment     String    @default("PRODUCTION") // PRODUCTION, DEVELOPMENT, TEST
   requestId       String?
   traceId         String?
   actorId         String?
   actorName       String?
+  userId          String?
   customerId      String?
   customerEmail   String?
   orderId         String?
   productId       String?
   message         String
   stackTrace      String?
+  stack           String?
+  method          String?   @default("GET")
+  path            String?
   endpoint        String?
-  status          String    @default("UNRESOLVED") // UNRESOLVED, ACKNOWLEDGED, INVESTIGATING, RESOLVED, SUPPRESSED
+  statusCode      Int?      @default(500)
+  ip              String?
+  userAgent       String?
+  metadata        String?
+  status          String    @default("OPEN") // OPEN, UNRESOLVED, ACKNOWLEDGED, INVESTIGATING, RESOLVED, SUPPRESSED
   assignedOwner   String?
   assignedOwnerId String?
+  resolvedById    String?
   occurrenceCount Int       @default(1)
   firstSeenAt     DateTime  @default(now())
   lastSeenAt      DateTime  @default(now())
@@ -2682,7 +2768,10 @@ model SystemErrorLog {
   @@index([service])
   @@index([severity])
   @@index([status])
+  @@index([method])
+  @@index([statusCode])
   @@index([errorCode])
+  @@index([createdAt])
   @@index([lastSeenAt])
 }
 

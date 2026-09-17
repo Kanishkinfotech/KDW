@@ -12,9 +12,6 @@ export const getRoles = async (req: Request, res: Response, next: NextFunction) 
           include: {
             permission: true
           }
-        },
-        _count: {
-          select: { users: true }
         }
       },
       orderBy: { name: 'asc' }
@@ -174,6 +171,46 @@ export const getTemporaryPermissions = async (req: Request, res: Response, next:
     res.json({
       success: true,
       data: grants
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 6. Revoke Temporary Permission Grant
+export const revokeTemporaryPermission = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const authUser = (req as any).user;
+
+    const grant = await prisma.temporaryPermissionGrant.findUnique({ where: { id } });
+    if (!grant) {
+      return res.status(404).json({ success: false, message: 'Temporary grant not found' });
+    }
+
+    const updated = await prisma.temporaryPermissionGrant.update({
+      where: { id },
+      data: { status: 'REVOKED' }
+    });
+
+    await prisma.staffActivityLog.create({
+      data: {
+        actorId: authUser?.id || null,
+        actorName: authUser?.name || 'Administrator',
+        actorEmail: authUser?.email || 'admin@kanishkdigitalworld.com',
+        actorRole: authUser?.role || 'SUPER_ADMIN',
+        action: 'TEMPORARY_PERMISSION_REVOKED',
+        resourceType: 'PERMISSION',
+        resourceId: id,
+        riskLevel: 'HIGH',
+        reason: `Revoked temporary elevation ${grant.permissionCode} for ${grant.userEmail}`
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Temporary permission '${grant.permissionCode}' for ${grant.userEmail} has been revoked.`,
+      data: updated
     });
   } catch (error) {
     next(error);

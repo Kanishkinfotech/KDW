@@ -49,6 +49,10 @@ export default function CurrencyTaxSettingsPage() {
       if (json.success) {
         toast.success('Currency & Tax settings updated successfully');
         setInitialSettings(settings);
+        window.dispatchEvent(new CustomEvent('kdw:settings-updated'));
+        try {
+          localStorage.setItem('kdw_settings_updated', Date.now().toString());
+        } catch (e) {}
       } else {
         toast.error(json.message || 'Failed to save settings');
       }
@@ -85,12 +89,20 @@ export default function CurrencyTaxSettingsPage() {
                 <label className="font-bold text-slate-700 block mb-1">Base Currency Code</label>
                 <select
                   value={settings.default_currency || 'INR'}
-                  onChange={e => handleChange('default_currency', e.target.value)}
+                  onChange={e => {
+                    const code = e.target.value;
+                    handleChange('default_currency', code);
+                    if (code === 'INR') handleChange('currency_symbol', '₹');
+                    else if (code === 'USD') handleChange('currency_symbol', '$');
+                    else if (code === 'EUR') handleChange('currency_symbol', '€');
+                    else if (code === 'GBP') handleChange('currency_symbol', '£');
+                  }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold bg-white"
                 >
                   <option value="INR">INR — Indian Rupee (₹)</option>
                   <option value="USD">USD — US Dollar ($)</option>
                   <option value="EUR">EUR — Euro (€)</option>
+                  <option value="GBP">GBP — British Pound (£)</option>
                 </select>
               </div>
               <div>

@@ -3,6 +3,8 @@ import {
   getAdminOrders,
   getOrderAnalytics,
   getAdminOrderById,
+  getMyOrders,
+  getPublicOrderById,
   retryOrderFulfilment,
   resendOrderAccess,
   extendOrderAccess,
@@ -10,20 +12,32 @@ import {
   revokeOrderAccess,
   processOrderRefund,
   addOrderNote,
-  exportOrders
+  exportOrders,
+  batchFulfilOrders,
+  triggerReconcileStaleOrders
 } from '../controllers/orderController';
+import { createOrder } from '../controllers/paymentController';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// Apply admin authentication and authorization
+// Public / Customer Storefront Routes
+router.post('/checkout', createOrder);
+router.get('/status/:id', getPublicOrderById);
+router.get('/public/:id', getPublicOrderById);
+router.get('/lookup', getPublicOrderById);
+router.get('/my-orders', authenticate, getMyOrders);
+
+// Admin Protected Routes
 router.use(authenticate, authorize('ADMIN'));
 
-// Order Analytics & Export
+// Order Analytics, Export & Batch Actions (Registered before dynamic :id)
 router.get('/analytics', getOrderAnalytics);
 router.get('/export', exportOrders);
+router.post('/batch-fulfil', batchFulfilOrders);
+router.post('/reconcile-stale', triggerReconcileStaleOrders);
 
-// Orders List & Details
+// Orders List & Single Order Drilldown
 router.get('/', getAdminOrders);
 router.get('/:id', getAdminOrderById);
 

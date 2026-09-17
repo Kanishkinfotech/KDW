@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Users, UserPlus, RotateCcw, UserCheck, DollarSign, 
-  Calendar, Layers, ShieldCheck, Download, Search, Filter, ExternalLink, ShieldAlert
+  Calendar, Layers, ShieldCheck, Download, Search, Filter, ExternalLink, ShieldAlert, ShoppingCart, Clock
 } from 'lucide-react';
 import ReportLayout from '../../../components/admin/reports/ReportLayout';
 import { KpiCard, KpiGrid } from '../../../components/admin/reports/KpiCard';
@@ -10,6 +11,7 @@ import AlertPanel from '../../../components/admin/reports/AlertPanel';
 import { formatCurrency } from '../../../utils/currency';
 
 export default function CustomerReportPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState('30d');
@@ -23,14 +25,8 @@ export default function CustomerReportPage() {
   const tabs = [
     { id: 'overview', label: 'Overview', href: '#overview' },
     { id: 'new', label: 'New Customers', href: '#new' },
-    { id: 'returning', label: 'Returning', href: '#returning' },
-    { id: 'guests', label: 'Guest Buyers', href: '#guests' },
-    { id: 'value', label: 'Customer Value', href: '#value' },
-    { id: 'retention', label: 'Retention Cohorts', href: '#retention' },
-    { id: 'segments', label: 'Segments', href: '#segments' },
-    { id: 'ownership', label: 'Product Ownership', href: '#ownership' },
-    { id: 'refunds', label: 'Refunds', href: '#refunds' },
-    { id: 'downloads', label: 'Downloads Status', href: '#downloads' }
+    { id: 'returning', label: 'Returning Customers', href: '#returning' },
+    { id: 'refunds', label: 'Refunds', href: '#refunds' }
   ];
 
   const fetchTabData = async () => {
@@ -39,13 +35,7 @@ export default function CustomerReportPage() {
       let endpoint = `/api/admin/reports/customers/overview?range=${range}&customerType=${customerType}&search=${encodeURIComponent(search)}`;
       if (activeTab === 'new') endpoint = `/api/admin/reports/customers/new?range=${range}&search=${encodeURIComponent(search)}`;
       else if (activeTab === 'returning') endpoint = `/api/admin/reports/customers/returning?search=${encodeURIComponent(search)}`;
-      else if (activeTab === 'guests') endpoint = `/api/admin/reports/customers/guests?search=${encodeURIComponent(search)}`;
-      else if (activeTab === 'value') endpoint = `/api/admin/reports/customers/value`;
-      else if (activeTab === 'retention') endpoint = `/api/admin/reports/customers/retention`;
-      else if (activeTab === 'segments') endpoint = `/api/admin/reports/customers/segments`;
-      else if (activeTab === 'ownership') endpoint = `/api/admin/reports/customers/ownership?search=${encodeURIComponent(search)}`;
       else if (activeTab === 'refunds') endpoint = `/api/admin/reports/customers/refunds?search=${encodeURIComponent(search)}`;
-      else if (activeTab === 'downloads') endpoint = `/api/admin/reports/customers/downloads?search=${encodeURIComponent(search)}`;
 
       const res = await fetch(endpoint);
       const json = await res.json();
@@ -86,30 +76,15 @@ export default function CustomerReportPage() {
       title="Customer Intelligence & Lifecycle Report"
       subtitle="Complete 360° analytics on customer acquisition, repeat buying, lifetime value, and digital product ownership."
       module="customer"
-      tabs={tabs.map(t => ({ ...t, href: t.id }))}
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
       onRefresh={fetchTabData}
       onExport={handleExport}
     >
       <div className="space-y-6">
         {/* Operational Alert Panel */}
         <AlertPanel category="CUSTOMER" onRefreshTrigger={fetchTabData} />
-
-        {/* Tab Navigation Pill Bar */}
-        <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto flex items-center gap-1.5">
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={`px-4 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
-                activeTab === t.id
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
 
         {/* Filters */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
@@ -155,9 +130,8 @@ export default function CustomerReportPage() {
                   onChange={(e) => setCustomerType(e.target.value)}
                   className="bg-transparent border-none text-slate-800 font-bold focus:outline-none cursor-pointer"
                 >
-                  <option value="ALL">All Types</option>
-                  <option value="ACCOUNT">Registered Accounts</option>
-                  <option value="GUEST">Guest Buyers</option>
+                  <option value="ALL">All Customers</option>
+                  <option value="ACCOUNT">Registered Customer Accounts</option>
                 </select>
               </div>
             )}
@@ -268,175 +242,319 @@ export default function CustomerReportPage() {
             </div>
           </div>
         ) : activeTab === 'new' ? (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900">New Customer Acquisition Telemetry</h3>
-              <p className="text-xs text-slate-400">First-time buyers with attribution and initial basket value</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
-                  <tr>
-                    <th className="px-5 py-3.5">Customer</th>
-                    <th className="px-5 py-3.5">First Purchase Date</th>
-                    <th className="px-5 py-3.5">First Product & Category</th>
-                    <th className="px-5 py-3.5">Basket Value</th>
-                    <th className="px-5 py-3.5">Coupon</th>
-                    <th className="px-5 py-3.5">Channel</th>
-                    <th className="px-5 py-3.5 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {(data?.data || []).map((nc: any, i: number) => (
-                    <tr key={i} onClick={() => handleRowClick(nc.customerKey)} className="hover:bg-slate-50 cursor-pointer">
-                      <td className="px-5 py-3.5">
-                        <div className="font-bold text-slate-900">{nc.customerName}</div>
-                        <div className="text-[11px] text-slate-400">{nc.customerEmail}</div>
-                      </td>
-                      <td className="px-5 py-3.5 text-slate-600">{new Date(nc.firstPurchaseDate).toLocaleDateString()}</td>
-                      <td className="px-5 py-3.5">
-                        <div className="font-bold text-slate-800">{nc.firstProduct}</div>
-                        <span className="text-[10px] text-slate-400">{nc.category}</span>
-                      </td>
-                      <td className="px-5 py-3.5 font-bold text-emerald-700">{formatCurrency(nc.orderValue)}</td>
-                      <td className="px-5 py-3.5 font-mono text-blue-600">{nc.coupon}</td>
-                      <td className="px-5 py-3.5 text-slate-500">{nc.campaign}</td>
-                      <td className="px-5 py-3.5 text-right">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleRowClick(nc.customerKey); }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px]"
-                        >
-                          View 360°
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : activeTab === 'value' ? (
           <div className="space-y-6">
             <KpiGrid cols={3}>
               <KpiCard
-                title="Average Customer Value"
-                value={formatCurrency(data?.metrics?.averageCustomerValue || 0)}
-                subtitle="Per registered & guest customer"
-                formula="Net Customer Revenue / Total Customers"
+                title="New Customers in Period"
+                value={kpis.totalNewCustomers?.toLocaleString() || '0'}
+                subtitle="First-time buyers with verified payment"
+                formula="First Confirmed Paid Order within Selected Range"
+                icon={UserPlus}
+                color="emerald"
+              />
+              <KpiCard
+                title="First Order Revenue"
+                value={formatCurrency(kpis.totalFirstOrderRevenue || 0)}
+                subtitle="Gross volume from new customer acquisitions"
+                formula="Sum of First Paid Orders"
                 icon={DollarSign}
                 color="blue"
               />
               <KpiCard
-                title="Historical Lifetime Value (LTV)"
-                value={formatCurrency(data?.metrics?.historicalLtv || 0)}
-                subtitle="Total net operating revenue realized"
-                formula="Total Paid Revenue - Completed Refunds"
-                icon={ShieldCheck}
-                color="emerald"
-              />
-              <KpiCard
-                title="Advanced LTV (Operating)"
-                value={formatCurrency(data?.metrics?.advancedLtv || 0)}
-                subtitle="Net after gateway fees, support & marketing"
-                formula="Net Revenue - Gateway Fees - Support - Marketing"
-                icon={Layers}
-                color="indigo"
+                title="Avg First Order Value"
+                value={formatCurrency(kpis.avgFirstOrderValue || 0)}
+                subtitle="Average basket size for new accounts"
+                formula="First Order Revenue / New Customers"
+                icon={ShoppingCart}
+                color="amber"
               />
             </KpiGrid>
 
-            {/* Deductions Breakdown */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-base text-slate-900 mb-4">Advanced Customer LTV Model Waterfall</h3>
-              <div className="space-y-3 text-xs">
-                <div className="flex justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-700 font-semibold">Total Realized Net Revenue:</span>
-                  <span className="font-black text-slate-900">{formatCurrency(data?.metrics?.netRevenue || 0)}</span>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">New Customer Acquisition Telemetry</h3>
+                  <p className="text-xs text-slate-400">First-time buyers with attribution and initial basket value</p>
                 </div>
-                <div className="flex justify-between p-3 bg-rose-50/60 rounded-xl border border-rose-100 text-rose-800">
-                  <span>- Estimated Gateway Processing Fees (2.36%):</span>
-                  <span className="font-bold">-{formatCurrency(data?.metrics?.deductions?.gatewayFees || 0)}</span>
-                </div>
-                <div className="flex justify-between p-3 bg-rose-50/60 rounded-xl border border-rose-100 text-rose-800">
-                  <span>- Customer Support Allocation (1.5%):</span>
-                  <span className="font-bold">-{formatCurrency(data?.metrics?.deductions?.supportCosts || 0)}</span>
-                </div>
-                <div className="flex justify-between p-3 bg-rose-50/60 rounded-xl border border-rose-100 text-rose-800">
-                  <span>- Marketing Acquisition Allocation (5%):</span>
-                  <span className="font-bold">-{formatCurrency(data?.metrics?.deductions?.marketingCosts || 0)}</span>
-                </div>
-                <div className="flex justify-between p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900 font-black text-sm">
-                  <span>Net Advanced Customer Operating LTV:</span>
-                  <span>{formatCurrency(data?.metrics?.advancedLtv || 0)}</span>
-                </div>
+                <span className="text-xs text-slate-400 font-medium">PostgreSQL Source of Truth</span>
               </div>
+              {(!data?.data || data.data.length === 0) ? (
+                <div className="p-12 text-center text-slate-400">
+                  <UserPlus className="mx-auto h-10 w-10 text-slate-300 mb-3" />
+                  <p className="font-semibold text-sm text-slate-700">No new paying customers in this period</p>
+                  <p className="text-xs text-slate-400 mt-1">First-time buyers with verified payment gateway transactions will automatically appear here.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs whitespace-nowrap">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                      <tr>
+                        <th className="px-5 py-3.5">Customer</th>
+                        <th className="px-5 py-3.5">First Purchase Date</th>
+                        <th className="px-5 py-3.5">First Product & Category</th>
+                        <th className="px-5 py-3.5">Basket Value</th>
+                        <th className="px-5 py-3.5">Coupon</th>
+                        <th className="px-5 py-3.5">Channel</th>
+                        <th className="px-5 py-3.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      {data.data.map((nc: any, i: number) => (
+                        <tr key={i} onClick={() => handleRowClick(nc.customerKey)} className="hover:bg-slate-50 cursor-pointer">
+                          <td className="px-5 py-3.5">
+                            <div className="font-bold text-slate-900">{nc.customerName}</div>
+                            <div className="text-[11px] text-slate-400">{nc.customerEmail}</div>
+                          </td>
+                          <td className="px-5 py-3.5 text-slate-600">{new Date(nc.firstPurchaseDate).toLocaleDateString()}</td>
+                          <td className="px-5 py-3.5">
+                            <div className="font-bold text-slate-800">{nc.firstProduct}</div>
+                            <span className="text-[10px] text-slate-400">{nc.category}</span>
+                          </td>
+                          <td className="px-5 py-3.5 font-bold text-emerald-700">{formatCurrency(nc.orderValue)}</td>
+                          <td className="px-5 py-3.5 font-mono text-blue-600">{nc.coupon}</td>
+                          <td className="px-5 py-3.5 text-slate-500">{nc.campaign}</td>
+                          <td className="px-5 py-3.5 text-right">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRowClick(nc.customerKey); }}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px]"
+                            >
+                              View 360°
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
-        ) : activeTab === 'retention' ? (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900">Monthly Retention & Repurchase Cohorts</h3>
-              <p className="text-xs text-slate-400">Tracking long-term customer value expansion from initial acquisition month</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
-                  <tr>
-                    <th className="px-5 py-3.5">Cohort Month</th>
-                    <th className="px-5 py-3.5">Cohort Size</th>
-                    <th className="px-5 py-3.5">2nd Purchase Rate</th>
-                    <th className="px-5 py-3.5">30-Day Revenue</th>
-                    <th className="px-5 py-3.5">90-Day Revenue</th>
-                    <th className="px-5 py-3.5">Download %</th>
-                    <th className="px-5 py-3.5 text-right">Review %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {(data?.cohorts || []).map((c: any, i: number) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      <td className="px-5 py-3.5 font-bold text-slate-900">{c.cohort}</td>
-                      <td className="px-5 py-3.5">{c.customerCount} buyers</td>
-                      <td className="px-5 py-3.5 font-bold text-blue-600">{c.secondPurchaseRate}%</td>
-                      <td className="px-5 py-3.5">{formatCurrency(c.revenue30d)}</td>
-                      <td className="px-5 py-3.5 font-bold text-emerald-700">{formatCurrency(c.revenue90d)}</td>
-                      <td className="px-5 py-3.5">{c.downloadCompletionRate}%</td>
-                      <td className="px-5 py-3.5 text-right font-bold text-amber-600">{c.reviewSubmissionRate}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        ) : activeTab === 'returning' ? (
+          <div className="space-y-6">
+            <KpiGrid cols={3}>
+              <KpiCard
+                title="Returning Customers"
+                value={kpis.returningCustomersCount?.toLocaleString() || '0'}
+                subtitle="Customers with 2+ completed orders"
+                formula="Repeat Purchase Count"
+                icon={RotateCcw}
+                color="indigo"
+              />
+              <KpiCard
+                title="Repeat Spend Volume"
+                value={formatCurrency(kpis.repeatSpendTotal || 0)}
+                subtitle="Cumulative revenue from repeat orders"
+                formula="Sum of Orders for Customers with >=2 Orders"
+                icon={DollarSign}
+                color="emerald"
+              />
+              <KpiCard
+                title="Avg Repeat Basket"
+                value={formatCurrency(kpis.avgReturningAov || 0)}
+                subtitle="Average order value of repeat buyers"
+                formula="Repeat Spend / Total Repeat Orders"
+                icon={ShoppingCart}
+                color="blue"
+              />
+            </KpiGrid>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">Returning & Repeat Customer Analytics</h3>
+                  <p className="text-xs text-slate-400">High-loyalty customers with repeat orders and verified payment</p>
+                </div>
+                <span className="text-xs text-slate-400 font-medium">PostgreSQL Source of Truth</span>
+              </div>
+              {(!data?.data || data.data.length === 0) ? (
+                <div className="p-12 text-center text-slate-400">
+                  <RotateCcw className="mx-auto h-10 w-10 text-slate-300 mb-3" />
+                  <p className="font-semibold text-sm text-slate-700">No repeat buyers yet</p>
+                  <p className="text-xs text-slate-400 mt-1">Customers who place 2 or more confirmed orders will appear here automatically.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs whitespace-nowrap">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                      <tr>
+                        <th className="px-5 py-3.5">Customer</th>
+                        <th className="px-5 py-3.5">Paid Orders</th>
+                        <th className="px-5 py-3.5">Total Spend</th>
+                        <th className="px-5 py-3.5">Average Order (AOV)</th>
+                        <th className="px-5 py-3.5">First Purchase</th>
+                        <th className="px-5 py-3.5">Latest Purchase</th>
+                        <th className="px-5 py-3.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      {data.data.map((c: any, i: number) => (
+                        <tr key={i} onClick={() => handleRowClick(c.customerId)} className="hover:bg-slate-50 cursor-pointer">
+                          <td className="px-5 py-3.5">
+                            <div className="font-bold text-slate-900">{c.customerName}</div>
+                            <div className="text-[11px] text-slate-400">{c.customerEmail}</div>
+                          </td>
+                          <td className="px-5 py-3.5 font-bold text-blue-600">{c.orderCount} Orders</td>
+                          <td className="px-5 py-3.5 font-black text-emerald-700">{formatCurrency(c.totalSpend)}</td>
+                          <td className="px-5 py-3.5 font-bold text-slate-800">{formatCurrency(c.aov)}</td>
+                          <td className="px-5 py-3.5 text-slate-500">{new Date(c.firstPurchase).toLocaleDateString()}</td>
+                          <td className="px-5 py-3.5 text-slate-500">{new Date(c.lastPurchase).toLocaleDateString()}</td>
+                          <td className="px-5 py-3.5 text-right">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRowClick(c.customerId); }}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px]"
+                            >
+                              View 360°
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         ) : (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-xs">
-            <h3 className="font-bold text-sm text-slate-900 mb-4">{activeTab.toUpperCase()} Data Stream</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
-                  <tr>
-                    <th className="p-3">Customer / Email</th>
-                    <th className="p-3">Product / Details</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {((data?.data || data?.customers || data?.prebuilt || []) as any[]).map((row: any, i: number) => (
-                    <tr key={row.id || i} className="hover:bg-slate-50">
-                      <td className="p-3 font-bold text-slate-900">{row.name || row.customerEmail || row.email || row.guestEmail}</td>
-                      <td className="p-3 text-slate-600">{row.product?.name || row.desc || row.firstProduct || 'Digital Asset'}</td>
-                      <td className="p-3 font-bold text-blue-600">{row.status || `${row.count || 0} matches`}</td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => handleRowClick(row.id || row.customerEmail || row.email)}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px]"
-                        >
-                          View Profile
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="space-y-6">
+            <KpiGrid cols={4}>
+              <KpiCard
+                title="Total Refund Volume"
+                value={formatCurrency(kpis.totalRefundAmount || 0)}
+                subtitle="Approved and processed returns"
+                formula="Sum of COMPLETED refunds in PostgreSQL"
+                icon={RotateCcw}
+                color="rose"
+              />
+              <KpiCard
+                title="Refund Requests"
+                value={(kpis.totalRefunds || (data?.data || []).length).toString()}
+                subtitle="All logged refund claims"
+                formula="Total Refund records in database"
+                icon={DollarSign}
+                color="blue"
+              />
+              <KpiCard
+                title="Pending Review"
+                value={(kpis.pendingRefunds || 0).toString()}
+                subtitle="Awaiting decision in Payments"
+                formula="Status = PENDING_APPROVAL / REQUESTED"
+                icon={Clock}
+                color="amber"
+              />
+              <KpiCard
+                title="Refund Rate"
+                value={`${kpis.refundRate || 0}%`}
+                subtitle="Share of paid orders refunded"
+                formula="(Completed Refunds / Paid Orders) * 100"
+                icon={ShieldAlert}
+                color="purple"
+              />
+            </KpiGrid>
+
+            {/* Payment Gateway & Sync Banner */}
+            <div className="bg-slate-900 text-white rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <RotateCcw size={18} className="text-indigo-400" />
+                  <h3 className="text-sm font-bold text-white">Live Payment Gateway &amp; Refund Operations</h3>
+                </div>
+                <p className="text-xs text-slate-300 max-w-2xl">
+                  Refund requests initiated from customer accounts are synchronized with the Admin Payments panel and Razorpay ledger. Approvals trigger automatic access revocation and financial reconciliation.
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/admin/payments?tab=refunds')}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors whitespace-nowrap self-start sm:self-auto cursor-pointer"
+              >
+                <span>Manage in Admin Payments</span>
+                <ExternalLink size={14} />
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">Customer Refund &amp; Dispute Records</h3>
+                  <p className="text-xs text-slate-400">Complete audit trail of customer refund claims and payment reversals</p>
+                </div>
+                <span className="text-xs text-slate-400 font-medium">PostgreSQL Source of Truth</span>
+              </div>
+              {(!data?.data || data.data.length === 0) ? (
+                <div className="p-12 text-center text-slate-400">
+                  <ShieldCheck className="mx-auto h-10 w-10 text-slate-300 mb-3" />
+                  <p className="font-semibold text-sm text-slate-700">Zero customer refunds</p>
+                  <p className="text-xs text-slate-400 mt-1">No refund requests or processed returns exist in the system.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs whitespace-nowrap">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                      <tr>
+                        <th className="px-5 py-3.5">Order Number</th>
+                        <th className="px-5 py-3.5">Customer</th>
+                        <th className="px-5 py-3.5">Amount</th>
+                        <th className="px-5 py-3.5">Payment Method</th>
+                        <th className="px-5 py-3.5">Reason &amp; Notes</th>
+                        <th className="px-5 py-3.5">Status</th>
+                        <th className="px-5 py-3.5">Date</th>
+                        <th className="px-5 py-3.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      {data.data.map((r: any, i: number) => {
+                        const isPending = r.status === 'PENDING_APPROVAL' || r.status === 'REQUESTED';
+                        const isCompleted = r.status === 'COMPLETED';
+                        return (
+                          <tr key={i} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-5 py-3.5 font-mono font-bold text-slate-900">
+                              #{r.order?.orderNumber || r.orderId?.slice(0, 8) || 'N/A'}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <div className="font-bold text-slate-900">{r.order?.customer?.name || r.requestedBy || 'Customer'}</div>
+                              <div className="text-[11px] text-slate-400 font-mono">{r.order?.customer?.email || r.order?.guestEmail || 'N/A'}</div>
+                            </td>
+                            <td className="px-5 py-3.5 font-black text-rose-600 text-sm">{formatCurrency(r.amount)}</td>
+                            <td className="px-5 py-3.5">
+                              <span className="font-medium text-slate-600 uppercase text-[11px]">{r.payment?.method || 'UPI/Card'}</span>
+                              {r.payment?.razorpayPaymentId && (
+                                <span className="block text-[10px] text-slate-400 font-mono">{r.payment.razorpayPaymentId}</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5 text-slate-700 max-w-xs truncate">{r.reason || 'Requested by customer'}</td>
+                            <td className="px-5 py-3.5">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
+                                isCompleted ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                isPending ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse' :
+                                'bg-rose-100 text-rose-800 border border-rose-200'
+                              }`}>
+                                {isPending && <Clock size={10} />}
+                                {r.status}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3.5 text-slate-500">{new Date(r.createdAt).toLocaleDateString()}</td>
+                            <td className="px-5 py-3.5 text-right space-x-1.5">
+                              <button
+                                onClick={() => navigate('/admin/payments?tab=refunds')}
+                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-[11px] transition-colors"
+                              >
+                                Review in Payments
+                              </button>
+                              {r.order?.customer?.id && (
+                                <button
+                                  onClick={() => handleRowClick(r.order.customer.id)}
+                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px]"
+                                >
+                                  360°
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}

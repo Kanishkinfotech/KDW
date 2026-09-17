@@ -61,67 +61,67 @@ export const SystemLoginsPage: React.FC = () => {
     <div className="space-y-6">
       <SystemLayout onRefresh={fetchLoginLogs} isLoading={loading} />
 
-      {/* Security Analytics Summary Cards */}
+      {/* Security Analytics Summary Cards in Light Blue Theme */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Total Logins</span>
-            <Shield className="w-4 h-4 text-slate-400" />
+        <div className="bg-white border border-sky-100 p-5 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-semibold">Total Logins</span>
+            <Shield className="w-4 h-4 text-sky-600" />
           </div>
-          <div className="text-2xl font-bold text-white">{analytics?.totalLogins || 0}</div>
+          <div className="text-2xl font-bold text-slate-900">{analytics?.totalLogins || 0}</div>
           <div className="text-[11px] text-slate-500 mt-1">
             {analytics?.adminLogins || 0} Staff • {analytics?.customerLogins || 0} Customers
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Successful</span>
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+        <div className="bg-white border border-sky-100 p-5 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-semibold">Successful</span>
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-2xl font-bold text-emerald-400">{analytics?.successfulLogins || 0}</div>
+          <div className="text-2xl font-bold text-emerald-600">{analytics?.successfulLogins || 0}</div>
           <div className="text-[11px] text-slate-500 mt-1">Authorized sessions</div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Failed Logins</span>
-            <UserX className="w-4 h-4 text-amber-400" />
+        <div className="bg-white border border-sky-100 p-5 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-semibold">Failed Logins</span>
+            <UserX className="w-4 h-4 text-amber-600" />
           </div>
-          <div className="text-2xl font-bold text-amber-400">{analytics?.failedLogins || 0}</div>
+          <div className="text-2xl font-bold text-amber-600">{analytics?.failedLogins || 0}</div>
           <div className="text-[11px] text-slate-500 mt-1">Invalid credentials</div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Failure Rate</span>
-            <Lock className="w-4 h-4 text-slate-400" />
+        <div className="bg-white border border-sky-100 p-5 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-semibold">Failure Rate</span>
+            <Lock className="w-4 h-4 text-sky-600" />
           </div>
-          <div className="text-2xl font-bold text-white">{analytics?.failureRate || 0}%</div>
+          <div className="text-2xl font-bold text-slate-900">{analytics?.failureRate || 0}%</div>
           <div className="text-[11px] text-slate-500 mt-1">Target: &lt; 5.0%</div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Suspicious Attempts</span>
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
+        <div className="bg-white border border-sky-100 p-5 rounded-2xl shadow-xs">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-semibold">Suspicious Attempts</span>
+            <ShieldAlert className="w-4 h-4 text-rose-600" />
           </div>
-          <div className="text-2xl font-bold text-rose-400">{analytics?.suspiciousLogins || 0}</div>
+          <div className="text-2xl font-bold text-rose-600">{analytics?.suspiciousLogins || 0}</div>
           <div className="text-[11px] text-slate-500 mt-1">Brute-force / Tor detections</div>
         </div>
       </div>
 
-      {/* Filters & Search */}
+      {/* Filters & Search in Light Blue Theme */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="Search by email, name, IP address, failure reason..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && fetchLoginLogs()}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            className="w-full bg-white border border-sky-100 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 shadow-2xs"
           />
         </div>
 
@@ -129,7 +129,7 @@ export const SystemLoginsPage: React.FC = () => {
           <select
             value={userTypeFilter}
             onChange={(e) => setUserTypeFilter(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="bg-white border border-sky-100 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-sky-500 shadow-2xs"
           >
             <option value="ALL">All User Types</option>
             <option value="ADMIN">Staff / Admin</option>
@@ -139,7 +139,7 @@ export const SystemLoginsPage: React.FC = () => {
           <select
             value={resultFilter}
             onChange={(e) => setResultFilter(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="bg-white border border-sky-100 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-sky-500 shadow-2xs"
           >
             <option value="ALL">All Results</option>
             <option value="SUCCESS">Success Only</option>
@@ -147,35 +147,35 @@ export const SystemLoginsPage: React.FC = () => {
             <option value="BLOCKED">Blocked Only</option>
           </select>
 
-          <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg">
+          <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer bg-white border border-sky-100 px-3 py-2 rounded-xl shadow-2xs">
             <input
               type="checkbox"
               checked={suspiciousOnly}
               onChange={(e) => setSuspiciousOnly(e.target.checked)}
-              className="rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-0"
+              className="rounded bg-white border-slate-300 text-sky-600 focus:ring-0"
             />
             <span>Suspicious Only</span>
           </label>
         </div>
       </div>
 
-      {/* Login Logs Table */}
+      {/* Login Logs Table in Light Blue Theme */}
       {loading ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center text-slate-400">
-          <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-400 mb-2" />
-          <p className="text-xs">Loading authentication logs...</p>
+        <div className="bg-sky-50/50 border border-sky-200 rounded-2xl p-12 text-center text-slate-500">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto text-sky-600 mb-2" />
+          <p className="text-xs font-medium">Loading authentication logs...</p>
         </div>
       ) : logs.length === 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center text-slate-400">
-          <ShieldCheck className="w-8 h-8 mx-auto text-emerald-400 mb-2" />
-          <h4 className="text-sm font-semibold text-white">No Login Logs Found</h4>
-          <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or search terms.</p>
+        <div className="bg-white border border-sky-100 rounded-2xl p-12 text-center text-slate-500 shadow-xs">
+          <ShieldCheck className="w-8 h-8 mx-auto text-sky-500 mb-2" />
+          <h4 className="text-sm font-bold text-slate-900">No Login Logs Found</h4>
+          <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search terms.</p>
         </div>
       ) : (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="bg-white border border-sky-100 rounded-2xl overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/60 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 text-[10px]">
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-sky-50/80 text-slate-600 uppercase tracking-wider font-semibold border-b border-sky-100 text-[10px]">
                 <tr>
                   <th className="px-4 py-3">Timestamp</th>
                   <th className="px-4 py-3">User / Identity</th>
@@ -186,53 +186,53 @@ export const SystemLoginsPage: React.FC = () => {
                   <th className="px-4 py-3">Device / User Agent</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
+              <tbody className="divide-y divide-sky-100/70 font-sans">
                 {logs.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-850/50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-400 font-mono text-[11px]">
+                  <tr key={l.id} className="hover:bg-sky-50/40 transition-colors">
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[11px]">
                       {new Date(l.createdAt).toLocaleString()}
                     </td>
-                    <td className="px-4 py-3 font-medium text-white">
-                      <div>{l.email}</div>
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      <div className="font-semibold">{l.email}</div>
                       {l.userName && <div className="text-[10px] text-slate-400">{l.userName}</div>}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                        l.userType === 'ADMIN' ? 'bg-purple-500/10 text-purple-400' : 'bg-slate-800 text-slate-300'
+                        l.userType === 'ADMIN' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-700 border border-slate-200'
                       }`}>
                         {l.userType}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-slate-300">
+                    <td className="px-4 py-3 font-mono text-[11px] text-slate-600 font-medium">
                       {l.eventType}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           l.result === 'SUCCESS'
-                            ? 'bg-emerald-500/10 text-emerald-400'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : l.result === 'BLOCKED'
-                            ? 'bg-rose-500/10 text-rose-400'
-                            : 'bg-amber-500/10 text-amber-400'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}>
                           {l.result}
                         </span>
                         {l.isSuspicious && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
                             SUSPICIOUS
                           </span>
                         )}
                       </div>
                       {l.failureReason && (
-                        <div className="text-[10px] text-rose-400 mt-0.5 max-w-xs truncate">
+                        <div className="text-[10px] text-rose-600 mt-0.5 max-w-xs truncate font-medium">
                           {l.failureReason}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-400 text-[11px]">
+                    <td className="px-4 py-3 font-mono text-slate-600 text-[11px]">
                       {l.ipAddress || '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-400 text-[11px] max-w-xs truncate" title={l.userAgent}>
+                    <td className="px-4 py-3 text-slate-500 text-[11px] max-w-xs truncate" title={l.userAgent}>
                       {l.userAgent || '—'}
                     </td>
                   </tr>

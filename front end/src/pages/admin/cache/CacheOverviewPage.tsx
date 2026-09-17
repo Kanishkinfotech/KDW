@@ -79,127 +79,110 @@ export const CacheOverviewPage: React.FC = () => {
       {/* Main KPI Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Hit Rate */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-2">
+        <div className="bg-white border border-sky-100 rounded-2xl p-5 shadow-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">Cache Hit Rate</span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <span className="text-xs font-semibold text-slate-500">Cache Hit Rate</span>
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-emerald-400">
+          <div className="text-2xl font-black text-slate-900">
             {stats?.hitRate || 92.8}%
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-slate-500">
             {stats?.hits || 0} hits • {stats?.misses || 0} misses
           </div>
         </div>
 
         {/* Memory Allocation */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-2">
+        <div className="bg-white border border-sky-100 rounded-2xl p-5 shadow-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">Memory Allocation</span>
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
+            <span className="text-xs font-semibold text-slate-500">Memory Allocation</span>
+            <div className="p-2 rounded-xl bg-sky-50 text-sky-600 border border-sky-100">
               <HardDrive className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-black text-slate-900">
             {stats?.memoryUsedMb || '0.12'} MB
           </div>
-          <div className="text-[11px] text-slate-400">
-            Limit: {stats?.memoryLimitMb || 512} MB (Frag: {stats?.fragmentationRatio || 1.08})
+          <div className="text-[11px] text-slate-500">
+            Limit: {stats?.memoryLimitMb || 512} MB • Frag: {stats?.fragmentationRatio || 1.08}
           </div>
         </div>
 
-        {/* Total & Active Keys */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-2">
+        {/* Active Keys */}
+        <div className="bg-white border border-sky-100 rounded-2xl p-5 shadow-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">Registered Keys</span>
-            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+            <span className="text-xs font-semibold text-slate-500">Active Keys</span>
+            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
               <Database className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-black text-slate-900">
             {stats?.totalKeys || 0}
           </div>
-          <div className="text-[11px] text-slate-400">
-            {stats?.activeKeys || 0} active • {overviewData?.namespacesCount || 6} namespaces
+          <div className="text-[11px] text-slate-500">
+            Across {overviewData?.namespacesCount || 6} namespaces
           </div>
         </div>
 
-        {/* Operations & Latency */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-2">
+        {/* Latency */}
+        <div className="bg-white border border-sky-100 rounded-2xl p-5 shadow-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">Throughput & Latency</span>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+            <span className="text-xs font-semibold text-slate-500">Execution Latency</span>
+            <div className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
               <Activity className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">
-            {stats?.commandsPerSecond || 82} cmd/s
+          <div className="text-2xl font-black text-slate-900">
+            {stats?.latencyMs || 0.8} ms
           </div>
-          <div className="text-[11px] text-emerald-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            Avg Latency: {stats?.latencyMs || 0.8} ms
+          <div className="text-[11px] text-slate-500">
+            Throughput: {stats?.commandsPerSecond || 82} ops/sec
           </div>
         </div>
       </div>
 
-      {/* Quick Action Matrix & Fallback Guarantee */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quick Operations */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm space-y-4">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <Zap className="w-4 h-4 text-emerald-400" />
-            Quick Maintenance Operations
+      {/* Secondary Operations Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white border border-sky-100 rounded-2xl p-5 shadow-xs space-y-4">
+          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-sky-600" />
+            Quick Maintenance Actions
           </h2>
-          <p className="text-xs text-slate-400">
-            Trigger safe operational routines. All cached entities automatically fall back to durable PostgreSQL queries.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          <div className="grid grid-cols-2 gap-3">
             <button
               onClick={handleWarmCache}
               disabled={actionLoading}
-              className="p-4 bg-slate-950 hover:bg-slate-850 border border-slate-800 rounded-xl text-left transition flex items-start gap-3 group"
+              className="p-4 bg-sky-50/50 hover:bg-sky-100/60 border border-sky-100 rounded-xl text-left transition cursor-pointer"
             >
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20 transition">
-                <Flame className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="text-xs font-bold text-white group-hover:text-emerald-400 transition">Pre-Warm Public Storefront</h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">Pre-populate top 20 products and active category trees into memory.</p>
-              </div>
+              <Flame className="w-4 h-4 text-emerald-600 mb-1" />
+              <div className="text-xs font-bold text-slate-900">Pre-warm Cache</div>
+              <div className="text-[10px] text-slate-500">Cache top catalog products</div>
             </button>
-
             <button
               onClick={handleExpiredCleanup}
               disabled={actionLoading}
-              className="p-4 bg-slate-950 hover:bg-slate-850 border border-slate-800 rounded-xl text-left transition flex items-start gap-3 group"
+              className="p-4 bg-sky-50/50 hover:bg-sky-100/60 border border-sky-100 rounded-xl text-left transition cursor-pointer"
             >
-              <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20 transition">
-                <Clock className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="text-xs font-bold text-white group-hover:text-blue-400 transition">Evict Expired Keys</h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">Run active garbage-collection pass across all namespaces.</p>
-              </div>
+              <Clock className="w-4 h-4 text-sky-600 mb-1" />
+              <div className="text-xs font-bold text-slate-900">Evict Expired</div>
+              <div className="text-[10px] text-slate-500">Reclaim idle memory space</div>
             </button>
           </div>
         </div>
 
-        {/* Invariant & Resilience Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm space-y-3">
-          <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-            <CheckCircle2 className="w-4 h-4" />
-            Zero Data Loss Invariant
-          </div>
-          <h3 className="text-sm font-bold text-white">PostgreSQL Source of Truth</h3>
-          <p className="text-xs text-slate-300 leading-relaxed">
+        <div className="bg-white border border-sky-100 rounded-2xl p-5 shadow-xs space-y-4">
+          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            System Health & Resilience
+          </h2>
+          <p className="text-xs text-slate-600 leading-relaxed">
             All payments, orders, entitlements, licences, and download histories reside exclusively in durable PostgreSQL tables. Cache is temporary, disposable, and rebuildable on demand.
           </p>
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+          <div className="pt-2 border-t border-sky-100 flex items-center justify-between text-xs text-slate-500">
             <span>Cache Failure Policy:</span>
-            <span className="font-semibold text-emerald-400">Direct DB Pass-through</span>
+            <span className="font-semibold text-emerald-600">Direct DB Pass-through (Real Data)</span>
           </div>
         </div>
       </div>

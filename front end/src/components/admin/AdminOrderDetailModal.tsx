@@ -337,9 +337,9 @@ export default function AdminOrderDetailModal({ orderId, onClose, onRefresh }: A
         </div>
 
         {/* ACTION BAR STRIP */}
-        <div className="bg-slate-900 text-white px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="bg-sky-50 border-y border-sky-200 text-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-400">Quick Actions:</span>
+            <span className="font-bold text-sky-800">Quick Actions:</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -359,7 +359,7 @@ export default function AdminOrderDetailModal({ orderId, onClose, onRefresh }: A
               type="button"
               onClick={handleResendAccess}
               disabled={actionLoading}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 font-bold text-slate-700 border border-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
             >
               <Send size={13} />
               Resend Access

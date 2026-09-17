@@ -9,7 +9,7 @@ import SEO from '../../SEO';
 export interface TabItem {
   id: string;
   label: string;
-  href: string;
+  href?: string;
   badge?: number | string;
 }
 
@@ -17,7 +17,9 @@ interface ReportLayoutProps {
   title: string;
   subtitle: string;
   module: 'customer' | 'login' | 'buy-analysis' | 'coupon' | 'download';
-  tabs: TabItem[];
+  tabs?: TabItem[];
+  activeTab?: string;
+  onTabChange?: (tabId: string) => void;
   children: React.ReactNode;
   onRefresh?: () => void;
   onExport?: () => void;
@@ -29,6 +31,8 @@ export default function ReportLayout({
   subtitle,
   module,
   tabs,
+  activeTab,
+  onTabChange,
   children,
   onRefresh,
   onExport,
@@ -86,31 +90,58 @@ export default function ReportLayout({
       </div>
 
       {/* Sub-Navigation Tabs */}
-      <div className="bg-white px-3 pt-2 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
-        <div className="flex items-center gap-1 min-w-max">
-          {tabs.map((tab) => (
-            <NavLink
-              key={tab.id}
-              to={tab.href}
-              end={tab.href.endsWith('/overview') || tab.href.split('/').length <= 4}
-              className={({ isActive }) =>
-                `px-4 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center gap-2 ${
-                  isActive
-                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`
+      {tabs && tabs.length > 0 && (
+        <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+            {tabs.map((tab) => {
+              if (onTabChange) {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => onTabChange(tab.id)}
+                    className={`px-4 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    {tab.badge !== undefined && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${isActive ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                        {tab.badge}
+                      </span>
+                    )}
+                  </button>
+                );
               }
-            >
-              {tab.label}
-              {tab.badge !== undefined && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-white/20 text-current">
-                  {tab.badge}
-                </span>
-              )}
-            </NavLink>
-          ))}
+
+              return (
+                <NavLink
+                  key={tab.id}
+                  to={tab.href || `#${tab.id}`}
+                  end={tab.href?.endsWith('/overview') || (tab.href ? tab.href.split('/').length <= 4 : false)}
+                  className={({ isActive }) =>
+                    `px-4 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-2 ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`
+                  }
+                >
+                  <span>{tab.label}</span>
+                  {tab.badge !== undefined && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-white/20 text-current">
+                      {tab.badge}
+                    </span>
+                  )}
+                </NavLink>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Child Content */}
       <div>{children}</div>

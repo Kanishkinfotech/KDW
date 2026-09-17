@@ -111,10 +111,86 @@ export class OrderFulfilmentService {
             });
           }
 
-          // Generate or retrieve Secure Download Token
-          const secureToken = crypto.randomBytes(24).toString('hex');
-          const tokenExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 Year Access
-          
+          // 1. Generate Licence Key if required
+          let licenceKeyStr = '';
+          let licenceRecord = order.licenceKeys.find(l => l.productId === product.id);
+
+          if (!licenceRecord) {
+            const cleanOrderPart = order.orderNumber.replace(/[^A-Z0-9]/g, '');
+            const cleanProdPart = (product.slug || product.id).replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
+            const rawKey = `KDW-${product.licenceType || 'COMM'}-${cleanOrderPart}-${cleanProdPart || crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+            const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+
+            licenceRecord = await tx.licenceKey.create({
+              data: {
+                orderId: order.id,
+                orderItemId: item.id,
+                productId: product.id,
+                customerId: targetCustomerId,
+                keyMasked: rawKey,
+                keyHash,
+                licenceType: product.licenceType || 'COMMERCIAL',
+                status: 'ACTIVE',
+                activationLimit: product.activationLimit || 1,
+                domainLimit: product.domainLimit || 1,
+                expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+              }
+            });
+            licenceKeyStr = rawKey;
+          } else if (licenceRecord) {
+            licenceKeyStr = licenceRecord.keyMasked;
+          }
+
+          // 2. Stage 6: Access & Download Policies Evaluation
+          const downloadLimit = (product.downloadLimit === 999999 || product.downloadLimit === 0) 
+            ? 999999 
+            : (product.downloadLimit !== null && product.downloadLimit !== undefined ? product.downloadLimit : 5);
+
+          const accessExpiresAt = (product.accessDurationDays === 999999 || !product.accessDurationDays)
+            ? null
+            : new Date(Date.now() + product.accessDurationDays * 24 * 60 * 60 * 1000);
+
+          const tokenDurationMinutes = product.tokenDurationMinutes || 60;
+          const tokenExpiry = new Date(Date.now() + tokenDurationMinutes * 60 * 1000);
+
+          // 3. Idempotent DigitalEntitlement creation
+          let digitalEntitlement = await tx.digitalEntitlement.findFirst({
+            where: { orderId: order.id, productId: product.id }
+          });
+
+          if (!digitalEntitlement) {
+            digitalEntitlement = await tx.digitalEntitlement.create({
+              data: {
+                orderId: order.id,
+                orderItemId: item.id,
+                customerId: targetCustomerId,
+                customerEmail: recipientEmail,
+                productId: product.id,
+                productVersion: product.version || '1.0.0',
+                status: 'ACTIVE',
+                downloadLimit,
+                downloadCount: 0,
+                accessExpiresAt,
+                licenceId: licenceRecord?.id || null
+              }
+            });
+          }
+
+          // 4. Generate Secure Download Token for customer delivery
+          const secureToken = crypto.randomBytes(32).toString('hex');
+          const tokenHash = crypto.createHash('sha256').update(secureToken).digest('hex');
+
+          await tx.downloadToken.create({
+            data: {
+              entitlementId: digitalEntitlement.id,
+              tokenHash,
+              secureToken,
+              status: 'ACTIVE',
+              expiresAt: tokenExpiry
+            }
+          });
+
+          // 5. Backwards-compatible AccessToken
           if (purchase) {
             await tx.accessToken.create({
               data: {
@@ -125,48 +201,14 @@ export class OrderFulfilmentService {
             });
           }
 
-          // Generate Licence Key if required
-          let licenceKeyStr = '';
-          const needsLicence = product.licenceKeyRequired || Boolean(product.licenceType);
-          const existingLicence = order.licenceKeys.find(l => l.productId === product.id);
-
-          if (!existingLicence && needsLicence) {
-            const rawKey = `KDW-${product.licenceType || 'COMM'}-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-            const keyMasked = `${rawKey.substring(0, 8)}****-****-${rawKey.slice(-4)}`;
-            const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
-
-            await tx.licenceKey.create({
-              data: {
-                orderId: order.id,
-                orderItemId: item.id,
-                productId: product.id,
-                customerId: targetCustomerId,
-                keyMasked,
-                keyHash,
-                licenceType: product.licenceType || 'COMMERCIAL',
-                status: 'ACTIVE',
-                activationLimit: product.activationLimit || 1,
-                domainLimit: product.domainLimit || 1,
-                expiresAt: tokenExpiry
-              }
-            });
-            licenceKeyStr = keyMasked;
-          } else if (existingLicence) {
-            licenceKeyStr = existingLicence.keyMasked;
-          }
-
-          // Build digital delivery link
-          let finalLink = '';
-          if (product.googleDriveFileId && product.googleDriveFileId.trim() !== '') {
-            finalLink = `https://drive.google.com/file/d/${product.googleDriveFileId}/view?usp=sharing`;
-          } else if (Array.isArray(product.googleDriveLinks) && product.googleDriveLinks.length > 0) {
-            finalLink = String(product.googleDriveLinks[0]);
-          }
+          // 6. Build Secure Metered Delivery Link
+          const baseAppUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+          const secureDeliveryUrl = `${baseAppUrl}/api/purchases/download/${secureToken}`;
 
           deliveryLinksList.push({
             productId: product.id,
             productName: product.name,
-            downloadUrl: finalLink || `http://localhost:5173/account/downloads?order=${order.orderNumber}`,
+            downloadUrl: secureDeliveryUrl,
             version: product.version || '1.0.0',
             licenceKey: licenceKeyStr
           });
@@ -177,10 +219,36 @@ export class OrderFulfilmentService {
           const bundle = item.bundle;
           const targetCustomerId = order.customerId || null;
 
-          // 1. Parent Bundle Entitlement (Idempotent)
+          // 1. Parent Bundle Entitlement & Official Licence Key (Idempotent)
           let parentEntitlement = order.bundleEntitlements.find(be => be.bundleId === bundle.id);
           const bundleToken = crypto.randomBytes(24).toString('hex');
           const tokenExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+          let bundleLicenceRecord = order.licenceKeys.find(l => l.orderItemId === item.id);
+          let bundleLicenceKeyStr = '';
+          if (!bundleLicenceRecord) {
+            const cleanOrderPart = order.orderNumber.replace(/[^A-Z0-9]/g, '');
+            const cleanBundlePart = (bundle.slug || bundle.id).replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
+            bundleLicenceKeyStr = `KDW-BNDL-${cleanOrderPart}-${cleanBundlePart || crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+            const keyHash = crypto.createHash('sha256').update(bundleLicenceKeyStr).digest('hex');
+
+            bundleLicenceRecord = await tx.licenceKey.create({
+              data: {
+                orderId: order.id,
+                orderItemId: item.id,
+                customerId: targetCustomerId,
+                keyMasked: bundleLicenceKeyStr,
+                keyHash,
+                licenceType: bundle.licenceType || 'COMMERCIAL',
+                status: 'ACTIVE',
+                activationLimit: 5,
+                domainLimit: 5,
+                expiresAt: tokenExpiry
+              }
+            });
+          } else {
+            bundleLicenceKeyStr = bundleLicenceRecord.keyMasked;
+          }
 
           if (!parentEntitlement && targetCustomerId) {
             parentEntitlement = await tx.bundleEntitlement.create({
@@ -204,44 +272,62 @@ export class OrderFulfilmentService {
             const compProduct = bi.product;
             if (!compProduct) continue;
 
-            const existingCompEntitlement = order.componentEntitlements.find(
-              ce => ce.bundleId === bundle.id && ce.productId === compProduct.id
-            );
+            const compDownloadLimit = (compProduct.downloadLimit === 999999 || compProduct.downloadLimit === 0)
+              ? 999999
+              : (compProduct.downloadLimit !== null && compProduct.downloadLimit !== undefined ? compProduct.downloadLimit : 10);
 
-            const compToken = crypto.randomBytes(24).toString('hex');
+            const compAccessExpiresAt = (compProduct.accessDurationDays === 999999 || !compProduct.accessDurationDays)
+              ? null
+              : new Date(Date.now() + compProduct.accessDurationDays * 24 * 60 * 60 * 1000);
 
-            if (!existingCompEntitlement && parentEntitlement && targetCustomerId) {
-              await tx.componentEntitlement.create({
+            const compTokenDuration = compProduct.tokenDurationMinutes || 60;
+            const compTokenExpiry = new Date(Date.now() + compTokenDuration * 60 * 1000);
+
+            let compDigitalEnt = await tx.digitalEntitlement.findFirst({
+              where: { orderId: order.id, productId: compProduct.id, bundleId: bundle.id }
+            });
+
+            if (!compDigitalEnt) {
+              compDigitalEnt = await tx.digitalEntitlement.create({
                 data: {
-                  parentEntitlementId: parentEntitlement.id,
-                  bundleId: bundle.id,
-                  productId: compProduct.id,
-                  customerId: targetCustomerId,
                   orderId: order.id,
                   orderItemId: item.id,
+                  customerId: targetCustomerId,
+                  customerEmail: recipientEmail,
+                  productId: compProduct.id,
+                  bundleId: bundle.id,
                   productVersion: compProduct.version || bi.versionSnapshot || '1.0.0',
                   licenceType: bi.licencePolicySnapshot || 'COMMERCIAL',
-                  downloadLimit: 10,
+                  downloadLimit: compDownloadLimit,
+                  downloadCount: 0,
                   status: 'ACTIVE',
-                  secureDownloadToken: compToken,
-                  tokenExpiresAt: tokenExpiry
+                  accessExpiresAt: compAccessExpiresAt
                 }
               });
             }
 
-            // Link for component product
-            let compLink = '';
-            if (compProduct.googleDriveFileId && compProduct.googleDriveFileId.trim() !== '') {
-              compLink = `https://drive.google.com/file/d/${compProduct.googleDriveFileId}/view?usp=sharing`;
-            } else if (Array.isArray(compProduct.googleDriveLinks) && compProduct.googleDriveLinks.length > 0) {
-              compLink = String(compProduct.googleDriveLinks[0]);
-            }
+            const compSecureToken = crypto.randomBytes(32).toString('hex');
+            const compTokenHash = crypto.createHash('sha256').update(compSecureToken).digest('hex');
+
+            await tx.downloadToken.create({
+              data: {
+                entitlementId: compDigitalEnt.id,
+                tokenHash: compTokenHash,
+                secureToken: compSecureToken,
+                status: 'ACTIVE',
+                expiresAt: compTokenExpiry
+              }
+            });
+
+            const baseAppUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const compSecureDeliveryUrl = `${baseAppUrl}/api/purchases/download/${compSecureToken}`;
 
             deliveryLinksList.push({
               productId: compProduct.id,
               productName: `${bundle.title} → ${compProduct.name}`,
-              downloadUrl: compLink || `http://localhost:5173/account/downloads?order=${order.orderNumber}`,
+              downloadUrl: compSecureDeliveryUrl,
               version: compProduct.version || '1.0.0',
+              licenceKey: bundleLicenceKeyStr,
               isBundleComponent: true
             });
           }
@@ -328,16 +414,30 @@ export class OrderFulfilmentService {
 
     // 5. Send Transactional Access Delivery Email
     try {
-      await sendDigitalProductDeliveryEmail({
+      const primaryLicence = deliveryLinksList.find(d => d.licenceKey)?.licenceKey;
+      const mailResult = await sendDigitalProductDeliveryEmail({
         recipientEmail,
         customerName: order.guestName || order.customer?.name || 'Valued Customer',
         orderNumber: order.orderNumber,
+        licenceKey: primaryLicence,
         items: deliveryLinksList.map(d => ({
           name: d.productName,
-          driveUrl: d.downloadUrl
+          driveUrl: d.downloadUrl,
+          licenceKey: d.licenceKey
         }))
       });
+      if (!mailResult.success && !mailResult.skipped) {
+        throw new Error(mailResult.error?.message || 'SMTP delivery failed');
+      }
       console.log(`[OrderFulfilmentService] Access email dispatched successfully to ${recipientEmail}`);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          emailDeliveryStatus: 'SENT',
+          emailSentAt: new Date(),
+          emailLastError: null
+        }
+      });
     } catch (mailErr: any) {
       console.error(`[OrderFulfilmentService] Email delivery warning for Order ${order.orderNumber}:`, mailErr.message);
       await prisma.order.update({

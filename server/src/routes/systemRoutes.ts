@@ -6,11 +6,15 @@ import { getSystemDashboard, getSystemMetricsOverview } from '../controllers/sys
 import { checkAllSystemHealth } from '../controllers/system/systemHealthService';
 import {
   getSystemErrors,
+  getSystemErrorStats,
   getSystemErrorById,
   acknowledgeSystemError,
   resolveSystemError,
+  reopenSystemError,
   escalateErrorToIncident,
-  getErrorTrends
+  getErrorTrends,
+  clearAllSystemErrors,
+  deleteSystemErrorById
 } from '../controllers/system/systemErrorController';
 import {
   getLoginLogs,
@@ -65,11 +69,16 @@ router.get('/health', authenticate, authorize(...ADMIN_ROLES), async (req, res, 
 
 // Errors Management
 router.get('/errors/trends', authenticate, authorize(...ADMIN_ROLES), getErrorTrends);
+router.get('/errors/stats', authenticate, authorize(...ADMIN_ROLES), getSystemErrorStats);
 router.get('/errors', authenticate, authorize(...ADMIN_ROLES), getSystemErrors);
 router.get('/errors/:id', authenticate, authorize(...ADMIN_ROLES), getSystemErrorById);
-router.post('/errors/:id/acknowledge', authenticate, authorize(...ADMIN_ROLES), acknowledgeSystemError);
+router.patch('/errors/:id/resolve', authenticate, authorize(...ADMIN_ROLES), resolveSystemError);
 router.post('/errors/:id/resolve', authenticate, authorize(...ADMIN_ROLES), resolveSystemError);
+router.patch('/errors/:id/reopen', authenticate, authorize(...ADMIN_ROLES), reopenSystemError);
+router.post('/errors/:id/acknowledge', authenticate, authorize(...ADMIN_ROLES), acknowledgeSystemError);
 router.post('/errors/:id/escalate', authenticate, authorize(...ADMIN_ROLES), escalateErrorToIncident);
+router.delete('/errors/clear', authenticate, authorize(...ADMIN_ROLES), clearAllSystemErrors);
+router.delete('/errors/:id', authenticate, authorize(...ADMIN_ROLES), deleteSystemErrorById);
 
 // Login Logs & Security
 router.get('/logins/analytics', authenticate, authorize(...ADMIN_ROLES), getLoginSecurityAnalytics);

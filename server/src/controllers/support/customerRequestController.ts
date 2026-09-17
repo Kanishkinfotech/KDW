@@ -17,7 +17,31 @@ export const getCustomerRequests = async (req: Request, res: Response, next: Nex
       where,
       include: {
         customer: { select: { id: true, name: true, email: true, customerType: true } },
-        ticket: { select: { id: true, ticketNumber: true, subject: true, status: true, priority: true } }
+        ticket: {
+          select: {
+            id: true,
+            ticketNumber: true,
+            subject: true,
+            description: true,
+            status: true,
+            priority: true,
+            customerName: true,
+            customerEmail: true,
+            orderId: true,
+            createdAt: true,
+            order: {
+              select: {
+                id: true,
+                orderNumber: true,
+                totalAmount: true
+              }
+            },
+            messages: {
+              where: { visibility: 'CUSTOMER' },
+              orderBy: { createdAt: 'asc' }
+            }
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -161,6 +185,24 @@ export const rejectCustomerRequest = async (req: Request, res: Response, next: N
         }
       });
 
+      await tx.supportTicket.update({
+        where: { id: request.ticketId },
+        data: { status: 'CLOSED' }
+      });
+
+      await tx.supportMessage.create({
+        data: {
+          ticketId: request.ticketId,
+          senderId: authUser.id,
+          senderType: 'AGENT',
+          senderName: authUser.name || 'Support Staff',
+          senderEmail: authUser.email || '',
+          message: `Request update: ${String(reason).trim()}`,
+          visibility: 'CUSTOMER',
+          channel: 'PORTAL'
+        }
+      });
+
       await tx.supportTicketEvent.create({
         data: {
           ticketId: request.ticketId,
@@ -185,3 +227,93 @@ export const rejectCustomerRequest = async (req: Request, res: Response, next: N
     next(error);
   }
 };
+
+// 5. Admin Reply to Customer Request
+export const replyCustomerRequest = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const { message, status = 'COMPLETED' } = req.body;
+    const authUser = (req as any).user;
+
+    if (!message || String(message).trim() === '') {
+      return res.status(400).json({ success: false, message: 'Reply message cannot be empty.' });
+    }
+
+    const request = await prisma.customerRequest.findUnique({
+      where: { id },
+      include: { ticket: true }
+    });
+
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Customer request not found.' });
+    }
+
+    const now = new Date();
+    const adminName = authUser?.name || 'Support Staff';
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // 1. Create support message visible to customer
+      await tx.supportMessage.create({
+        data: {
+          ticketId: request.ticketId,
+          senderId: authUser?.id || null,
+          senderType: 'AGENT',
+          senderName: adminName,
+          senderEmail: authUser?.email || '',
+          message: String(message).trim(),
+          visibility: 'CUSTOMER',
+          channel: 'PORTAL',
+          sentAt: now,
+          deliveredAt: now
+        }
+      });
+
+      // 2. Update CustomerRequest
+      const cr = await tx.customerRequest.update({
+        where: { id },
+        data: {
+          status,
+          actionTaken: String(message).trim(),
+          handledById: authUser?.id || null,
+          handledByName: adminName,
+          completedAt: status === 'COMPLETED' ? now : undefined
+        }
+      });
+
+      // 3. Update Support Ticket status
+      const ticketStatus = status === 'COMPLETED' ? 'RESOLVED' : 'WAITING_FOR_CUSTOMER';
+      await tx.supportTicket.update({
+        where: { id: request.ticketId },
+        data: {
+          status: ticketStatus,
+          firstResponseAt: request.ticket.firstResponseAt || now,
+          resolvedAt: status === 'COMPLETED' ? now : undefined
+        }
+      });
+
+      // 4. Log event
+      await tx.supportTicketEvent.create({
+        data: {
+          ticketId: request.ticketId,
+          eventType: 'REPLY_SENT',
+          actorId: authUser?.id || null,
+          actorName: adminName,
+          actorRole: authUser?.role || 'STAFF',
+          newValue: ticketStatus,
+          reason: `Admin replied: "${String(message).trim().slice(0, 100)}..."`
+        }
+      });
+
+      return cr;
+    });
+
+    res.json({
+      success: true,
+      message: 'Reply sent successfully. Customer will see the reply on the storefront.',
+      request: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

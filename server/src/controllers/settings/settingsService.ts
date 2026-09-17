@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 const settingsCache = new Map<string, { value: any; expiresAt: number }>();
 const CACHE_TTL_MS = 60 * 1000; // 1 minute
 
-export const SECRET_MASK = '••••••••••••••••';
+export const SECRET_MASK = '__SET__';
 
 export interface SettingUpdatePayload {
   key: string;
@@ -92,8 +92,8 @@ export async function saveSetting(
 
   const existing = await prisma.systemSetting.findUnique({ where: { key } });
 
-  // If secret and value is the mask, don't overwrite with mask
-  if (isSecret && value === SECRET_MASK && existing) {
+  // If secret and value is the mask or blank, don't overwrite with mask
+  if (isSecret && (value === SECRET_MASK || value === '••••••••••••••••' || value === '' || value === undefined) && existing) {
     return existing;
   }
 

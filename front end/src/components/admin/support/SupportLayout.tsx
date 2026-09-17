@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import React from 'react';
+import { NavLink } from 'react-router-dom';
 import { 
-  LifeBuoy, Ticket, Clock, ShieldAlert, ArrowDownToLine, 
-  RotateCcw, Users, MessageSquare, BarChart3, Plus, RefreshCw, 
+  PhoneCall, Ticket, Clock, ShieldAlert, ArrowDownToLine, 
+  RotateCcw, Users, MessageSquare, BarChart3, RefreshCw, 
   Settings, ThumbsUp
 } from 'lucide-react';
-import { CreateTicketModal } from './CreateTicketModal';
 
 interface SupportLayoutProps {
   title: string;
@@ -24,19 +23,11 @@ export function SupportLayout({
   onRefresh,
   isLoading
 }: SupportLayoutProps) {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-
   const navLinks = [
-    { label: 'Overview', to: '/admin/support/overview', icon: LifeBuoy },
-    { label: 'All Tickets', to: '/admin/support/tickets', icon: Ticket },
-    { label: 'Unassigned', to: '/admin/support/unassigned', icon: Users },
-    { label: 'Overdue (SLA)', to: '/admin/support/overdue', icon: ShieldAlert },
-    { label: 'Download Issues', to: '/admin/support/download-issues', icon: ArrowDownToLine },
-    { label: 'Refund Requests', to: '/admin/support/refund-requests', icon: RotateCcw },
+    { label: 'Support Tickets', to: '/admin/support/tickets', icon: Ticket },
     { label: 'Customer Requests', to: '/admin/support/customer-requests', icon: Users },
-    { label: 'Canned Responses', to: '/admin/support/canned-responses', icon: MessageSquare },
-    { label: 'CSAT', to: '/admin/support/satisfaction', icon: ThumbsUp },
-    { label: 'Support Reports', to: '/admin/support/reports', icon: BarChart3 }
+    { label: 'Refund Requests', to: '/admin/support/refund-requests', icon: RotateCcw },
+    { label: 'Contact & Queries', to: '/admin/support/contact-queries', icon: MessageSquare }
   ];
 
   return (
@@ -46,7 +37,7 @@ export function SupportLayout({
         <div>
           <div className="flex items-center gap-2">
             <div className="p-2 bg-blue-50 text-blue-600 rounded-xl border border-blue-100">
-              <LifeBuoy className="w-5 h-5" />
+              <PhoneCall className="w-5 h-5" />
             </div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h1>
           </div>
@@ -66,13 +57,6 @@ export function SupportLayout({
           )}
 
           {actions}
-
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm transition-all"
-          >
-            <Plus className="w-4 h-4" /> Open Ticket
-          </button>
         </div>
       </div>
 
@@ -101,17 +85,6 @@ export function SupportLayout({
 
       {/* Main Content */}
       <div>{children}</div>
-
-      {/* Create Ticket Modal */}
-      {showCreateModal && (
-        <CreateTicketModal
-          onClose={() => setShowCreateModal(false)}
-          onCreated={() => {
-            setShowCreateModal(false);
-            if (onRefresh) onRefresh();
-          }}
-        />
-      )}
     </div>
   );
 }

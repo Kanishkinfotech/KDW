@@ -38,10 +38,12 @@ export default function FreeProducts() {
 
         {/* Product Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {freeProducts.slice(0, 4).map((product: any) => (
+          {freeProducts.slice(0, 4).map((product: any) => {
+            const targetLink = product.canonicalUrl || `/product/${product.slug || product.id}`;
+            return (
             <div 
               key={product.id}
-              onClick={() => navigate(`/product/${product.id}`)}
+              onClick={() => navigate(targetLink)}
               className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm hover:shadow-xl hover:border-emerald-500/40 transition-all duration-300 group cursor-pointer flex flex-col justify-between"
             >
               <div>
@@ -75,7 +77,7 @@ export default function FreeProducts() {
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();
-                    navigate(`/product/${product.id}`);
+                    navigate(targetLink);
                   }}
                   className="px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
                 >
@@ -83,7 +85,8 @@ export default function FreeProducts() {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
       </div>

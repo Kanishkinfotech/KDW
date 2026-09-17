@@ -5,15 +5,31 @@ import { Shield, Clock, FileText, ArrowLeft } from 'lucide-react';
 export default function StorefrontPageView() {
   const { slug } = useParams();
   const [page, setPage] = useState<any>(null);
+  const [pageBanner, setPageBanner] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchPage = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/content/pages/${slug}`);
-        const json = await res.json();
-        if (json.success) setPage(json.page);
+        const [res, bannerRes] = await Promise.allSettled([
+          fetch(`/api/content/pages/${slug}`),
+          fetch(`/api/content/banners/page/${slug}`)
+        ]);
+
+        if (res.status === 'fulfilled') {
+          const json = await res.value.json();
+          if (json.success) setPage(json.page);
+        }
+
+        if (bannerRes.status === 'fulfilled') {
+          const bJson = await bannerRes.value.json();
+          if (bJson.success && Array.isArray(bJson.banners) && bJson.banners.length > 0) {
+            setPageBanner(bJson.banners[0]);
+          } else {
+            setPageBanner(null);
+          }
+        }
       } catch (err) {
         console.error(err);
       } finally {
@@ -71,6 +87,44 @@ export default function StorefrontPageView() {
               </div>
             )}
           </div>
+
+          {/* Promotional Page Banner */}
+          {pageBanner && (
+            <div className="relative rounded-2xl overflow-hidden shadow-xs border border-slate-200/80 bg-slate-900 text-white group">
+              {pageBanner.desktopImage && (
+                <div className="absolute inset-0">
+                  <img
+                    src={pageBanner.desktopImage}
+                    alt={pageBanner.altText || pageBanner.name}
+                    className="w-full h-full object-cover opacity-30 group-hover:scale-105 transition-transform duration-700"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-900/80 to-slate-900/40" />
+                </div>
+              )}
+              <div className="relative p-6 sm:p-7 z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1.5 max-w-xl">
+                  <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                    Featured Promotion
+                  </span>
+                  <h3 className="text-lg font-black text-white">{pageBanner.headline || pageBanner.name}</h3>
+                  {pageBanner.supportingText && (
+                    <p className="text-xs text-slate-300 line-clamp-2">{pageBanner.supportingText}</p>
+                  )}
+                </div>
+                {pageBanner.ctaLabel && pageBanner.ctaUrl && (
+                  <a
+                    href={pageBanner.ctaUrl}
+                    onClick={() => {
+                      fetch(`/api/content/banners/${pageBanner.id}/click`, { method: 'POST' }).catch(() => {});
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all shrink-0 inline-flex items-center gap-1.5"
+                  >
+                    {pageBanner.ctaLabel} &rarr;
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Render Structured Blocks */}
           <div className="space-y-8">

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { XCircle, Search, RefreshCw, CheckCircle, ShieldAlert } from 'lucide-react';
 import SEO from '../../../components/SEO';
 import OverrideActionModal from '../../../components/admin/OverrideActionModal';
+import { authFetch } from '../../../api/apiClient';
 
 export default function AdminRevokedAccess() {
   const [loading, setLoading] = useState(true);
@@ -19,7 +20,7 @@ export default function AdminRevokedAccess() {
     setLoading(true);
     try {
       const query = new URLSearchParams({ page: String(page), limit: '20', search: search.trim() });
-      const res = await fetch(`/api/admin/downloads/revoked-access?${query.toString()}`);
+      const res = await authFetch(`/api/admin/downloads/revoked-access?${query.toString()}`);
       const json = await res.json();
       if (json.success) {
         setItems(json.data || []);
@@ -39,7 +40,7 @@ export default function AdminRevokedAccess() {
 
   const handleRestoreConfirm = async ({ reason }: { reason: string }) => {
     if (!selectedEnt) return;
-    const res = await fetch(`/api/admin/downloads/entitlements/${selectedEnt.id}/restore`, {
+    const res = await authFetch(`/api/admin/downloads/entitlements/${selectedEnt.id}/restore`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason })

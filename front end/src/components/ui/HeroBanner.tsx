@@ -132,7 +132,7 @@ export default function HeroBanner() {
           initial={{ opacity: 0, rotateY: 10, z: -100 }}
           animate={{ opacity: 1, rotateY: 0, z: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          onClick={(e) => featuredProduct && handleCardClick(e, `/product/${featuredProduct.id}`)}
+          onClick={(e) => featuredProduct && handleCardClick(e, featuredProduct.canonicalUrl || `/product/${featuredProduct.slug || featuredProduct.id}`)}
           className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[40%] w-full lg:w-[110%] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-20 transition-all ${featuredProduct ? 'cursor-pointer hover:shadow-blue-900/10 hover:border-blue-300' : ''}`}
         >
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
@@ -196,7 +196,7 @@ export default function HeroBanner() {
           className="relative z-20 w-[90%] bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] overflow-hidden border border-slate-200"
         >
           {templateProduct ? (
-             <div className="cursor-pointer" onClick={(e) => handleCardClick(e, `/product/${templateProduct.id}`)}>
+             <div className="cursor-pointer" onClick={(e) => handleCardClick(e, templateProduct.canonicalUrl || `/product/${templateProduct.slug || templateProduct.id}`)}>
                <div className="bg-slate-100 p-3 border-b border-slate-200 flex items-center justify-between">
                  <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-slate-300"></div><div className="w-3 h-3 rounded-full bg-slate-300"></div></div>
                  <div className="text-xs font-bold text-slate-400 tracking-widest uppercase">{templateProduct.category || "Template"}</div>
@@ -218,7 +218,7 @@ export default function HeroBanner() {
             animate={prefersReducedMotion ? {} : { y: [10, -10, 10], rotate: [2, -2, 2] }}
             transition={{ duration: 7, repeat: Infinity, ease: "easeInOut", delay: 1 }}
             className="absolute -right-5 bottom-[10%] w-48 bg-white p-3 rounded-2xl shadow-xl z-30 border border-slate-100 cursor-pointer"
-            onClick={(e) => handleCardClick(e, `/product/${featuredProducts[2].id}`)}
+            onClick={(e) => handleCardClick(e, featuredProducts[2].canonicalUrl || `/product/${featuredProducts[2].slug || featuredProducts[2].id}`)}
           >
              <div className="aspect-video rounded-xl bg-slate-100 overflow-hidden mb-2">
                <img src={featuredProducts[2].image || featuredProducts[2].thumbnail} alt="preview" className="w-full h-full object-cover" />

@@ -65,13 +65,16 @@ export default function FeaturedPromotion() {
     const discountAmount = featuredProduct.discountPrice || 0;
     const originalPrice = discountAmount > 0 ? currentPrice + discountAmount : currentPrice;
 
+    const featuredLink = featuredProduct.canonicalUrl || `/product/${featuredProduct.slug || featuredProduct.id}`;
+
     return (
-      <section className="py-24 bg-white border-t border-slate-100">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="bg-white rounded-3xl p-8 lg:p-12 border border-slate-200 shadow-sm">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      <section className="py-16 md:py-24 bg-gradient-to-b from-white to-slate-50 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200/80 p-8 md:p-12 lg:p-16 shadow-xl shadow-slate-200/50">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
               
-              <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 shadow-sm group">
+              {/* Left: Product Visual Presentation */}
+              <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-slate-100 group">
                 <SafeImage 
                   src={featuredProduct.coverImage || featuredProduct.thumbnail || ''} 
                   alt={featuredProduct.title || featuredProduct.name}
@@ -79,7 +82,7 @@ export default function FeaturedPromotion() {
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                 />
                 <div className="absolute inset-0 bg-slate-900/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 backdrop-blur-[2px]">
-                  <Link to={`/product/${featuredProduct.id}`} className="bg-white text-slate-900 px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:scale-105 transition-transform shadow-lg">
+                  <Link to={featuredLink} className="bg-white text-slate-900 px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:scale-105 transition-transform shadow-lg">
                     <Play size={18} /> Preview Product
                   </Link>
                 </div>
@@ -121,13 +124,12 @@ export default function FeaturedPromotion() {
 
                 <div className="flex flex-col sm:flex-row gap-4 w-full">
                   <Link 
-                    to={`/product/${featuredProduct.id}`}
+                    to={featuredLink}
                     className="flex-1 bg-primary text-white font-bold py-4 rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/25"
                   >
                     Get Instant Access <ArrowRight size={20} />
                   </Link>
                 </div>
-
               </div>
             </div>
           </div>

@@ -5,9 +5,11 @@ import {
   Loader2, Plus, Trash2, ArrowUp, ArrowDown, HardDrive, CheckCircle2, 
   AlertTriangle, Package, Layers, Sparkles, X, ChevronRight, ChevronLeft,
   Check, FileText, IndianRupee, ShieldCheck, RefreshCw, Eye, Globe,
-  HelpCircle, Settings, Lock, Unlock, AlertCircle, Info, Calendar, Download
+  HelpCircle, Settings, Lock, Unlock, AlertCircle, Info, Calendar, Download,
+  Archive, RotateCcw
 } from 'lucide-react';
 import axios from 'axios';
+import apiClient from '../../api/apiClient';
 import toast from 'react-hot-toast';
 import { uploadImage } from '../../utils/uploadImage';
 import { formatCurrency } from '../../utils/currency';
@@ -77,6 +79,8 @@ export default function AdminBundleForm() {
     currentVersion: '1.0.0',
     refundPolicy: 'FULL_ONLY',
     taxCategory: 'DIGITAL_GOODS_18',
+    taxMode: 'INCLUSIVE' as 'INCLUSIVE' | 'EXCLUSIVE' | 'EXEMPT',
+    taxRate: '18',
     offerStartAt: '',
     offerEndAt: '',
     seoTitle: '',
@@ -178,14 +182,24 @@ export default function AdminBundleForm() {
           currentVersion: b.currentVersion || '1.0.0',
           refundPolicy: b.refundPolicy || 'FULL_ONLY',
           taxCategory: b.taxCategory || 'DIGITAL_GOODS_18',
-          offerStartAt: b.offerStartAt ? new Date(b.offerStartAt).toISOString().split('T')[0] : '',
-          offerEndAt: b.offerEndAt ? new Date(b.offerEndAt).toISOString().split('T')[0] : '',
+          taxMode: (b.taxCategory === 'EXEMPT' || b.taxCategory === '0' ? 'EXEMPT' : (b.taxCategory?.includes('EXCLUSIVE') ? 'EXCLUSIVE' : 'INCLUSIVE')) as any,
+          taxRate: (b.taxCategory === 'EXEMPT' || b.taxCategory === '0') ? '0' : (b.taxCategory?.match(/\d+(\.\d+)?/)?.[0] || '18'),
+          offerStartAt: b.offerStartAt ? new Date(b.offerStartAt).toISOString().slice(0, 16) : '',
+          offerEndAt: b.offerEndAt ? new Date(b.offerEndAt).toISOString().slice(0, 16) : '',
           seoTitle: b.seoTitle || '',
           seoDescription: b.seoDescription || '',
           seoKeywords: b.seoKeywords || '',
           canonicalUrl: b.canonicalUrl || '',
           ogImage: b.ogImage || '',
-          faqs: Array.isArray(b.faqs) && b.faqs.length > 0 ? b.faqs : formData.faqs,
+          faqs: (() => {
+            if (!b.faqs) return formData.faqs;
+            try {
+              const parsed = typeof b.faqs === 'string' ? JSON.parse(b.faqs) : b.faqs;
+              return Array.isArray(parsed) && parsed.length > 0 ? parsed : formData.faqs;
+            } catch (e) {
+              return formData.faqs;
+            }
+          })(),
           requirements: Array.isArray(b.requirements) && b.requirements.length > 0 ? b.requirements : formData.requirements,
           productIds: pIds
         });
@@ -422,25 +436,40 @@ export default function AdminBundleForm() {
 
     try {
       setIsLoading(true);
-      const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
-      const config = { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }, withCredentials: true };
-      
+      const effectiveStatus = targetStatus !== undefined ? targetStatus : (formData.status || 'ACTIVE');
       const payload = { 
         ...formData, 
-        status: targetStatus || formData.status,
+        status: effectiveStatus,
         itemsIncluded: formData.productIds.length 
       };
       
       if (isEditing) {
-        await axios.put(`/api/bundles/${id}`, payload, config);
-        toast.success('Bundle updated successfully');
+        await apiClient.put(`/bundles/${id}`, payload);
+        toast.success(`Bundle updated successfully (${effectiveStatus})`);
       } else {
-        await axios.post('/api/bundles', payload, config);
-        toast.success('Bundle created successfully');
+        await apiClient.post('/bundles', payload);
+        toast.success(`Bundle created successfully (${effectiveStatus})`);
       }
       navigate('/admin/bundles');
     } catch (error: any) {
       toast.error(error.response?.data?.message || (isEditing ? 'Failed to update bundle' : 'Failed to create bundle'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleArchiveToggle = async (newStatus: 'ARCHIVED' | 'ACTIVE') => {
+    if (!id) return;
+    try {
+      setIsLoading(true);
+      const endpoint = newStatus === 'ARCHIVED' ? `/bundles/${id}/archive` : `/bundles/${id}/restore`;
+      const res = await apiClient.post(endpoint, {});
+      if (res.data?.success) {
+        toast.success(res.data.message || `Bundle status updated to ${newStatus}`);
+        setFormData(prev => ({ ...prev, status: newStatus }));
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || `Failed to update bundle status`);
     } finally {
       setIsLoading(false);
     }
@@ -454,7 +483,7 @@ export default function AdminBundleForm() {
   });
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20 text-xs">
+    <div className="w-full space-y-6 pb-20 text-xs">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex items-center gap-3">
@@ -465,7 +494,20 @@ export default function AdminBundleForm() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <span className="text-[10px] font-black text-primary uppercase tracking-wider block">Bundle Editor</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black text-primary uppercase tracking-wider block">Bundle Editor</span>
+              {isEditing && (
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                  formData.status === 'ARCHIVED'
+                    ? 'bg-rose-100 text-rose-700'
+                    : formData.status === 'DRAFT'
+                    ? 'bg-slate-100 text-slate-700'
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {formData.status || 'ACTIVE'}
+                </span>
+              )}
+            </div>
             <h1 className="text-xl font-black text-slate-900">
               {isEditing ? `Edit: ${formData.title || 'Bundle'}` : 'Create Multi-Product Bundle'}
             </h1>
@@ -473,24 +515,61 @@ export default function AdminBundleForm() {
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
-          <button
-            type="button"
-            onClick={() => handleSubmit('DRAFT')}
-            disabled={isLoading}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors cursor-pointer"
-          >
-            Save Draft
-          </button>
+          {isEditing && formData.status === 'ARCHIVED' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => handleArchiveToggle('ACTIVE')}
+                disabled={isLoading}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-md shadow-emerald-600/25 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCcw size={14} />
+                <span>Restore to Active</span>
+              </button>
+              <button 
+                type="button"
+                onClick={() => handleSubmit()}
+                disabled={isLoading}
+                className="flex items-center gap-1.5 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors shadow-md shadow-slate-900/25 cursor-pointer disabled:opacity-50"
+              >
+                {isLoading ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                <span>Save Changes</span>
+              </button>
+            </>
+          ) : (
+            <>
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={() => handleArchiveToggle('ARCHIVED')}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold transition-colors cursor-pointer disabled:opacity-50"
+                  title="Archive this bundle"
+                >
+                  <Archive size={14} />
+                  <span>Archive</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleSubmit('DRAFT')}
+                disabled={isLoading}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors cursor-pointer"
+              >
+                Save Draft
+              </button>
 
-          <button 
-            type="button"
-            onClick={() => handleSubmit('ACTIVE')}
-            disabled={isLoading}
-            className="flex items-center gap-1.5 px-5 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold transition-colors shadow-md shadow-primary/25 cursor-pointer disabled:opacity-50"
-          >
-            {isLoading ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-            <span>{isEditing ? 'Save & Publish' : 'Publish Bundle'}</span>
-          </button>
+              <button 
+                type="button"
+                onClick={() => handleSubmit(isEditing ? formData.status || 'ACTIVE' : 'ACTIVE')}
+                disabled={isLoading}
+                className="flex items-center gap-1.5 px-5 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold transition-colors shadow-md shadow-primary/25 cursor-pointer disabled:opacity-50"
+              >
+                {isLoading ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                <span>{isEditing ? 'Save & Publish' : 'Publish Bundle'}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -584,6 +663,20 @@ export default function AdminBundleForm() {
                   <option value="TIERED">Tiered Bundle (Personal / Commercial / Agency)</option>
                   <option value="BUILD_YOUR_OWN">Build-Your-Own Bundle (Customer Selected)</option>
                   <option value="SUBSCRIPTION">Subscription / Membership Bundle</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700">Bundle Status</label>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-slate-50 text-slate-900 font-bold"
+                >
+                  <option value="ACTIVE">Active (Live on Storefront)</option>
+                  <option value="DRAFT">Draft (Hidden from Storefront)</option>
+                  <option value="ARCHIVED">Archived (Deactivated & Hidden)</option>
                 </select>
               </div>
 
@@ -836,86 +929,238 @@ export default function AdminBundleForm() {
 
         {/* STEP 4: PRICING & DISCOUNTS */}
         {currentStep === 4 && (
-          <div className="space-y-5">
+          <div className="space-y-6">
             <div className="border-b border-slate-100 pb-3">
-              <h2 className="text-sm font-black text-slate-900">Step 4: Pricing, Discounts & Tax Configuration</h2>
-              <p className="text-slate-500 text-[11px]">Configure bundle selling price and offer dates.</p>
+              <h2 className="text-sm font-black text-slate-900">Step 4: Pricing, Discounts &amp; Tax Configuration</h2>
+              <p className="text-slate-500 text-[11px]">Configure bundle selling price, manual GST tax rates, and limited-time offer expiration.</p>
             </div>
 
+            {/* Primary Pricing Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">Combined Component Value (₹)</label>
+                <label className="font-bold text-slate-700 flex items-center justify-between text-xs">
+                  <span>Combined Component Value (₹)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Original Total</span>
+                </label>
                 <input 
                   type="number" 
                   name="originalPrice" 
                   value={formData.originalPrice} 
                   onChange={handleChange}
                   min="0"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl bg-slate-100 text-slate-900 font-mono font-bold"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl bg-slate-100 text-slate-900 font-mono font-bold text-sm"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">Bundle Selling Price (₹) <span className="text-rose-500">*</span></label>
+                <label className="font-bold text-slate-700 flex items-center justify-between text-xs">
+                  <span>Bundle Selling Price (₹) <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-emerald-600 font-bold">Customer Pays</span>
+                </label>
                 <input 
                   type="number" 
                   name="price" 
                   value={formData.price} 
                   onChange={handleChange}
                   min="0"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-slate-50 text-slate-900 font-mono font-black text-sm"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-slate-50 text-slate-900 font-mono font-black text-sm"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">Customer Savings (₹ & %)</label>
+                <label className="font-bold text-slate-700 text-xs">Customer Savings (₹ &amp; %)</label>
                 <div className="flex items-center gap-2">
                   <input 
                     type="number" 
                     name="discount" 
                     value={formData.discount} 
                     readOnly
-                    className="w-1/2 px-3.5 py-2 border border-slate-200 rounded-xl bg-emerald-50 text-emerald-800 font-mono font-bold"
+                    className="w-1/2 px-3.5 py-2.5 border border-slate-200 rounded-xl bg-emerald-50 text-emerald-800 font-mono font-bold text-sm"
                   />
-                  <span className="font-bold text-emerald-700 font-mono">
+                  <span className="font-bold text-emerald-700 font-mono text-xs whitespace-nowrap">
                     ({formData.discountPercent}% OFF)
                   </span>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700">Tax Category</label>
-                <select
-                  name="taxCategory"
-                  value={formData.taxCategory}
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 font-bold"
-                >
-                  <option value="DIGITAL_GOODS_18">Digital Goods 18% GST (Inclusive)</option>
-                  <option value="EXEMPT">Tax Exempt</option>
-                </select>
+            {/* MANUAL GST & TAX CONFIGURATION PANEL */}
+            <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#5b21b6] inline-block"></span>
+                    Manual GST &amp; Tax Rate Configuration
+                  </h3>
+                  <p className="text-[11px] text-slate-500">Specify custom GST rate % or choose a standard tax slab.</p>
+                </div>
+                
+                {/* Tax Mode Selector */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  {(['INCLUSIVE', 'EXCLUSIVE', 'EXEMPT'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          taxMode: mode,
+                          taxRate: mode === 'EXEMPT' ? '0' : (prev.taxRate === '0' ? '18' : prev.taxRate),
+                          taxCategory: mode === 'EXEMPT' ? 'EXEMPT' : `MANUAL_GST_${prev.taxRate || '18'}_${mode}`
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer ${
+                        formData.taxMode === mode
+                          ? 'bg-[#5b21b6] text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {mode === 'INCLUSIVE' ? 'GST Inclusive' : mode === 'EXCLUSIVE' ? 'GST Exclusive (+)' : 'Tax Exempt'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700">Special Offer Start Date</label>
-                <input 
-                  type="date" 
-                  name="offerStartAt" 
-                  value={formData.offerStartAt} 
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 font-medium"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                {/* Manual Rate Input */}
+                <div className="md:col-span-4 space-y-1">
+                  <label className="font-bold text-slate-700 text-xs">Manual GST Rate (%)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      name="taxRate"
+                      value={formData.taxRate}
+                      disabled={formData.taxMode === 'EXEMPT'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData(prev => ({
+                          ...prev,
+                          taxRate: val,
+                          taxCategory: prev.taxMode === 'EXEMPT' ? 'EXEMPT' : `MANUAL_GST_${val}_${prev.taxMode}`
+                        }));
+                      }}
+                      placeholder="e.g. 18 or 12"
+                      className="w-full pl-3.5 pr-8 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 font-mono font-bold text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5b21b6]/20 disabled:opacity-40"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs pointer-events-none">%</span>
+                  </div>
+                </div>
+
+                {/* Quick Slabs Presets */}
+                <div className="md:col-span-8 space-y-1">
+                  <label className="font-bold text-slate-700 text-xs">Standard GST Slabs</label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[
+                      { rate: '0', label: '0% (Exempt)' },
+                      { rate: '5', label: '5% GST' },
+                      { rate: '12', label: '12% GST' },
+                      { rate: '18', label: '18% GST' },
+                      { rate: '28', label: '28% GST' }
+                    ].map(slab => (
+                      <button
+                        key={slab.rate}
+                        type="button"
+                        onClick={() => {
+                          const isZero = slab.rate === '0';
+                          setFormData(prev => ({
+                            ...prev,
+                            taxRate: slab.rate,
+                            taxMode: isZero ? 'EXEMPT' : (prev.taxMode === 'EXEMPT' ? 'INCLUSIVE' : prev.taxMode),
+                            taxCategory: isZero ? 'EXEMPT' : `MANUAL_GST_${slab.rate}_${prev.taxMode === 'EXEMPT' ? 'INCLUSIVE' : prev.taxMode}`
+                          }));
+                        }}
+                        className={`py-1.5 px-2 rounded-xl text-[10px] font-bold transition-all border text-center cursor-pointer ${
+                          formData.taxRate === slab.rate && formData.taxMode !== 'EXEMPT'
+                            ? 'bg-[#5b21b6] text-white border-[#5b21b6] shadow-xs'
+                            : slab.rate === '0' && formData.taxMode === 'EXEMPT'
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {slab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700">Special Offer End Date</label>
-                <input 
-                  type="date" 
-                  name="offerEndAt" 
-                  value={formData.offerEndAt} 
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 font-medium"
-                />
+              {/* Live Breakdown Calculation Box */}
+              {(() => {
+                const rateNum = formData.taxMode === 'EXEMPT' ? 0 : parseFloat(formData.taxRate) || 0;
+                const P = parseFloat(String(formData.price)) || 0;
+                let basePrice = P;
+                let gstAmt = 0;
+                let totalPayable = P;
+
+                if (formData.taxMode === 'INCLUSIVE' && rateNum > 0) {
+                  basePrice = Math.round((P / (1 + rateNum / 100)) * 100) / 100;
+                  gstAmt = Math.round((P - basePrice) * 100) / 100;
+                  totalPayable = P;
+                } else if (formData.taxMode === 'EXCLUSIVE' && rateNum > 0) {
+                  basePrice = P;
+                  gstAmt = Math.round((P * (rateNum / 100)) * 100) / 100;
+                  totalPayable = Math.round((P + gstAmt) * 100) / 100;
+                }
+
+                return (
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-3 gap-2 text-center text-xs font-mono">
+                    <div className="p-2 bg-white rounded-lg border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Base Net Price</span>
+                      <span className="font-bold text-slate-800">₹{basePrice.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="p-2 bg-white rounded-lg border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">GST ({rateNum}%)</span>
+                      <span className="font-bold text-purple-700">₹{gstAmt.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="p-2 bg-white rounded-lg border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Final Price</span>
+                      <span className="font-black text-slate-900">₹{totalPayable.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* SPECIAL OFFER & LIMITED TIME DEAL CONFIGURATION */}
+            <div className="p-5 bg-gradient-to-r from-purple-50/50 via-slate-50 to-indigo-50/50 border border-purple-100 rounded-2xl space-y-4">
+              <div>
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="text-purple-600">⚡</span>
+                  Limited-Time Special Deal &amp; Auto-Expiry Rule
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  When an end date/time is configured, this bundle displays a live countdown timer on the storefront. When the deadline passes, the deal automatically expires, discount resets to 0%, and the price returns to full.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 text-xs">Special Offer Start Date &amp; Time</label>
+                  <input 
+                    type="datetime-local" 
+                    name="offerStartAt" 
+                    value={formData.offerStartAt} 
+                    onChange={handleChange}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl bg-white text-slate-900 font-medium text-xs focus:ring-2 focus:ring-[#5b21b6]/20"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 text-xs flex items-center justify-between">
+                    <span>Special Offer End Date &amp; Time <span className="text-rose-500">*</span></span>
+                    <span className="text-[10px] text-purple-600 font-bold">Auto-Zero Discount at Expiry</span>
+                  </label>
+                  <input 
+                    type="datetime-local" 
+                    name="offerEndAt" 
+                    value={formData.offerEndAt} 
+                    onChange={handleChange}
+                    className="w-full px-3.5 py-2 border border-purple-200 rounded-xl bg-white text-slate-900 font-medium text-xs focus:ring-2 focus:ring-purple-500/20"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1179,33 +1424,86 @@ export default function AdminBundleForm() {
             </div>
 
             <div className="space-y-3">
-              <span className="font-bold text-slate-800 block">Frequently Asked Questions (FAQs)</span>
-              {formData.faqs.map((faq, idx) => (
-                <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <input 
-                    type="text" 
-                    value={faq.question} 
-                    onChange={(e) => {
-                      const newFaqs = [...formData.faqs];
-                      newFaqs[idx].question = e.target.value;
-                      setFormData(prev => ({ ...prev, faqs: newFaqs }));
-                    }}
-                    placeholder="Question..."
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900"
-                  />
-                  <textarea 
-                    value={faq.answer} 
-                    onChange={(e) => {
-                      const newFaqs = [...formData.faqs];
-                      newFaqs[idx].answer = e.target.value;
-                      setFormData(prev => ({ ...prev, faqs: newFaqs }));
-                    }}
-                    rows={2}
-                    placeholder="Answer..."
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700"
-                  />
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-800 block">Frequently Asked Questions (FAQs)</span>
+                  <span className="text-[11px] text-slate-400">These will be rendered as an interactive FAQ accordion on the storefront bundle page.</span>
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      faqs: [...prev.faqs, { question: '', answer: '' }]
+                    }));
+                  }}
+                  className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Add FAQ</span>
+                </button>
+              </div>
+
+              {formData.faqs.length === 0 ? (
+                <div className="p-6 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 space-y-2">
+                  <p className="text-slate-500 font-medium text-xs">No custom FAQs added for this bundle yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        faqs: [{ question: '', answer: '' }]
+                      }));
+                    }}
+                    className="px-3 py-1.5 bg-primary text-white rounded-xl font-bold text-xs hover:bg-primary-dark cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <Plus size={13} /> Add First FAQ
+                  </button>
+                </div>
+              ) : (
+                formData.faqs.map((faq, idx) => (
+                  <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 relative group transition-all">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1">
+                        <span className="font-mono text-xs font-black text-primary bg-primary/10 px-2 py-0.5 rounded-md">Q{idx + 1}</span>
+                        <input 
+                          type="text" 
+                          value={faq.question} 
+                          onChange={(e) => {
+                            const newFaqs = [...formData.faqs];
+                            newFaqs[idx].question = e.target.value;
+                            setFormData(prev => ({ ...prev, faqs: newFaqs }));
+                          }}
+                          placeholder="What is included in this bundle?"
+                          className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-xs"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newFaqs = formData.faqs.filter((_, i) => i !== idx);
+                          setFormData(prev => ({ ...prev, faqs: newFaqs }));
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                        title="Delete FAQ"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                    <textarea 
+                      value={faq.answer} 
+                      onChange={(e) => {
+                        const newFaqs = [...formData.faqs];
+                        newFaqs[idx].answer = e.target.value;
+                        setFormData(prev => ({ ...prev, faqs: newFaqs }));
+                      }}
+                      rows={2}
+                      placeholder="Enter detailed answer shown when the question is expanded..."
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-xs leading-relaxed"
+                    />
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -1350,43 +1648,51 @@ export default function AdminBundleForm() {
               <p className="text-slate-500 text-[11px]">Inspect complete bundle details before making it live for marketplace customers.</p>
             </div>
 
-            <div className="p-5 bg-slate-900 text-white rounded-2xl shadow-sm space-y-4">
+            <div className="p-5 bg-sky-50 border border-sky-200 rounded-2xl shadow-xs space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <span className="text-[10px] font-black text-primary-light uppercase tracking-wider block">
+                  <span className="text-[10px] font-black text-sky-700 uppercase tracking-wider block">
                     {formData.bundleType} • {formData.productIds.length} PRODUCTS INCLUDED
                   </span>
-                  <h3 className="text-lg font-black text-white mt-1">{formData.title || 'Untitled Bundle'}</h3>
-                  <span className="text-xs font-mono text-slate-400">/{formData.slug}</span>
+                  <h3 className="text-lg font-black text-slate-900 mt-1">{formData.title || 'Untitled Bundle'}</h3>
+                  <span className="text-xs font-mono text-sky-700 font-medium">/{formData.slug}</span>
                 </div>
 
                 <div className="text-right">
-                  <span className="text-xl font-black text-emerald-400 font-mono block">₹{formData.price}</span>
+                  <span className="text-xl font-black text-emerald-700 font-mono block">₹{formData.price}</span>
                   <span className="text-xs text-slate-400 line-through font-mono">₹{formData.originalPrice}</span>
-                  <span className="text-[10px] font-bold text-emerald-400 block mt-0.5">SAVE ₹{formData.discount} ({formData.discountPercent}%)</span>
+                  <span className="text-[10px] font-bold text-emerald-700 block mt-0.5">SAVE ₹{formData.discount} ({formData.discountPercent}%)</span>
                 </div>
               </div>
 
-              <p className="text-slate-300 text-xs leading-relaxed border-t border-slate-800 pt-3">
+              <p className="text-slate-700 text-xs leading-relaxed border-t border-sky-200/60 pt-3">
                 {formData.shortDescription || formData.description || 'No description provided.'}
               </p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800 text-[11px]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-sky-200/60 text-[11px]">
                 <div>
-                  <span className="text-slate-400 block">Licence:</span>
-                  <span className="font-bold text-white">{formData.licenceType}</span>
+                  <span className="text-slate-500 block">Licence:</span>
+                  <span className="font-bold text-slate-900 capitalize">{formData.licenceType ? formData.licenceType.toLowerCase().replace(/_/g, ' ') : 'Standard'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Delivery:</span>
-                  <span className="font-bold text-white">{formData.deliveryMode}</span>
+                  <span className="text-slate-500 block">Delivery:</span>
+                  <span className="font-bold text-slate-900 capitalize">{formData.deliveryMode ? formData.deliveryMode.toLowerCase().replace(/_/g, ' ') : 'Multi Product'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Version:</span>
-                  <span className="font-bold text-white">v{formData.currentVersion}</span>
+                  <span className="text-slate-500 block">Version:</span>
+                  <span className="font-bold text-slate-900">v{formData.currentVersion}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Refunds:</span>
-                  <span className="font-bold text-white">{formData.refundPolicy}</span>
+                  <span className="text-slate-500 block">Refunds:</span>
+                  <span className="font-bold text-slate-900 capitalize">
+                    {formData.refundPolicy === 'NO_REFUND_AFTER_DOWNLOAD'
+                      ? 'No Refund After Download'
+                      : formData.refundPolicy === 'DOWNLOAD_MANUAL_REVIEW'
+                      ? 'Manual Review After Download'
+                      : formData.refundPolicy === 'FULL_ONLY'
+                      ? 'Full Refund Only'
+                      : formData.refundPolicy?.replace(/_/g, ' ')}
+                  </span>
                 </div>
               </div>
             </div>

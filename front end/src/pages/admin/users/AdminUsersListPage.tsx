@@ -135,9 +135,7 @@ export const AdminUsersListPage: React.FC = () => {
               <option value="ALL">All Roles</option>
               <option value="SUPER_ADMIN">Super Admin</option>
               <option value="ADMIN">Admin</option>
-              <option value="Store Manager">Store Manager</option>
-              <option value="Support Agent">Support Agent</option>
-              <option value="Developer/Ops">Developer/Ops</option>
+              <option value="inventory_manager">Inventory Manager</option>
             </select>
 
             <button
@@ -274,13 +272,9 @@ export const AdminUsersListPage: React.FC = () => {
                   onChange={(e) => setInviteRole(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
                 >
-                  <option value="Support Agent">Support Agent</option>
-                  <option value="Store Manager">Store Manager</option>
-                  <option value="Catalog Manager">Catalog Manager</option>
-                  <option value="Finance Manager">Finance Manager</option>
-                  <option value="Marketing Manager">Marketing Manager</option>
-                  <option value="Content Editor">Content Editor</option>
-                  <option value="Developer/Ops">Developer/Ops</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Super Admin">Super Admin</option>
+                  <option value="Inventory Manager">Inventory Manager</option>
                 </select>
               </div>
 

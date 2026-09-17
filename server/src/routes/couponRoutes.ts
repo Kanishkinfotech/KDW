@@ -7,14 +7,17 @@ import {
   updateCouponStatus,
   getCouponRedemptions,
   getCouponAbuseLogs,
-  validateCheckoutCoupon
+  validateCheckoutCoupon,
+  getCustomerCoupons
 } from '../controllers/couponController';
-import { authenticate, authorize } from '../middleware/authMiddleware';
+import { authenticate, authorize, optionalAuthenticate } from '../middleware/authMiddleware';
 
 const router = Router();
 
-// Public / Checkout Validation
-router.post('/validate', validateCheckoutCoupon);
+// Customer / Public Routes (with optional customer authentication)
+router.get('/', optionalAuthenticate, getCustomerCoupons);
+router.get('/my-coupons', optionalAuthenticate, getCustomerCoupons);
+router.post('/validate', optionalAuthenticate, validateCheckoutCoupon);
 
 // Admin Routes
 router.use('/admin', authenticate, authorize('ADMIN'));

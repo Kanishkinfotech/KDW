@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { 
   Search, Plus, Edit2, Trash2, Eye, MoveRight, Copy, 
   ArrowUpDown, Filter, Download, CheckCircle2, AlertCircle, 
-  ExternalLink, Layers, Sparkles, FolderTree, RefreshCw, X, ChevronLeft, ChevronRight, Check, Package
+  ExternalLink, Layers, Sparkles, FolderTree, RefreshCw, X, ChevronLeft, ChevronRight, Check, Package, Star
 } from 'lucide-react';
+import axios from 'axios';
+import toast from 'react-hot-toast';
 import { exportToCSV } from '../../../utils/csvExport';
 
 interface CategoryTableProps {
@@ -57,7 +59,7 @@ export default function CategoryTable({
       (seoFilter === 'INCOMPLETE' ? (!cat.seoTitle || !cat.seoDescription) : (cat.seoTitle && cat.seoDescription));
 
     return matchesSearch && matchesStatus && matchesParent && matchesProducts && matchesSeo;
-  });
+  }).sort((a, b) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0));
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -101,6 +103,25 @@ export default function CategoryTable({
     return 'bg-rose-50 text-rose-700 border-rose-200';
   };
 
+  const handleToggleFeatured = async (cat: any) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('adminAuth');
+      const nextVal = !cat.featured;
+      await axios.put(`/api/categories/${cat.id}`, {
+        featured: nextVal
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+      toast.success(nextVal ? `★ "${cat.name}" marked as Featured Category!` : `"${cat.name}" removed from Featured.`);
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to update category featured status');
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Toolbar */}
@@ -133,14 +154,6 @@ export default function CategoryTable({
           >
             <Download size={14} />
             <span>Export CSV</span>
-          </button>
-
-          <button
-            onClick={onOpenWizard}
-            className="flex items-center gap-1.5 px-4 py-2 text-white bg-primary hover:bg-primary-dark rounded-xl font-bold transition-colors cursor-pointer shadow-xs shadow-primary/30"
-          >
-            <Plus size={15} />
-            <span>Add Category</span>
           </button>
         </div>
       </div>
@@ -227,6 +240,7 @@ export default function CategoryTable({
                   />
                 </th>
                 <th className="p-3.5 font-extrabold">Category Name</th>
+                <th className="p-3.5 font-extrabold text-center">Sort Order</th>
                 <th className="p-3.5 font-extrabold">Parent / Level</th>
                 <th className="p-3.5 font-extrabold">Slug / Code</th>
                 <th className="p-3.5 font-extrabold text-center">Total Products</th>
@@ -240,14 +254,14 @@ export default function CategoryTable({
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-slate-400">
+                  <td colSpan={11} className="p-8 text-center text-slate-400">
                     <RefreshCw className="animate-spin inline mr-2 text-primary" size={18} />
                     Loading categories from database...
                   </td>
                 </tr>
               ) : paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-slate-400">
+                  <td colSpan={11} className="p-8 text-center text-slate-400">
                     No categories found matching your query.
                   </td>
                 </tr>
@@ -299,6 +313,13 @@ export default function CategoryTable({
                             )}
                           </div>
                         </div>
+                      </td>
+
+                      {/* Sort Order */}
+                      <td className="p-3.5 text-center">
+                        <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-lg text-xs font-black font-mono bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs">
+                          #{cat.displayOrder ?? 0}
+                        </span>
                       </td>
 
                       {/* Parent / Level */}
@@ -368,6 +389,19 @@ export default function CategoryTable({
                       {/* Action Menu */}
                       <td className="p-3.5 pr-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
+                          {/* 1-Click Toggle Featured */}
+                          <button
+                            onClick={() => handleToggleFeatured(cat)}
+                            title={cat.featured ? "Remove from Featured" : "Mark as Featured Category"}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              cat.featured 
+                                ? 'text-amber-500 hover:text-amber-600 bg-amber-50' 
+                                : 'text-slate-400 hover:text-amber-500 hover:bg-amber-50/50'
+                            }`}
+                          >
+                            <Star size={14} className={cat.featured ? 'fill-amber-400' : ''} />
+                          </button>
+
                           <button
                             onClick={() => onView(cat)}
                             title="View Category Details & Products"

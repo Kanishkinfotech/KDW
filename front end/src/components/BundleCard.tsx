@@ -1,8 +1,12 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Star, Package } from 'lucide-react';
+import { ShoppingCart, Star, Package, Zap } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { formatCurrency } from '../utils/currency';
 import SafeImage from './ui/SafeImage';
+import BundleCountdownBadge from './BundleCountdownBadge';
+import { getBundleEffectivePricing } from '../utils/bundlePricing';
+import { trackOfferView, trackOfferClick } from '../utils/offerTracking';
 
 interface BundleCardProps {
   bundle: any;
@@ -10,13 +14,27 @@ interface BundleCardProps {
 
 export default function BundleCard({ bundle }: BundleCardProps) {
   const { addToCart } = useStore();
+  const pricing = getBundleEffectivePricing(bundle);
+
+  useEffect(() => {
+    if (pricing.isDealActive && pricing.activeDeal?.offerId) {
+      trackOfferView(pricing.activeDeal.offerId);
+    }
+  }, [pricing.isDealActive, pricing.activeDeal?.offerId]);
+
+  const handleDealClick = () => {
+    if (pricing.isDealActive && pricing.activeDeal?.offerId) {
+      trackOfferClick(pricing.activeDeal.offerId);
+    }
+  };
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
+    handleDealClick();
     const cartItem = {
       id: bundle.id,
       title: bundle.title,
-      price: bundle.price,
+      price: pricing.effectivePrice,
       coverImage: bundle.coverImage,
       category: 'Bundle',
       type: 'bundle',
@@ -25,11 +43,9 @@ export default function BundleCard({ bundle }: BundleCardProps) {
     addToCart(cartItem);
   };
 
-  const savings = bundle.originalPrice - bundle.price;
-
   return (
     <div className="group bg-white rounded-2xl overflow-hidden flex flex-col h-full border border-slate-200/60 hover:border-primary/30 shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-300">
-      <Link to={`/bundles/${bundle.slug || bundle.id}`} className="relative aspect-[4/3] overflow-hidden bg-slate-100">
+      <Link to={`/bundles/${bundle.slug || bundle.id}`} onClick={handleDealClick} className="relative aspect-[4/3] overflow-hidden bg-slate-100">
         <SafeImage 
           src={bundle.coverImage} 
           alt={bundle.title} 
@@ -38,21 +54,30 @@ export default function BundleCard({ bundle }: BundleCardProps) {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
         
-        <div className="absolute top-3 left-3 flex flex-wrap gap-2 pr-12">
+        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 pr-3 items-center z-10">
           <span className="px-2.5 py-1 bg-white/95 backdrop-blur-sm rounded-full text-[10px] uppercase tracking-wider font-bold text-slate-800 shadow-sm flex items-center gap-1">
             <Package size={12} /> Bundle
           </span>
-          {bundle.featured && (
-            <span className="px-2.5 py-1 bg-gradient-to-r from-primary to-blue-500 text-white rounded-full text-[10px] uppercase tracking-wider font-bold shadow-sm">
-              Best Value
+          {pricing.isDealActive && (
+            <span className="px-2.5 py-1 bg-gradient-to-r from-rose-600 to-amber-600 text-white font-black rounded-full text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1">
+              <Zap size={11} className="fill-white" />
+              {pricing.badgeText || 'SPECIAL DEAL'}
             </span>
+          )}
+          {bundle.featured && !pricing.isDealActive && (
+            <span className="px-2.5 py-1 bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 font-bold border border-amber-300 rounded-full text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1">
+              ★ Featured Bundle
+            </span>
+          )}
+          {pricing.isDealActive && (
+            <BundleCountdownBadge offerEndAt={pricing.offerEndAt} variant="pill" />
           )}
         </div>
         
       </Link>
       
       <div className="p-5 flex flex-col flex-grow relative">
-        <Link to={`/bundles/${bundle.slug || bundle.id}`} className="flex-grow group/link">
+        <Link to={`/bundles/${bundle.slug || bundle.id}`} onClick={handleDealClick} className="flex-grow group/link">
           <h3 className="text-lg font-bold text-slate-900 mb-1.5 line-clamp-2 group-hover/link:text-primary transition-colors leading-snug">
             {bundle.title}
           </h3>
@@ -74,14 +99,25 @@ export default function BundleCard({ bundle }: BundleCardProps) {
             </div>
             <div className="flex items-center gap-2">
               <div className="text-lg font-black text-slate-900 tracking-tight">
-                {formatCurrency(bundle.price)}
+                {formatCurrency(pricing.effectivePrice)}
               </div>
-              {bundle.originalPrice > bundle.price && (
+              {pricing.originalPrice > pricing.effectivePrice && pricing.discount > 0 && (
                 <div className="text-xs text-slate-400 line-through font-medium">
-                  {formatCurrency(bundle.originalPrice)}
+                  {formatCurrency(pricing.originalPrice)}
                 </div>
               )}
             </div>
+            {pricing.isDealActive && (
+              <span className="text-[10px] font-bold text-rose-600 block flex items-center gap-1">
+                <Zap size={10} className="fill-rose-600" />
+                {pricing.offerName ? `Sale: ${pricing.offerName}` : 'Limited-time deal'}
+              </span>
+            )}
+            {pricing.isDealExpired && (
+              <span className="text-[10px] text-slate-400 font-medium block">
+                Standard Price
+              </span>
+            )}
           </div>
           
           <button 

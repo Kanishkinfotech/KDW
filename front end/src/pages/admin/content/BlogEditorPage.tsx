@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
   Save, Send, Clock, Globe, ArrowLeft, CheckCircle2, 
-  AlertCircle, DollarSign, Image as ImageIcon, Star
+  AlertCircle, DollarSign, Image as ImageIcon, Star, ExternalLink,
+  Package, Tag, User, Sparkles, Trash2
 } from 'lucide-react';
 import { ContentLayout } from '../../../components/admin/content/ContentLayout';
 import { BlockEditor, type ContentBlock } from '../../../components/admin/content/BlockEditor';
 import { ContentStatusBadge } from '../../../components/admin/content/ContentStatusBadge';
+import { toast } from 'react-hot-toast';
 
 export default function BlogEditorPage() {
   const { id } = useParams();
@@ -15,16 +17,22 @@ export default function BlogEditorPage() {
 
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [availableProducts, setAvailableProducts] = useState<any[]>([]);
 
   // Form State
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [excerpt, setExcerpt] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [authorName, setAuthorName] = useState('KDW Editorial Team');
+  const [readingTimeMinutes, setReadingTimeMinutes] = useState(6);
   const [coverImage, setCoverImage] = useState('');
   const [status, setStatus] = useState('DRAFT');
   const [isFeatured, setIsFeatured] = useState(false);
+  const [tagsInput, setTagsInput] = useState('');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
 
   // SEO Fields
@@ -39,22 +47,32 @@ export default function BlogEditorPage() {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const resCats = await fetch('/api/admin/content/blogs/categories', { credentials: 'include' });
-      const jsonCats = await resCats.json();
-      if (jsonCats.success) setCategories(jsonCats.categories || []);
+      const [resCats, resProds] = await Promise.all([
+        fetch('/api/admin/content/blogs/categories', { credentials: 'include' }),
+        fetch('/api/products?limit=50')
+      ]);
+      const jsonCats = resCats.ok ? await resCats.json().catch(() => ({})) : {};
+      const jsonProds = resProds.ok ? await resProds.json().catch(() => ({})) : {};
 
-      if (isEditing) {
+      if (jsonCats.success) setCategories(jsonCats.categories || []);
+      if (jsonProds.success && Array.isArray(jsonProds.data)) setAvailableProducts(jsonProds.data);
+
+      if (isEditing && id) {
         const res = await fetch(`/api/admin/content/blogs/${id}`, { credentials: 'include' });
-        const json = await res.json();
+        const json = res.ok ? await res.json().catch(() => ({})) : {};
         if (json.success && json.post) {
           const b = json.post;
           setTitle(b.title || '');
           setSlug(b.slug || '');
           setExcerpt(b.excerpt || '');
           setCategoryId(b.categoryId || '');
+          setAuthorName(b.authorName || 'KDW Editorial Team');
+          setReadingTimeMinutes(b.readingTimeMinutes || 6);
           setCoverImage(b.coverImage || '');
           setStatus(b.status || 'DRAFT');
           setIsFeatured(Boolean(b.isFeatured));
+          setTagsInput(Array.isArray(b.tags) ? b.tags.join(', ') : '');
+          setSelectedProductIds(Array.isArray(b.relatedProductIds) ? b.relatedProductIds : []);
           setBlocks(Array.isArray(b.contentJson) ? b.contentJson : []);
           setSeoTitle(b.seoTitle || '');
           setSeoDescription(b.seoDescription || '');
@@ -62,31 +80,61 @@ export default function BlogEditorPage() {
         }
       } else {
         setBlocks([
-          { id: 'b1', type: 'text', title: 'Introduction', content: 'Introduce the core problem and why this guide matters...' },
-          { id: 'b2', type: 'productCard', title: 'Featured KDW Tool Suite', price: '$29.99', ctaLabel: 'Get Instant Access' }
+          { id: 'b1', type: 'heading', level: 2, text: '01. Executive Summary & Context', title: '01. Context' },
+          { id: 'b2', type: 'paragraph', text: 'Provide clear, practical context and why this guide directly accelerates builder workflows.', content: 'Provide clear, practical context and why this guide directly accelerates builder workflows.' },
+          { id: 'b3', type: 'checklist', title: 'Key Takeaways', items: ['Modular architectural principle 1', 'Implementation checkpoint 2', 'Verification & delivery guideline 3'], features: ['Modular architectural principle 1', 'Implementation checkpoint 2', 'Verification & delivery guideline 3'] },
+          { id: 'b4', type: 'quote', text: 'Simplicity and deterministic clarity are the highest forms of craftsmanship.', content: 'Simplicity and deterministic clarity are the highest forms of craftsmanship.', subtitle: 'KDW Philosophy' }
         ]);
       }
     } catch (err) {
       console.error(err);
+      toast.error('Failed to load article editor data');
     } finally {
       setLoading(false);
     }
   };
 
+  const parseTags = () => {
+    return tagsInput
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+  };
+
+  const getCleanSlug = () => {
+    return (slug || title)
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
   const handleSaveDraft = async () => {
-    if (!title) return alert('Article title is required.');
+    if (!title.trim()) {
+      toast.error('Article title is required.');
+      return;
+    }
     setSaving(true);
     try {
+      const selectedCategoryObj = categories.find(c => c.id === categoryId);
+      const cleanSlug = getCleanSlug();
       const payload = {
-        title,
-        slug: slug || title.toLowerCase().replace(/[^a-z0-9]/g, '-'),
-        excerpt,
+        title: title.trim(),
+        slug: cleanSlug,
+        excerpt: excerpt.trim(),
         categoryId: categoryId || null,
-        coverImage,
+        categoryName: selectedCategoryObj?.name || null,
+        authorName: authorName.trim() || 'KDW Editorial Team',
+        readingTimeMinutes: Number(readingTimeMinutes) || 5,
+        coverImage: coverImage.trim(),
+        isFeatured,
+        status: 'DRAFT',
+        tags: parseTags(),
+        relatedProductIds: selectedProductIds,
         contentJson: blocks,
-        seoTitle,
-        seoDescription,
-        canonicalUrl
+        seoTitle: seoTitle.trim() || title.trim(),
+        seoDescription: seoDescription.trim() || excerpt.trim(),
+        canonicalUrl: canonicalUrl.trim() || `/blog/${cleanSlug}`
       };
 
       const url = isEditing ? `/api/admin/content/blogs/${id}` : '/api/admin/content/blogs';
@@ -100,40 +148,116 @@ export default function BlogEditorPage() {
       });
       const json = await res.json();
       if (json.success) {
-        if (!isEditing && json.post?.id) {
-          navigate(`/admin/content/blogs/${json.post.id}/edit`);
-        }
-        alert('Article saved successfully.');
+        toast.success(isEditing ? 'Article draft updated successfully.' : 'Article draft created successfully.');
+        navigate('/admin/content/blogs');
       } else {
-        alert(json.message || 'Failed to save');
+        toast.error(json.message || 'Failed to save article.');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Error saving article draft.');
     } finally {
       setSaving(false);
     }
   };
 
   const handlePublishNow = async () => {
-    if (!isEditing) return alert('Save draft first.');
-    if (!coverImage) return alert('Cover image is required before publishing.');
+    if (!title.trim()) {
+      toast.error('Article title is required.');
+      return;
+    }
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/content/blogs/${id}/publish`, {
-        method: 'POST',
+      const selectedCategoryObj = categories.find(c => c.id === categoryId);
+      const cleanSlug = getCleanSlug();
+      const payload = {
+        title: title.trim(),
+        slug: cleanSlug,
+        excerpt: excerpt.trim(),
+        categoryId: categoryId || null,
+        categoryName: selectedCategoryObj?.name || null,
+        authorName: authorName.trim() || 'KDW Editorial Team',
+        readingTimeMinutes: Number(readingTimeMinutes) || 5,
+        coverImage: coverImage.trim(),
+        isFeatured,
+        status: 'PUBLISHED',
+        tags: parseTags(),
+        relatedProductIds: selectedProductIds,
+        contentJson: blocks,
+        seoTitle: seoTitle.trim() || title.trim(),
+        seoDescription: seoDescription.trim() || excerpt.trim(),
+        canonicalUrl: canonicalUrl.trim() || `/blog/${cleanSlug}`
+      };
+
+      if (!isEditing) {
+        // Direct Publish for New Article
+        const res = await fetch('/api/admin/content/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.success) {
+          toast.success('Article published live to the KDW Journal!');
+          navigate('/admin/content/blogs');
+        } else {
+          toast.error(json.message || 'Failed to publish article.');
+        }
+      } else {
+        // Save updates and publish existing article
+        const resUpdate = await fetch(`/api/admin/content/blogs/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+        const jsonUpdate = await resUpdate.json();
+
+        if (jsonUpdate.success) {
+          await fetch(`/api/admin/content/blogs/${id}/publish`, {
+            method: 'POST',
+            credentials: 'include'
+          });
+          setStatus('PUBLISHED');
+          toast.success('Article published live to the KDW Journal!');
+          navigate('/admin/content/blogs');
+        } else {
+          toast.error(jsonUpdate.message || 'Failed to publish article.');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Error publishing article.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!id || !isEditing) return;
+    if (!window.confirm(`Are you sure you want to permanently delete "${title || 'this article'}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/content/blogs/${id}`, {
+        method: 'DELETE',
         credentials: 'include'
       });
       const json = await res.json();
       if (json.success) {
-        setStatus('PUBLISHED');
-        alert('Article published live to storefront!');
+        toast.success('Article deleted successfully.');
+        navigate('/admin/content/blogs');
       } else {
-        alert(json.message || 'Failed to publish');
+        toast.error(json.message || 'Failed to delete article.');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Error deleting article.');
     } finally {
-      setSaving(false);
+      setDeleting(false);
     }
   };
 
@@ -144,21 +268,44 @@ export default function BlogEditorPage() {
       backUrl="/admin/content/blogs"
       backLabel="Back to Articles"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {slug && (
+            <Link
+              to={`/blog/${slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-all shadow-xs"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Preview Live
+            </Link>
+          )}
+
+          {isEditing && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting || saving}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Delete Article"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> {deleting ? 'Deleting...' : 'Delete'}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleSaveDraft}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all"
+            disabled={saving || deleting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
           >
-            <Save className="w-3.5 h-3.5" /> Save Draft
+            <Save className="w-3.5 h-3.5" /> {saving ? 'Saving...' : 'Save Draft'}
           </button>
 
           <button
             type="button"
             onClick={handlePublishNow}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all"
+            disabled={saving || deleting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50"
           >
             <CheckCircle2 className="w-3.5 h-3.5" /> Publish Live
           </button>
@@ -166,6 +313,8 @@ export default function BlogEditorPage() {
       }
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Main 2-Column Editor Form */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
             <div>
@@ -219,6 +368,35 @@ export default function BlogEditorPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Author Name
+                </label>
+                <input
+                  type="text"
+                  value={authorName}
+                  onChange={e => setAuthorName(e.target.value)}
+                  placeholder="KDW Editorial Team"
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Reading Time (Minutes)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={readingTimeMinutes}
+                  onChange={e => setReadingTimeMinutes(parseInt(e.target.value, 10) || 5)}
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 Article Excerpt
@@ -234,7 +412,7 @@ export default function BlogEditorPage() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Cover Image URL
+                Cover Image URL (Landscape 16:9 Recommended)
               </label>
               <input
                 type="text"
@@ -244,27 +422,93 @@ export default function BlogEditorPage() {
                 className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
               />
               {coverImage && (
-                <div className="mt-2 relative h-40 rounded-xl overflow-hidden border border-slate-200">
+                <div className="mt-2 relative aspect-[16/9] max-h-48 rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
                   <img src={coverImage} alt="Cover Preview" className="w-full h-full object-cover" />
                 </div>
               )}
             </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Tags (Comma Separated)
+              </label>
+              <input
+                type="text"
+                value={tagsInput}
+                onChange={e => setTagsInput(e.target.value)}
+                placeholder="AI, Automation, Workflows, Engineering"
+                className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl"
+              />
+            </div>
           </div>
 
+          {/* Structured Block Content */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-slate-900">Article Content Blocks</h3>
             <BlockEditor blocks={blocks} onChange={setBlocks} />
           </div>
         </div>
 
+        {/* Right Sidebar Details */}
         <div className="space-y-6">
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
+          
+          {/* Status & Feature Badge */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Status</span>
               <ContentStatusBadge status={status} />
             </div>
+
+            <label className="flex items-center gap-2 pt-2 border-t border-slate-100 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isFeatured}
+                onChange={e => setIsFeatured(e.target.checked)}
+                className="w-4 h-4 rounded-md text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-xs font-bold text-slate-800">Pin as Featured Hero Article</span>
+            </label>
           </div>
 
+          {/* Linked Products for Attribution */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <Package className="w-4 h-4 text-[#5b21b6]" /> Linked KDW Products
+            </span>
+            <p className="text-[11px] text-slate-500">
+              Select products to showcase at the bottom of the publication.
+            </p>
+
+            <div className="max-h-48 overflow-y-auto space-y-2 pt-1">
+              {availableProducts.map(p => {
+                const isSelected = selectedProductIds.includes(p.id);
+                return (
+                  <label
+                    key={p.id}
+                    className={`flex items-center gap-2 p-2 rounded-xl border text-xs cursor-pointer transition-colors ${
+                      isSelected ? 'bg-purple-50 border-[#5b21b6]/40 text-[#5b21b6] font-bold' : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedProductIds(prev => [...prev, p.id]);
+                        } else {
+                          setSelectedProductIds(prev => prev.filter(id => id !== p.id));
+                        }
+                      }}
+                      className="w-3.5 h-3.5 rounded-sm text-[#5b21b6]"
+                    />
+                    <span className="truncate flex-1">{p.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* SEO Details */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
               <Globe className="w-4 h-4 text-blue-600" /> Article SEO
@@ -294,6 +538,7 @@ export default function BlogEditorPage() {
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </ContentLayout>

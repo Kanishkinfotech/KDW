@@ -1,5 +1,5 @@
 import express from 'express';
-import { getSystemHealth, resendOrderEmail, getAdminSettings, updateAdminSettings, getAdminAuditLogs, getAdminDashboard, searchGlobalAdmin } from '../controllers/adminController';
+import { getSystemHealth, resendOrderEmail, getAdminSettings, updateAdminSettings, getAdminAuditLogs, getAdminDashboard, searchGlobalAdmin, streamDashboardEvents } from '../controllers/adminController';
 import { getAdminReviews, updateReviewModeration } from '../controllers/reviewController';
 import { getAdminOrders, getAdminOrderById, updateAdminOrderStatus, refundAdminOrder } from '../controllers/orderController';
 import { 
@@ -9,7 +9,7 @@ import {
   createAdminUser,
   deleteAdminUser 
 } from '../controllers/userController';
-import { getAdminCoupons, createAdminCoupon, updateAdminCoupon, updateCouponStatus } from '../controllers/couponController';
+import { getAdminCoupons, getAdminCouponById, createAdminCoupon, updateAdminCoupon, updateCouponStatus } from '../controllers/couponController';
 import { getDriveFiles, linkDriveFile, deleteDriveFile } from '../controllers/driveController';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 
@@ -20,6 +20,9 @@ router.use(authenticate, authorize('ADMIN'));
 
 // Main Admin Dashboard Consolidated Endpoint
 router.get('/dashboard', getAdminDashboard);
+
+// Real-Time Live Event Stream (SSE)
+router.get('/live-stream', streamDashboardEvents);
 
 // Global Search Endpoint
 router.get('/search', searchGlobalAdmin);
@@ -53,10 +56,11 @@ router.put('/users/:id/role', updateAdminUserRole);
 router.delete('/users/:id', deleteAdminUser);
 
 // Coupons
-router.get('/coupons', getAdminCoupons);
-router.post('/coupons', createAdminCoupon);
-router.put('/coupons/:id', updateAdminCoupon);
-router.patch('/coupons/:id/status', updateCouponStatus);
+router.get(['/coupons', '/coupons/admin'], getAdminCoupons);
+router.post(['/coupons', '/coupons/admin'], createAdminCoupon);
+router.put(['/coupons/:id', '/coupons/admin/:id'], updateAdminCoupon);
+router.patch(['/coupons/:id/status', '/coupons/admin/:id/status'], updateCouponStatus);
+router.get(['/coupons/:id', '/coupons/admin/:id'], getAdminCouponById);
 
 // Media / Drive Manager
 router.get('/drive', getDriveFiles);

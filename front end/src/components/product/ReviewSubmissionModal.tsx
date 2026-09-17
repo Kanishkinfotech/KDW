@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Star, X, Upload, Plus, Minus, Info, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { submitReview } from '../../utils/api/reviews';
+import { uploadImage } from '../../utils/uploadImage';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 
@@ -23,26 +24,29 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
   const [cons, setCons] = useState<string[]>([]);
   const [conInput, setConInput] = useState('');
   const [wouldRecommend, setWouldRecommend] = useState<boolean | null>(null);
-  const [images, setImages] = useState<string[]>([]); // Array of blob URLs or data URLs
+  const [images, setImages] = useState<string[]>([]);
   const [videos, setVideos] = useState<string[]>([]);
   
-  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
+  
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      const newImages: string[] = [];
-      const newVideos: string[] = [];
-      
-      files.forEach(file => {
-        const url = URL.createObjectURL(file);
-        if (file.type.startsWith('image/')) {
-          newImages.push(url);
-        } else if (file.type.startsWith('video/')) {
-          newVideos.push(url);
+      for (const file of files) {
+        try {
+          const uploadedUrl = await uploadImage(file, 'reviews');
+          if (uploadedUrl) {
+            if (file.type.startsWith('image/')) {
+              setImages(prev => [...prev, uploadedUrl]);
+            } else if (file.type.startsWith('video/')) {
+              setVideos(prev => [...prev, uploadedUrl]);
+            }
+          }
+        } catch (err) {
+          toast.error(`Failed to upload ${file.name}`);
         }
-      });
-      
-      if (newImages.length > 0) setImages(prev => [...prev, ...newImages]);
-      if (newVideos.length > 0) setVideos(prev => [...prev, ...newVideos]);
+      }
     }
   };
 
@@ -103,43 +107,51 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
       toast.error('Please select a star rating');
       return;
     }
-    if (comment.length < 10) {
-      toast.error('Review must be at least 10 characters long');
+    if (comment.trim().length < 5) {
+      toast.error('Review must be at least 5 characters long');
       return;
     }
-    if (pros.length === 0) {
-      toast.error('Please add at least one pro');
-      return;
+
+    const finalPros = [...pros];
+    if (proInput.trim() && !finalPros.includes(proInput.trim())) {
+      finalPros.push(proInput.trim());
     }
-    if (cons.length === 0) {
-      toast.error('Please add at least one con');
-      return;
-    }
-    if (wouldRecommend === null) {
-      toast.error('Please specify if you would recommend this product');
-      return;
+
+    const finalCons = [...cons];
+    if (conInput.trim() && !finalCons.includes(conInput.trim())) {
+      finalCons.push(conInput.trim());
     }
 
     setIsSubmitting(true);
     try {
-      await submitReview({
+      const res = await submitReview({
         productId: product.id,
-        customerName: user?.name || 'Customer',
+        customerName: user?.name || guestName.trim() || 'Customer',
+        customerEmail: user?.email || guestEmail.trim() || undefined,
+        guestName: user?.name || guestName.trim() || 'Customer',
+        guestEmail: user?.email || guestEmail.trim() || undefined,
         rating,
-        title,
-        comment,
-        pros,
-        cons,
-        wouldRecommend,
-        images, // In a real app, upload files to S3/Cloudinary first, then pass URLs
+        title: title.trim() || 'Product Review',
+        comment: comment.trim(),
+        pros: finalPros,
+        cons: finalCons,
+        wouldRecommend: wouldRecommend !== null ? wouldRecommend : true,
+        images,
         videos
       });
-      toast.success('Your review has been submitted successfully!');
+      if (res?.isFlagged) {
+        toast('Your review contains flagged language and was routed to our moderation desk for inspection.', {
+          icon: '⚠️',
+          duration: 6000
+        });
+      } else {
+        toast.success(res?.message || 'Your verified review has been submitted successfully!');
+      }
       localStorage.removeItem(`review_draft_${product.id}`);
       onSuccess();
       onClose();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to submit review. Have you purchased this product?');
+      toast.error(error.response?.data?.message || 'Failed to submit review. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -198,6 +210,32 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
               </p>
             </div>
 
+            {/* Guest Name & Email if not authenticated */}
+            {!user && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. John Doe"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white text-gray-900 focus:ring-blue-500 focus:border-blue-500 px-4 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your Email</label>
+                  <input
+                    type="email"
+                    placeholder="e.g. john@example.com"
+                    value={guestEmail}
+                    onChange={(e) => setGuestEmail(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 bg-white text-gray-900 focus:ring-blue-500 focus:border-blue-500 px-4 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Review Title</label>
@@ -214,8 +252,8 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
             <div>
               <div className="flex justify-between items-end mb-1">
                 <label className="block text-sm font-medium text-gray-700">Detailed Review <span className="text-red-500">*</span></label>
-                <span className={`text-xs ${comment.length < 10 ? 'text-red-500' : 'text-gray-500'}`}>
-                  {comment.length}/500 {comment.length < 10 && '(min 10)'}
+                <span className={`text-xs ${comment.length < 5 ? 'text-red-500' : 'text-gray-500'}`}>
+                  {comment.length}/500
                 </span>
               </div>
               <textarea
@@ -233,7 +271,7 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Pros */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Pros <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pros (Optional)</label>
                 <div className="flex space-x-2 mb-2">
                   <input
                     type="text"
@@ -261,7 +299,7 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
 
               {/* Cons */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cons <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cons (Optional)</label>
                 <div className="flex space-x-2 mb-2">
                   <input
                     type="text"
@@ -290,7 +328,7 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
 
             {/* Recommendation */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Would you recommend this product? <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Would you recommend this product?</label>
               <div className="flex space-x-4">
                 <button
                   type="button"
@@ -311,7 +349,7 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ isOpen, o
 
             {/* Media Upload */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Upload Media (Image required for instant approval) <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Upload Media (Optional)</label>
               <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-xl hover:border-blue-500 transition-colors bg-gray-50">
                 <div className="space-y-1 text-center w-full">
                   <div className="flex justify-center space-x-4 mb-4">

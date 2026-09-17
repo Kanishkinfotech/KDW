@@ -263,12 +263,32 @@ export class CustomerService {
     }
 
     const [master, duplicate] = await Promise.all([
-      prisma.user.findUnique({ where: { id: masterCustomerId } }),
-      prisma.user.findUnique({ where: { id: duplicateCustomerId } })
+      prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: masterCustomerId },
+            { customerCode: masterCustomerId },
+            { email: masterCustomerId.trim().toLowerCase() }
+          ]
+        }
+      }),
+      prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: duplicateCustomerId },
+            { customerCode: duplicateCustomerId },
+            { email: duplicateCustomerId.trim().toLowerCase() }
+          ]
+        }
+      })
     ]);
 
     if (!master || !duplicate) {
       throw new Error('Master or Duplicate customer profile not found');
+    }
+
+    if (master.id === duplicate.id) {
+      throw new Error('Resolved Master and Duplicate records are the same customer');
     }
 
     if (duplicate.isMerged) {

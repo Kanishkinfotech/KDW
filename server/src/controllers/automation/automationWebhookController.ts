@@ -3,7 +3,33 @@ import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import { emitAutomationEvent } from './automationEventService';
 
+import { WhatsAppService } from '../../services/whatsappService';
+
 const prisma = new PrismaClient();
+
+// Verify incoming webhook handshake (e.g. Meta / Facebook Graph API hub challenge)
+export const handleWebhookVerification = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode === 'subscribe' && challenge) {
+      const waConfig = await WhatsAppService.getConfig();
+      const expectedToken = waConfig.webhookVerifyToken || process.env.META_WEBHOOK_VERIFY_TOKEN;
+
+      if (!expectedToken || token === expectedToken) {
+        return res.status(200).send(challenge);
+      } else {
+        return res.status(403).send('Verification token mismatch');
+      }
+    }
+
+    return res.status(200).send('OK');
+  } catch (error) {
+    next(error);
+  }
+};
 
 // 1. Process Incoming Webhook
 export const handleIncomingWebhook = async (req: Request, res: Response, next: NextFunction) => {

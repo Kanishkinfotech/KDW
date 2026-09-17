@@ -21,11 +21,17 @@ import {
   getFailedLogins,
   getPasswordResets,
   getEmailVerifications,
+  verifyCustomerEmailManually,
+  resendCustomerVerification,
   getActiveSessions,
   revokeActiveSession,
   getGuestClaims,
+  claimGuestOrderManually,
   getSuspiciousActivity,
-  updateSecurityEventStatus
+  updateSecurityEventStatus,
+  unlockCustomerAccount,
+  blockCustomerAccount,
+  simulateSecurityEvent
 } from '../controllers/reports/customerLoginReportController';
 
 import {
@@ -78,6 +84,7 @@ import {
   getLicenceReport,
   getExportJobs,
   createExportJob,
+  downloadExportStream,
   getDataQualityHealth
 } from '../controllers/adminReportsController';
 
@@ -110,11 +117,17 @@ router.get('/logins/successful', getSuccessfulLogins);
 router.get('/logins/failed', getFailedLogins);
 router.get('/logins/password-resets', getPasswordResets);
 router.get('/logins/email-verification', getEmailVerifications);
+router.post('/logins/email-verification/:id/verify', verifyCustomerEmailManually);
+router.post('/logins/email-verification/:id/resend', resendCustomerVerification);
 router.get('/logins/active-sessions', getActiveSessions);
 router.post('/logins/active-sessions/:id/revoke', revokeActiveSession);
 router.get('/logins/guest-claims', getGuestClaims);
+router.post('/logins/guest-claims/:orderId/claim', claimGuestOrderManually);
 router.get('/logins/suspicious', getSuspiciousActivity);
 router.post('/logins/suspicious/:id/status', updateSecurityEventStatus);
+router.post('/logins/suspicious/:id/unlock', unlockCustomerAccount);
+router.post('/logins/suspicious/:id/block', blockCustomerAccount);
+router.post('/logins/suspicious/simulate', simulateSecurityEvent);
 
 // ============================================================================
 // 3. CUSTOMER BUY ANALYSIS (10 Sub-Modules)
@@ -168,6 +181,7 @@ router.get('/customers', getCustomerReport);
 router.get('/licences', getLicenceReport);
 router.get('/exports', getExportJobs);
 router.post('/exports/generate', createExportJob);
+router.get('/exports/download/:reportType', downloadExportStream);
 router.get('/data-quality', getDataQualityHealth);
 
 export default router;

@@ -1,27 +1,42 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Mail, ArrowRight, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Mail, ArrowRight, ArrowLeft, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import Button from '../components/Button';
 import SEO from '../components/SEO';
+import toast from 'react-hot-toast';
 
 const forgotSchema = z.object({
-  email: z.string().email("Please enter a valid email address."),
+  email: z.string().email('Please enter a valid email address.'),
 });
 
 type ForgotFormValues = z.infer<typeof forgotSchema>;
 
 export default function ForgotPassword() {
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ForgotFormValues>({
-    resolver: zodResolver(forgotSchema)
+  const [searchParams] = useSearchParams();
+  const emailParam = searchParams.get('email') || '';
+
+  const { register, handleSubmit, formState: { errors, isSubmitting }, setValue } = useForm<ForgotFormValues>({
+    resolver: zodResolver(forgotSchema),
+    defaultValues: {
+      email: emailParam
+    }
   });
   const [successMessage, setSuccessMessage] = useState('');
   const [tokenMsg, setTokenMsg] = useState('');
+  const [submittedEmail, setSubmittedEmail] = useState(emailParam);
+
+  useEffect(() => {
+    if (emailParam) {
+      setValue('email', emailParam);
+      setSubmittedEmail(emailParam);
+    }
+  }, [emailParam, setValue]);
 
   const onSubmit = async (data: ForgotFormValues) => {
     try {
+      setSubmittedEmail(data.email);
       const response = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -32,79 +47,132 @@ export default function ForgotPassword() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to request reset');
+        throw new Error(result.message || 'Failed to request password reset');
       }
 
-      setSuccessMessage('Password reset link has been simulated. See token below:');
+      setSuccessMessage('Password reset link has been generated.');
       if (result.token) {
         setTokenMsg(result.token);
       }
+      toast.success('Reset link prepared successfully');
     } catch (error: any) {
-      alert(error.message);
+      toast.error(error.message || 'Error processing request');
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 relative overflow-hidden">
-      <SEO title="Forgot Password" description="Reset your Kanishk Digital World password." />
-      <div className="absolute top-1/4 -left-1/4 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[100px] -z-10"></div>
-      
-      <div className="glass p-8 md:p-12 rounded-3xl w-full max-w-md border border-slate-200 shadow-xl">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Forgot Password</h1>
-          <p className="text-slate-600">Enter your email to receive a reset link</p>
-        </div>
+    <div className="min-h-[85vh] bg-[#fcfbf9] text-slate-900 flex items-center justify-center px-4 py-12 sm:py-16 relative overflow-hidden font-sans">
+      <SEO title="Forgot Password | Kanishk Digital World" description="Reset your KDW customer account password." />
+
+      {/* Subtle light blue radial backgrounds */}
+      <div className="absolute top-10 left-1/4 w-96 h-96 bg-sky-200/30 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-blue-100/40 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md bg-white rounded-3xl p-8 sm:p-10 border border-sky-200/90 shadow-xl shadow-sky-900/5 relative z-10 space-y-6">
         
+        {/* Top Eyebrow Badge */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-blue-700 text-[10px] font-mono font-bold uppercase tracking-wider">
+            <Sparkles className="w-3 h-3 text-blue-600" />
+            <span>ACCOUNT RECOVERY</span>
+          </div>
+
+          <h1 className="text-3xl font-serif font-bold text-slate-900 tracking-tight">
+            Forgot password?
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-sans">
+            Enter your account email to receive instructions to reset your password.
+          </p>
+        </div>
+
         {successMessage ? (
-          <div className="text-center">
-            <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 mb-6">
-              {successMessage}
+          <div className="space-y-4 pt-2 text-center">
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs space-y-2">
+              <div className="flex items-center justify-center gap-1.5 font-bold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Reset Token Generated</span>
+              </div>
+              <p className="text-[11px] text-emerald-700">
+                Click below to set your new password:
+              </p>
               {tokenMsg && (
-                <div className="mt-2 text-xs font-mono bg-white p-2 rounded border border-green-100 break-all">
-                  {tokenMsg}
+                <div className="pt-2">
+                  <Link
+                    to={`/reset-password/${tokenMsg}?email=${encodeURIComponent(submittedEmail)}`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold transition-colors"
+                  >
+                    <span>Proceed to Reset Password</span>
+                    <ArrowRight size={14} />
+                  </Link>
                 </div>
               )}
             </div>
-            {tokenMsg && (
-              <p className="text-sm text-slate-600 mb-6">
-                Copy the token above and proceed to the <Link to={`/reset-password/${tokenMsg}`} className="text-primary font-semibold hover:underline">Reset Password</Link> page.
-              </p>
-            )}
-            <Link to="/login" className="flex items-center justify-center gap-2 text-sm font-semibold text-slate-900 hover:text-primary transition-colors">
-              <ArrowLeft size={16} /> Back to Login
-            </Link>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">Email Address</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail size={18} className={errors.email ? "text-danger" : "text-slate-600"} aria-hidden="true" />
-                </div>
-                <input 
-                  id="email"
-                  type="email" 
-                  {...register("email")}
-                  className={`w-full bg-slate-50 border ${errors.email ? 'border-danger focus:ring-danger/50' : 'border-slate-200 focus:ring-primary/50'} rounded-xl py-3 pl-10 pr-4 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 transition-all`}
-                  placeholder="you@example.com"
-                  aria-invalid={errors.email ? "true" : "false"}
-                />
-              </div>
-              {errors.email && <p className="mt-1.5 text-sm text-danger flex items-center gap-1" role="alert">{errors.email.message}</p>}
-            </div>
-            
-            <Button type="submit" className="w-full mt-4" size="lg" isLoading={isSubmitting}>
-              Send Reset Link <ArrowRight size={18} aria-hidden="true" />
-            </Button>
-            
-            <div className="mt-6 text-center">
-              <Link to="/login" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
-                <ArrowLeft size={16} /> Back to Login
+
+            <div className="pt-2">
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-blue-600 transition-colors"
+              >
+                <ArrowLeft size={14} />
+                <span>Return to Sign In</span>
               </Link>
             </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
+            
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="block text-xs font-bold font-sans uppercase tracking-wider text-slate-700">
+                Email address
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Mail size={16} />
+                </div>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  {...register('email')}
+                  placeholder="name@example.com"
+                  className={`w-full bg-slate-50 border ${
+                    errors.email ? 'border-rose-400 focus:border-rose-500' : 'border-slate-200 focus:border-blue-500'
+                  } rounded-xl py-3 pl-10 pr-4 text-xs sm:text-sm text-slate-900 placeholder-slate-400 outline-none focus:bg-white transition-all shadow-2xs`}
+                />
+              </div>
+              {errors.email && (
+                <p className="text-[11px] text-rose-500 font-medium">{errors.email.message}</p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold font-sans tracking-wide uppercase transition-all shadow-md kdw-button-press inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+            >
+              {isSubmitting ? (
+                <span>Generating link...</span>
+              ) : (
+                <>
+                  <span>Send reset link</span>
+                  <ArrowRight size={15} />
+                </>
+              )}
+            </button>
+
+            <div className="pt-4 border-t border-slate-100 text-center">
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-blue-600 transition-colors"
+              >
+                <ArrowLeft size={14} />
+                <span>Back to Sign In</span>
+              </Link>
+            </div>
+
           </form>
         )}
+
       </div>
     </div>
   );

@@ -57,7 +57,9 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
       where: { status: { in: ['ACTIVE', 'PUBLISHED'] } },
       select: { 
         categoryId: true, 
+        subcategoryId: true,
         subcategory: true, 
+        placementType: true,
         category: { select: { name: true, slug: true } } 
       }
     });
@@ -65,6 +67,7 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
     const mapped = rawCategories.map(cat => {
       const children = (cat.children || []).map(child => {
         const subCount = allProducts.filter(p => 
+          p.subcategoryId === child.id ||
           p.subcategory?.toLowerCase() === child.name.toLowerCase() || 
           p.subcategory?.toLowerCase() === child.slug.toLowerCase() ||
           p.categoryId === child.id
@@ -77,9 +80,11 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
         };
       });
 
-      const parentDirectCount = cat._count?.products || 0;
+      const parentDirectCount = allProducts.filter(p => 
+        p.categoryId === cat.id && (!p.subcategoryId || p.placementType === 'PRIMARY')
+      ).length || (cat._count?.products || 0);
       const subTotalCount = children.reduce((sum, c) => sum + (c.count || 0), 0);
-      const totalParentCount = Math.max(parentDirectCount, parentDirectCount + subTotalCount);
+      const totalParentCount = Math.max(parentDirectCount + subTotalCount, cat._count?.products || 0);
 
       return {
         ...cat,
@@ -164,7 +169,7 @@ export const getAdminCategories = async (req: Request, res: Response, next: Next
       where: whereClause,
       include: {
         parent: { select: { id: true, name: true, slug: true } },
-        children: { select: { id: true, name: true, slug: true, status: true } },
+        children: { select: { id: true, name: true, slug: true, status: true, featured: true, image: true, banner: true, description: true } },
         _count: { select: { products: true, bundles: true } }
       },
       orderBy: { [String(sortBy)]: String(sortOrder).toLowerCase() === 'desc' ? 'desc' : 'asc' }
@@ -174,6 +179,7 @@ export const getAdminCategories = async (req: Request, res: Response, next: Next
     const allProducts = await prisma.product.findMany({
       select: { 
         categoryId: true, 
+        subcategoryId: true,
         status: true,
         publishScheduledAt: true
       }
@@ -182,7 +188,7 @@ export const getAdminCategories = async (req: Request, res: Response, next: Next
     const now = new Date();
 
     let mapped = categories.map(cat => {
-      const catProducts = allProducts.filter(p => p.categoryId === cat.id);
+      const catProducts = allProducts.filter(p => p.categoryId === cat.id || p.subcategoryId === cat.id);
       
       const totalCount = catProducts.length + (cat._count?.bundles || 0);
       const activeCount = catProducts.filter(p => ['ACTIVE', 'PUBLISHED'].includes((p.status || '').toUpperCase())).length;
@@ -243,8 +249,13 @@ export const getCategoryById = async (req: Request, res: Response, next: NextFun
   try {
     const { id } = req.params;
 
-    const category = await prisma.category.findUnique({
-      where: { id },
+    const category = await prisma.category.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id }
+        ]
+      },
       include: {
         parent: { include: { parent: true } },
         children: { include: { _count: { select: { products: true, bundles: true } } } },
@@ -254,17 +265,18 @@ export const getCategoryById = async (req: Request, res: Response, next: NextFun
             name: true,
             slug: true,
             price: true,
+            discountPrice: true,
             status: true,
             thumbnail: true,
-            coverImage: true,
+            featured: true,
             googleDriveFileId: true,
             googleDriveLinks: true,
             publishScheduledAt: true,
-            totalUnitsSold: true,
             createdAt: true
           }
         },
         bundles: {
+          where: { status: { in: ['ACTIVE', 'PUBLISHED'] } },
           select: {
             id: true,
             title: true,
@@ -272,6 +284,7 @@ export const getCategoryById = async (req: Request, res: Response, next: NextFun
             price: true,
             status: true,
             coverImage: true,
+            featured: true,
             itemsIncluded: true
           }
         },
@@ -283,12 +296,36 @@ export const getCategoryById = async (req: Request, res: Response, next: NextFun
       return res.status(404).json({ success: false, message: 'Category not found' });
     }
 
+    const childIds = (category.children || []).map(c => c.id);
+    const categoryProducts = await prisma.product.findMany({
+      where: {
+        OR: [
+          { categoryId: category.id },
+          { subcategoryId: category.id },
+          ...(childIds.length > 0 ? [{ subcategoryId: { in: childIds } }, { categoryId: { in: childIds } }] : [])
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        price: true,
+        discountPrice: true,
+        status: true,
+        thumbnail: true,
+        googleDriveFileId: true,
+        googleDriveLinks: true,
+        publishScheduledAt: true,
+        createdAt: true
+      }
+    });
+
     const now = new Date();
-    const totalCount = category.products.length + category.bundles.length;
-    const activeCount = category.products.filter(p => ['ACTIVE', 'PUBLISHED'].includes((p.status || '').toUpperCase())).length;
-    const scheduledCount = category.products.filter(p => (p.status || '').toUpperCase() === 'SCHEDULED' || (p.publishScheduledAt && new Date(p.publishScheduledAt) > now)).length;
-    const draftCount = category.products.filter(p => (p.status || '').toUpperCase() === 'DRAFT').length;
-    const archivedCount = category.products.filter(p => (p.status || '').toUpperCase() === 'ARCHIVED').length;
+    const totalCount = categoryProducts.length + category.bundles.length;
+    const activeCount = categoryProducts.filter(p => ['ACTIVE', 'PUBLISHED'].includes((p.status || '').toUpperCase())).length;
+    const scheduledCount = categoryProducts.filter(p => (p.status || '').toUpperCase() === 'SCHEDULED' || (p.publishScheduledAt && new Date(p.publishScheduledAt) > now)).length;
+    const draftCount = categoryProducts.filter(p => (p.status || '').toUpperCase() === 'DRAFT').length;
+    const archivedCount = categoryProducts.filter(p => (p.status || '').toUpperCase() === 'ARCHIVED').length;
 
     const quality = calculateQualityScore({ ...category, productCount: totalCount });
 
@@ -296,6 +333,7 @@ export const getCategoryById = async (req: Request, res: Response, next: NextFun
       success: true,
       data: {
         ...category,
+        products: categoryProducts,
         productCount: totalCount,
         total_product_count: totalCount,
         activeProductCount: activeCount,
@@ -450,7 +488,27 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
     // Auto-generate Category Code if omitted (e.g. CAT-TEMPL-01)
     let finalCode = categoryCode && categoryCode.trim() !== ''
       ? categoryCode.trim().toUpperCase()
-      : `CAT-${name.trim().substring(0, 4).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+      : `CAT-${name.trim().substring(0, 4).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // Validate unique displayOrder
+    let finalDisplayOrder = Number(displayOrder) || 0;
+    if (finalDisplayOrder > 0) {
+      const conflictingCat = await prisma.category.findFirst({
+        where: { displayOrder: finalDisplayOrder }
+      });
+      if (conflictingCat) {
+        return res.status(400).json({
+          success: false,
+          message: `Display sort order #${finalDisplayOrder} is already in use by category "${conflictingCat.name}". Each category must have a unique sort order.`
+        });
+      }
+    } else {
+      const maxOrderCat = await prisma.category.findFirst({
+        orderBy: { displayOrder: 'desc' },
+        select: { displayOrder: true }
+      });
+      finalDisplayOrder = (maxOrderCat?.displayOrder || 0) + 1;
+    }
 
     const quality = calculateQualityScore({
       name,
@@ -464,23 +522,27 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
       attributeConfig
     });
 
+    const categoryImage = image || banner || null;
+    const finalDescription = description || shortDescription || null;
+    const finalShortDescription = shortDescription || (description ? description.substring(0, 160) : null);
+
     const category = await prisma.category.create({
       data: {
         name: name.trim(),
         categoryCode: finalCode,
         slug: finalSlug,
-        description: description || null,
-        shortDescription: shortDescription || null,
+        description: finalDescription,
+        shortDescription: finalShortDescription,
         internalNote: internalNote || null,
-        image: image || null,
+        image: categoryImage,
         icon: icon || null,
-        banner: banner || null,
+        banner: categoryImage,
         bannerConfig: bannerConfig || null,
         buyingGuide: buyingGuide || null,
         faqs: faqs || null,
         ctaText: ctaText || null,
         attributeConfig: attributeConfig || null,
-        displayOrder: Number(displayOrder) || 0,
+        displayOrder: finalDisplayOrder,
         status: status || 'ACTIVE',
         featured: !!featured,
         featuredPlacement: featuredPlacement || null,
@@ -488,10 +550,10 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
         featuredStartDate: featuredStartDate ? new Date(featuredStartDate) : null,
         featuredEndDate: featuredEndDate ? new Date(featuredEndDate) : null,
         seoTitle: seoTitle || `${name.trim()} | KDW Digital Store`,
-        seoDescription: seoDescription || shortDescription || description || null,
+        seoDescription: seoDescription || finalShortDescription || finalDescription || null,
         seoKeywords: seoKeywords || null,
         canonicalUrl: canonicalUrl || `/categories/${finalSlug}`,
-        ogImage: ogImage || banner || image || null,
+        ogImage: ogImage || categoryImage || null,
         noindex: !!noindex,
         includeInSitemap: includeInSitemap !== false,
         parentId: parentId && parentId !== '' && parentId !== 'root' ? parentId : null,
@@ -528,18 +590,42 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
     if (body.slug !== undefined) {
       dataToUpdate.slug = body.slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     }
-    if (body.description !== undefined) dataToUpdate.description = body.description;
+    if (body.description !== undefined) {
+      dataToUpdate.description = body.description;
+      if (body.shortDescription === undefined && (!existing.shortDescription || existing.shortDescription === '')) {
+        dataToUpdate.shortDescription = body.description ? body.description.substring(0, 160) : '';
+      }
+    }
     if (body.shortDescription !== undefined) dataToUpdate.shortDescription = body.shortDescription;
     if (body.internalNote !== undefined) dataToUpdate.internalNote = body.internalNote;
-    if (body.image !== undefined) dataToUpdate.image = body.image;
-    if (body.icon !== undefined) dataToUpdate.icon = body.icon;
-    if (body.banner !== undefined) dataToUpdate.banner = body.banner;
+    if (body.image !== undefined) {
+      dataToUpdate.image = body.image;
+      if (body.banner === undefined) dataToUpdate.banner = body.image;
+    }
+    if (body.banner !== undefined) {
+      dataToUpdate.banner = body.banner;
+      if (body.image === undefined) dataToUpdate.image = body.banner;
+    }
     if (body.bannerConfig !== undefined) dataToUpdate.bannerConfig = body.bannerConfig;
     if (body.buyingGuide !== undefined) dataToUpdate.buyingGuide = body.buyingGuide;
     if (body.faqs !== undefined) dataToUpdate.faqs = body.faqs;
     if (body.ctaText !== undefined) dataToUpdate.ctaText = body.ctaText;
     if (body.attributeConfig !== undefined) dataToUpdate.attributeConfig = body.attributeConfig;
-    if (body.displayOrder !== undefined) dataToUpdate.displayOrder = Number(body.displayOrder);
+    if (body.displayOrder !== undefined) {
+      const parsedOrder = Number(body.displayOrder);
+      if (parsedOrder > 0 && parsedOrder !== existing.displayOrder) {
+        const conflictingCat = await prisma.category.findFirst({
+          where: { displayOrder: parsedOrder, id: { not: id } }
+        });
+        if (conflictingCat) {
+          return res.status(400).json({
+            success: false,
+            message: `Display sort order #${parsedOrder} is already in use by category "${conflictingCat.name}". Each category must have a unique sort order.`
+          });
+        }
+      }
+      dataToUpdate.displayOrder = parsedOrder;
+    }
     if (body.status !== undefined) dataToUpdate.status = body.status;
     if (body.featured !== undefined) dataToUpdate.featured = !!body.featured;
     if (body.featuredPlacement !== undefined) dataToUpdate.featuredPlacement = body.featuredPlacement;
@@ -1027,6 +1113,22 @@ export const getCategoryAnalytics = async (req: Request, res: Response, next: Ne
 // ============================================================================
 // 14. CATEGORY REDIRECTS (301 Migration Manager)
 // ============================================================================
+export const checkCategoryRedirect = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { path } = req.query;
+    if (!path) return res.json({ success: true, redirect: null });
+    const redirect = await prisma.categoryRedirect.findFirst({
+      where: {
+        oldPath: path as string,
+        isActive: true
+      }
+    });
+    res.json({ success: true, redirect });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getCategoryRedirects = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const redirects = await prisma.categoryRedirect.findMany({
