@@ -19,16 +19,33 @@ export class EmailProviderFactory {
     // Read dynamic settings from database (unmasking secrets)
     const settings = await getSettingsByGroup('EMAIL', true);
 
-    const host = settings.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com';
+    const host = (settings.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com').trim();
     const port = Number(settings.smtp_port) || Number(process.env.SMTP_PORT) || 587;
-    const user = settings.smtp_user || process.env.SMTP_USER || 'vvin8160@gmail.com';
-    const pass = settings.smtp_password || process.env.SMTP_PASS || 'toymcthjdsbbhwqo';
-    const secure = settings.smtp_secure !== undefined ? Boolean(settings.smtp_secure) : (port === 465);
+    const user = (settings.smtp_user || process.env.SMTP_USER || '').trim();
+    let pass = (settings.smtp_password || process.env.SMTP_PASS || '').trim();
+
+    // If Gmail and app password contains spaces (e.g. "abcd efgh ijkl mnop"), strip spaces
+    if (host.includes('gmail') && pass.replace(/\s+/g, '').length === 16) {
+      pass = pass.replace(/\s+/g, '');
+    }
+
+    // Determine SSL/TLS mode:
+    // Port 465 requires direct SSL (secure: true)
+    // Port 587, 25, 2525 require STARTTLS (secure: false in nodemailer)
+    // Other custom ports follow user setting
+    let secure = false;
+    if (port === 465) {
+      secure = true;
+    } else if (port === 587 || port === 25 || port === 2525) {
+      secure = false;
+    } else if (settings.smtp_secure !== undefined) {
+      secure = settings.smtp_secure === true || settings.smtp_secure === 'true';
+    }
 
     const providerType = (settings.provider || (host ? 'SMTP' : 'RESEND')).toUpperCase();
-    const fromName = settings.from_name || 'Kanishk Digital World';
-    const defaultFromEmail = settings.from_email || process.env.SMTP_FROM_EMAIL || user || 'orders@kanishkdigitalworld.com';
-    const replyTo = settings.reply_to_email || settings.support_sender_email || undefined;
+    const fromName = (settings.from_name || 'Kanishk Digital World').trim();
+    const defaultFromEmail = (settings.from_email || process.env.SMTP_FROM_EMAIL || user || 'orders@kanishkdigitalworld.com').trim();
+    const replyTo = (settings.reply_to_email || settings.support_sender_email || undefined)?.trim();
 
     // Resolve Sender Email based on Intent
     let selectedSenderEmail = defaultFromEmail;
@@ -54,17 +71,22 @@ export class EmailProviderFactory {
         selectedSenderEmail = defaultFromEmail;
         break;
     }
+    selectedSenderEmail = selectedSenderEmail.trim();
 
-    // When using Gmail SMTP, align sender email with Gmail account user if needed
-    if (host.includes('gmail.com') && user) {
+    // When using Gmail SMTP, align sender email with the authenticated Gmail user to prevent SPF/DMARC rejection
+    let effectiveReplyTo = replyTo;
+    if (host.includes('gmail.com') && user && user.includes('@')) {
       selectedSenderEmail = user;
+      if (!effectiveReplyTo || !effectiveReplyTo.endsWith('@gmail.com')) {
+        effectiveReplyTo = user;
+      }
     }
 
     let effectiveProvider = providerType;
     if (effectiveProvider === 'RESEND') {
       const apiKey = settings.api_key || process.env.RESEND_API_KEY;
       if (!apiKey || apiKey.startsWith('re_live_key_sample')) {
-        console.warn('[EmailProviderFactory] Resend API key is missing or is sample placeholder. Automatically falling back to configured SMTP gateway.');
+        console.warn('[EmailProviderFactory] Resend API key is missing or sample placeholder. Automatically using configured SMTP gateway.');
         effectiveProvider = 'SMTP';
       }
     }
@@ -80,7 +102,8 @@ export class EmailProviderFactory {
         auth: {
           user: 'resend',
           pass: apiKey || settings.smtp_password || ''
-        }
+        },
+        tls: { rejectUnauthorized: false }
       });
     } else if (effectiveProvider === 'SENDGRID') {
       const apiKey = settings.api_key || process.env.SENDGRID_API_KEY;
@@ -91,16 +114,23 @@ export class EmailProviderFactory {
         auth: {
           user: 'apikey',
           pass: apiKey || settings.smtp_password || ''
-        }
+        },
+        tls: { rejectUnauthorized: false }
       });
     } else {
-      // Standard SMTP Provider (Gmail / Custom SMTP)
+      // Standard SMTP Provider (Gmail / Custom Self-Hosted / Third-Party SMTP)
       if (host && user && pass) {
         transporter = nodemailer.createTransport({
           host,
           port,
           secure,
-          auth: { user, pass }
+          auth: { user, pass },
+          pool: true,
+          maxConnections: 5,
+          maxMessages: 100,
+          tls: {
+            rejectUnauthorized: false
+          }
         });
       } else {
         // Fallback for development/testing if no host configured
@@ -121,7 +151,7 @@ export class EmailProviderFactory {
       provider: effectiveProvider as any,
       fromName,
       fromEmail: selectedSenderEmail,
-      replyTo,
+      replyTo: effectiveReplyTo,
       transporter
     };
   }
@@ -142,14 +172,36 @@ export class EmailProviderFactory {
       let transporter: nodemailer.Transporter;
 
       if (providerConfig && providerConfig.smtp_host) {
+        const host = (providerConfig.smtp_host || '').trim();
+        const port = Number(providerConfig.smtp_port) || 587;
+        const user = (providerConfig.smtp_user || '').trim();
+        let pass = (providerConfig.smtp_password || '').trim();
+
+        // If password is blank or mask, load existing stored password from DB
+        if (!pass || pass === '__SET__' || pass.startsWith('••••')) {
+          const dbSettings = await getSettingsByGroup('EMAIL', true);
+          pass = (dbSettings.smtp_password || process.env.SMTP_PASS || '').trim();
+        }
+
+        if (host.includes('gmail') && pass.replace(/\s+/g, '').length === 16) {
+          pass = pass.replace(/\s+/g, '');
+        }
+
+        let secure = false;
+        if (port === 465) {
+          secure = true;
+        } else if (port === 587 || port === 25 || port === 2525) {
+          secure = false;
+        } else if (providerConfig.smtp_secure !== undefined) {
+          secure = providerConfig.smtp_secure === true || String(providerConfig.smtp_secure) === 'true';
+        }
+
         transporter = nodemailer.createTransport({
-          host: providerConfig.smtp_host,
-          port: Number(providerConfig.smtp_port) || 587,
-          secure: providerConfig.smtp_secure ?? (Number(providerConfig.smtp_port) === 465),
-          auth: {
-            user: providerConfig.smtp_user,
-            pass: providerConfig.smtp_password
-          }
+          host,
+          port,
+          secure,
+          auth: user && pass ? { user, pass } : undefined,
+          tls: { rejectUnauthorized: false }
         });
       } else {
         const resolved = await this.getProvider();
@@ -157,7 +209,7 @@ export class EmailProviderFactory {
       }
 
       await transporter.verify();
-      return { success: true, message: 'Email provider connection verified successfully.' };
+      return { success: true, message: 'SMTP connection verified successfully! Email gateway is fully operational.' };
     } catch (err: any) {
       return { success: false, message: `Email connection test failed: ${err.message}` };
     }

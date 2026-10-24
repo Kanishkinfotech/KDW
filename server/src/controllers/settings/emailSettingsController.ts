@@ -56,13 +56,32 @@ export const updateEmailSettings = async (req: Request, res: Response, next: Nex
 
     const payloadList: any[] = [];
 
-    for (const [key, value] of Object.entries(updates)) {
+    for (const [key, rawVal] of Object.entries(updates)) {
       if (key.startsWith('_')) continue;
 
       const cleanKey = key.replace(/^email\./, '');
       const isSecret = cleanKey === 'api_key' || cleanKey === 'smtp_password' || cleanKey === 'webhook_secret';
 
-      if (isSecret && value === SECRET_MASK) continue;
+      // Skip masked passwords or empty secret placeholders so existing passwords are never wiped out
+      if (isSecret && (
+        rawVal === SECRET_MASK ||
+        rawVal === '' ||
+        rawVal === undefined ||
+        (typeof rawVal === 'string' && rawVal.startsWith('••••'))
+      )) {
+        continue;
+      }
+
+      let value: any = rawVal;
+      if (typeof value === 'string') {
+        value = value.trim();
+        // If 16-character Google App Password, strip spaces
+        if (cleanKey === 'smtp_password' && value.replace(/\s+/g, '').length === 16) {
+          value = value.replace(/\s+/g, '');
+        }
+      } else if (cleanKey === 'smtp_port' && typeof value === 'string') {
+        value = parseInt(value, 10) || 587;
+      }
 
       payloadList.push({
         key: `email.${cleanKey}`,

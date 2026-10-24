@@ -179,7 +179,7 @@ model Product {
   tokenDurationMinutes Int?     @default(60)
   maxActiveTokens     Int?      @default(3)
   refundPolicy        String?   @default("REVOKE_ACCESS")
-  licenceType         String?   @default("COMMERCIAL")
+  licenceType         String?   @default("PERSONAL")
   licenceTerms        String?
   licenceKeyRequired  Boolean   @default(false)
   activationLimit     Int?      @default(1)
@@ -325,7 +325,7 @@ model OrderItem {
   productNameSnapshot    String?
   productTypeSnapshot    String?                @default("DIGITAL_PRODUCT")
   productVersionSnapshot String?                @default("1.0.0")
-  licenceSnapshot        String?                @default("COMMERCIAL")
+  licenceSnapshot        String?                @default("PERSONAL")
   accessPolicySnapshot   String?                @default("LIFETIME")
   quantity               Int                    @default(1)
   unitPrice              Float
@@ -606,7 +606,7 @@ model LicenceKey {
   customerId      String?
   keyMasked       String
   keyHash         String?
-  licenceType     String    @default("COMMERCIAL")
+  licenceType     String    @default("PERSONAL")
   status          String    @default("ACTIVE") // ACTIVE, EXPIRED, SUSPENDED, REVOKED
   activationLimit Int       @default(1)
   activationCount Int       @default(0)
@@ -1019,7 +1019,7 @@ model Bundle {
   pricingPolicy         String?               @default("FLAT_DISCOUNT")
   entitlementMode       String?               @default("LIFETIME_ACCESS")
   licenceMode           String?               @default("BUNDLE_UNIFIED")
-  licenceType           String                @default("COMMERCIAL") // PERSONAL, COMMERCIAL, AGENCY
+  licenceType           String                @default("PERSONAL") // PERSONAL, COMMERCIAL, AGENCY
   licenceTerms          String?
   licenceDomains        Int?                  @default(1)
   licenceActivations    Int?                  @default(1)
@@ -1617,7 +1617,7 @@ model BundleItem {
   displayOrder           Int       @default(0)
   referencePriceSnapshot Float     @default(0)
   versionSnapshot        String?   @default("1.0.0")
-  licencePolicySnapshot  String?   @default("COMMERCIAL")
+  licencePolicySnapshot  String?   @default("PERSONAL")
   accessPolicySnapshot   String?   @default("LIFETIME")
   isRequired             Boolean   @default(true)
   createdAt              DateTime  @default(now())
@@ -1659,7 +1659,7 @@ model BundleEntitlement {
   orderId               String
   orderItemId           String?
   status                String                 @default("ACTIVE") // ACTIVE, REVOKED, EXPIRED
-  licenceType           String                 @default("COMMERCIAL")
+  licenceType           String                 @default("PERSONAL")
   licenceKey            String?
   accessExpiresAt       DateTime?
   downloadLimit         Int                    @default(10)
@@ -1689,7 +1689,7 @@ model ComponentEntitlement {
   orderId             String
   orderItemId         String?
   productVersion      String            @default("1.0.0")
-  licenceType         String            @default("COMMERCIAL")
+  licenceType         String            @default("PERSONAL")
   downloadLimit       Int               @default(10)
   downloadCount       Int               @default(0)
   accessExpiresAt     DateTime?

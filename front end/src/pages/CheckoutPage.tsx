@@ -743,7 +743,7 @@ export default function CheckoutPage() {
                 </div>
 
                 <p className="text-xs text-slate-500 leading-relaxed font-sans">
-                  Digital download links, Google Drive permissions, and lifetime commercial licences are provisioned to this email immediately upon payment verification.
+                  Digital download links, Google Drive permissions, and lifetime personal licences are provisioned to this email immediately upon payment verification.
                 </p>
 
                 <div className="space-y-4">
@@ -1159,7 +1159,7 @@ export default function CheckoutPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Verified commercial licence key generated per order</span>
+                  <span>Verified personal licence key generated per order</span>
                 </div>
               </div>
 

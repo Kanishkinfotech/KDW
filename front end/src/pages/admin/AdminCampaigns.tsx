@@ -177,10 +177,14 @@ export default function AdminCampaigns() {
   };
 
   useEffect(() => {
-    if (isEmailOnly && activeTab === 'SCHEDULED') {
+    if (
+      (isEmailOnly && (activeTab === 'SCHEDULED' || activeTab === 'RUNNING' || activeTab === 'PRODUCT_LAUNCH' || activeTab === 'ABANDONED_CHECKOUT')) ||
+      (!isEmailOnly && !isWhatsAppOnly && (activeTab === 'RUNNING' || activeTab === 'PRODUCT_LAUNCH' || activeTab === 'ABANDONED_CHECKOUT')) ||
+      (isWhatsAppOnly && activeTab === 'RUNNING')
+    ) {
       setActiveTab('ALL');
     }
-  }, [isEmailOnly, activeTab]);
+  }, [isEmailOnly, isWhatsAppOnly, activeTab]);
 
   useEffect(() => {
     fetchCampaignsData();
@@ -540,10 +544,8 @@ export default function AdminCampaigns() {
         </div>
 
         <div
-          onClick={() => setActiveTab('RUNNING')}
-          className={`p-4 rounded-xl border transition cursor-pointer ${
-            activeTab === 'RUNNING' ? 'bg-emerald-50/70 border-emerald-300 ring-2 ring-emerald-400/20' : 'bg-white border-slate-200 hover:border-slate-300'
-          }`}
+          onClick={() => setActiveTab('ALL')}
+          className="p-4 rounded-xl border bg-white border-slate-200"
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase">Running</span>
@@ -641,28 +643,21 @@ export default function AdminCampaigns() {
         {(isEmailOnly ? [
           { id: 'ALL', label: 'All Email Campaigns', icon: Mail },
           { id: 'DRAFTS', label: 'Drafts', icon: FileText },
-          { id: 'RUNNING', label: 'Running', icon: Play },
           { id: 'COMPLETED', label: 'Completed', icon: CheckCircle },
-          { id: 'PRODUCT_LAUNCH', label: 'Product Launches', icon: Sparkles },
-          { id: 'ABANDONED_CHECKOUT', label: 'Abandoned Cart', icon: AlertTriangle },
           { id: 'REPORTS', label: 'Email Reports', icon: TrendingUp },
         ] : isWhatsAppOnly ? [
           { id: 'ALL', label: 'All WhatsApp Campaigns', icon: MessageSquare },
           { id: 'DRAFTS', label: 'Drafts', icon: FileText },
           { id: 'SCHEDULED', label: 'Scheduled', icon: Clock },
-          { id: 'RUNNING', label: 'Running', icon: Play },
           { id: 'COMPLETED', label: 'Completed', icon: CheckCircle },
           { id: 'REPORTS', label: 'WhatsApp Reports', icon: TrendingUp },
         ] : [
           { id: 'ALL', label: 'All Campaigns', icon: Mail },
           { id: 'DRAFTS', label: 'Drafts', icon: FileText },
           { id: 'SCHEDULED', label: 'Scheduled', icon: Clock },
-          { id: 'RUNNING', label: 'Running', icon: Play },
           { id: 'COMPLETED', label: 'Completed', icon: CheckCircle },
           { id: 'EMAIL', label: 'Email Campaigns', icon: Mail },
           { id: 'WHATSAPP', label: 'WhatsApp', icon: MessageSquare },
-          { id: 'PRODUCT_LAUNCH', label: 'Product Launches', icon: Sparkles },
-          { id: 'ABANDONED_CHECKOUT', label: 'Abandoned Cart', icon: AlertTriangle },
           { id: 'PRODUCT_UPDATES', label: 'Product Updates', icon: RefreshCw },
           { id: 'REVIEW_REQUESTS', label: 'Review Requests', icon: CheckSquare },
           { id: 'REPORTS', label: 'Campaign Reports', icon: TrendingUp },
@@ -1749,7 +1744,7 @@ export default function AdminCampaigns() {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search by phone, email, name..."
+                  placeholder={selectedCampaignForReport.channel === 'WHATSAPP' ? "Search by phone, name..." : "Search by email, name..."}
                   value={recipientSearch}
                   onChange={e => {
                     const q = e.target.value;
@@ -1779,10 +1774,10 @@ export default function AdminCampaigns() {
                   <table className="w-full text-left text-xs text-slate-600">
                     <thead className="bg-slate-100 text-slate-700 uppercase font-semibold border-b border-slate-200">
                       <tr>
-                        <th className="px-4 py-3">Customer / Mobile</th>
+                        <th className="px-4 py-3">{selectedCampaignForReport.channel === 'WHATSAPP' ? 'Customer / Mobile' : 'Customer / Email'}</th>
                         <th className="px-4 py-3">Delivery Status</th>
                         <th className="px-4 py-3">Delivered At</th>
-                        <th className="px-4 py-3">Seen / Read At</th>
+                        <th className="px-4 py-3">{selectedCampaignForReport.channel === 'WHATSAPP' ? 'Seen (Blue Ticks)' : 'Opened At'}</th>
                         <th className="px-4 py-3">Engagement &amp; Response</th>
                       </tr>
                     </thead>
@@ -1799,9 +1794,15 @@ export default function AdminCampaigns() {
                           <tr key={log.id} className="hover:bg-slate-50 transition">
                             <td className="px-4 py-3">
                               <div className="font-bold text-slate-900">{log.customer?.name || 'Customer'}</div>
-                              <div className="text-emerald-700 font-mono text-[11px] font-semibold">
-                                {log.phone || log.customer?.mobile || log.email || 'No Phone'}
-                              </div>
+                              {selectedCampaignForReport.channel === 'WHATSAPP' ? (
+                                <div className="text-emerald-700 font-mono text-[11px] font-semibold">
+                                  {log.phone || log.customer?.mobile || 'No Phone'}
+                                </div>
+                              ) : (
+                                <div className="text-blue-700 font-mono text-[11px] font-semibold">
+                                  {log.email || log.customer?.email || 'No Email'}
+                                </div>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {isReplied ? (
@@ -1818,7 +1819,7 @@ export default function AdminCampaigns() {
                                 </span>
                               ) : isRead ? (
                                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold inline-flex items-center gap-1 text-[11px]">
-                                  <Eye className="w-3 h-3" /> Read (Blue Ticks)
+                                  <Eye className="w-3 h-3" /> {selectedCampaignForReport.channel === 'WHATSAPP' ? 'Read (Blue Ticks)' : 'Read / Opened'}
                                 </span>
                               ) : isDelivered ? (
                                 <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full font-bold inline-flex items-center gap-1 text-[11px]">
@@ -1844,7 +1845,9 @@ export default function AdminCampaigns() {
                                   {new Date(log.openedAt).toLocaleString('en-IN')}
                                 </span>
                               ) : (
-                                <span className="text-slate-400 italic">Not seen yet</span>
+                                <span className="text-slate-400 italic">
+                                  {selectedCampaignForReport.channel === 'WHATSAPP' ? 'Not seen yet' : 'Not opened yet'}
+                                </span>
                               )}
                             </td>
                             <td className="px-4 py-3">

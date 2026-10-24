@@ -218,7 +218,7 @@ export default function ProductDetails() {
     return [
       'Master editable source files and production assets.',
       'Comprehensive step-by-step implementation guide & checklist.',
-      'Commercial usage licence allowing deployment across client and internal operations.',
+      'Personal usage licence allowing lifetime personal and educational projects.',
       'Direct download access with automated checksum integrity and lifetime version updates.'
     ];
   }, [product]);
@@ -639,7 +639,7 @@ export default function ProductDetails() {
                 {storeSettings.show_licence_summary !== false && (
                   <div className="flex items-center gap-2.5 text-xs text-slate-600 font-sans">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Commercial use & deployment rights included</span>
+                    <span>Personal use licence & lifetime access included</span>
                   </div>
                 )}
                 <div className="flex items-center gap-2.5 text-xs text-slate-600 font-sans">

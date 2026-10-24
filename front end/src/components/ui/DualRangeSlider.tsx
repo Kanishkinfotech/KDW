@@ -86,29 +86,32 @@ export default function DualRangeSlider({ min, max, value, onChange, onChangeEnd
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
             <input 
               type="number" 
-              min={min}
+              min={Math.max(0, min)}
               max={localMax}
               value={localMin}
+              onKeyDown={(e) => {
+                if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+') {
+                  e.preventDefault();
+                }
+                if (e.key === 'Enter') {
+                  onChangeEnd?.([localMin, localMax]);
+                  e.currentTarget.blur();
+                }
+              }}
               onChange={(e) => {
-                let val = parseInt(e.target.value) || 0;
-                if (val < min) val = min;
+                let val = parseInt(e.target.value);
+                if (isNaN(val) || val < Math.max(0, min)) val = Math.max(0, min);
                 if (val > localMax) val = localMax;
                 setLocalMin(val);
                 onChange([val, localMax]);
               }}
               onBlur={(e) => {
-                let val = parseInt(e.target.value) || 0;
-                if (val < min) val = min;
+                let val = parseInt(e.target.value);
+                if (isNaN(val) || val < Math.max(0, min)) val = Math.max(0, min);
                 if (val > localMax) val = localMax;
                 setLocalMin(val);
                 onChange([val, localMax]);
                 onChangeEnd?.([val, localMax]);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  onChangeEnd?.([localMin, localMax]);
-                  e.currentTarget.blur();
-                }
               }}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 pl-7 pr-2 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
             />
@@ -120,29 +123,32 @@ export default function DualRangeSlider({ min, max, value, onChange, onChangeEnd
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
             <input 
               type="number" 
-              min={localMin}
+              min={Math.max(0, localMin)}
               max={max}
               value={localMax}
-              onChange={(e) => {
-                let val = parseInt(e.target.value) || 0;
-                if (val > max) val = max;
-                if (val < localMin) val = localMin;
-                setLocalMax(val);
-                onChange([localMin, val]);
-              }}
-              onBlur={(e) => {
-                let val = parseInt(e.target.value) || 0;
-                if (val > max) val = max;
-                if (val < localMin) val = localMin;
-                setLocalMax(val);
-                onChange([localMin, val]);
-                onChangeEnd?.([localMin, val]);
-              }}
               onKeyDown={(e) => {
+                if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+') {
+                  e.preventDefault();
+                }
                 if (e.key === 'Enter') {
                   onChangeEnd?.([localMin, localMax]);
                   e.currentTarget.blur();
                 }
+              }}
+              onChange={(e) => {
+                let val = parseInt(e.target.value);
+                if (isNaN(val) || val < Math.max(0, localMin)) val = Math.max(0, localMin);
+                if (val > max) val = max;
+                setLocalMax(val);
+                onChange([localMin, val]);
+              }}
+              onBlur={(e) => {
+                let val = parseInt(e.target.value);
+                if (isNaN(val) || val < Math.max(0, localMin)) val = Math.max(0, localMin);
+                if (val > max) val = max;
+                setLocalMax(val);
+                onChange([localMin, val]);
+                onChangeEnd?.([localMin, val]);
               }}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 pl-7 pr-2 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
             />

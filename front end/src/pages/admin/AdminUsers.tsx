@@ -38,7 +38,10 @@ interface StaffUser {
 const ROLE_OPTIONS = [
   { value: 'super_admin', label: 'Super Admin', color: 'bg-rose-50 text-rose-700 border-rose-200' },
   { value: 'admin', label: 'Admin', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { value: 'inventory_manager', label: 'Inventory Manager', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+  { value: 'manager', label: 'Manager', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  { value: 'inventory_manager', label: 'Inventory Manager', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { value: 'support_agent', label: 'Support Agent', color: 'bg-sky-50 text-sky-700 border-sky-200' },
+  { value: 'marketing', label: 'Marketing', color: 'bg-purple-50 text-purple-700 border-purple-200' }
 ];
 
 export default function AdminUsers() {
@@ -56,7 +59,7 @@ export default function AdminUsers() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('support');
+  const [inviteRole, setInviteRole] = useState('manager');
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
 
   // Temporary Password Modal

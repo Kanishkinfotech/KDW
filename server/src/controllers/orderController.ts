@@ -688,7 +688,8 @@ export const resendOrderAccess = async (req: Request, res: Response, next: NextF
       licenceKey: primaryLicence,
       items: deliveryLinksList.length > 0
         ? deliveryLinksList
-        : [{ name: 'Digital Asset', driveUrl: delivery?.deliveryLink || 'http://localhost:5173/account/downloads' }]
+        : [{ name: 'Digital Asset', driveUrl: delivery?.deliveryLink || 'http://localhost:5173/account/downloads' }],
+      isVerified: order.licenceStatus === 'VERIFIED' || (order.licenceKeys?.[0]?.activationCount || 0) > 0
     });
 
     if (!sendResult.success && !sendResult.skipped) {

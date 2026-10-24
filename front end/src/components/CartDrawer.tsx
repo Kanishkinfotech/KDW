@@ -86,7 +86,7 @@ export default function CartDrawer() {
                       {item.title}
                     </h4>
                     <span className="text-[10px] text-slate-500 font-sans block mt-0.5">
-                      Commercial Licence • Instant Access
+                      Personal Licence • Instant Access
                     </span>
                     <div className="flex items-center gap-2 mt-1.5">
                       <span className="text-xs font-bold text-[#5b21b6] font-mono">

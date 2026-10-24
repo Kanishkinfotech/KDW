@@ -16,6 +16,7 @@ interface DigitalDeliveryEmailProps {
   bundleTitle?: string;
   licenceKey?: string;
   items: DeliveryItem[];
+  isVerified?: boolean;
 }
 
 /**
@@ -25,7 +26,7 @@ export const sendDigitalProductDeliveryEmail = async (
   props: DigitalDeliveryEmailProps
 ): Promise<{ success: boolean; messageId?: string; error?: any; skipped?: boolean }> => {
   try {
-    const { recipientEmail, customerName, orderNumber, bundleTitle, licenceKey, items } = props;
+    const { recipientEmail, customerName, orderNumber, bundleTitle, licenceKey, items, isVerified = false } = props;
 
     // 1. Enforce Email Policy Toggles
     const policy = await EmailPolicyService.isEmailAllowed('DOWNLOAD_ACCESS');
@@ -45,136 +46,170 @@ export const sendDigitalProductDeliveryEmail = async (
     let itemsText = '';
 
     items.forEach((item, index) => {
-      itemsHtml += `
-        <div style="margin-bottom: 16px; padding: 18px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="font-size: 11px; font-weight: 800; color: #5b21b6; text-transform: uppercase; letter-spacing: 0.5px;">
-              Item ${index + 1} of ${items.length}
+      if (isVerified) {
+        itemsHtml += `
+          <div style="margin-bottom: 16px; padding: 18px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #f8fafc;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <div style="font-size: 11px; font-weight: 800; color: #0284c7; text-transform: uppercase; letter-spacing: 0.5px;">
+                Deliverable ${index + 1} of ${items.length}
+              </div>
+              <span style="font-size: 11px; color: #059669; font-weight: 700; background: #d1fae5; padding: 2px 8px; border-radius: 6px;">
+                🔓 Unlocked &amp; Ready
+              </span>
             </div>
-            ${item.bundleName ? `<span style="font-size: 11px; color: #64748b; font-weight: 600;">Part of ${item.bundleName}</span>` : ''}
+            <h3 style="margin: 0 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 700;">${item.name}</h3>
+            <div style="margin: 12px 0;">
+              <a href="${item.driveUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #0284c7; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px;">
+                Open &amp; Download Assets (Google Drive) &rarr;
+              </a>
+            </div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 6px;">
+              Personal license verified &amp; active. You have full permission for personal use.
+            </div>
           </div>
-          <h3 style="margin: 0 0 12px 0; color: #0f172a; font-size: 15px; font-weight: 700;">${item.name}</h3>
-          <a href="${item.driveUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #7c3aed, #5b21b6); color: #ffffff; padding: 11px 22px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; box-shadow: 0 2px 4px rgba(124, 58, 237, 0.2);">
-            Open &amp; Download Assets (Google Drive) &rarr;
-          </a>
-          <div style="font-size: 11px; color: #64748b; margin-top: 8px;">
-            🔒 Secure token link &amp; time limit active. (Opens automatically once license key is verified)
+        `;
+        itemsText += `${index + 1}. ${item.name} (UNLOCKED)\n   Google Drive Download Link: ${item.driveUrl}\n\n`;
+      } else {
+        itemsHtml += `
+          <div style="margin-bottom: 16px; padding: 18px; border: 1px solid #fed7aa; border-radius: 12px; background-color: #fffaf5;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <div style="font-size: 11px; font-weight: 800; color: #c2410c; text-transform: uppercase; letter-spacing: 0.5px;">
+                Deliverable ${index + 1} of ${items.length}
+              </div>
+              <span style="font-size: 11px; color: #c2410c; font-weight: 700; background: #ffedd5; padding: 2px 8px; border-radius: 6px;">
+                🔒 Locked — Verification Required
+              </span>
+            </div>
+            <h3 style="margin: 0 0 8px 0; color: #0f172a; font-size: 16px; font-weight: 700;">${item.name}</h3>
+            <p style="font-size: 13px; color: #64748b; margin: 0 0 14px 0;">
+              To protect license authenticity, download access remains locked until your Personal License Key is verified.
+            </p>
+            <div style="margin: 12px 0;">
+              <a href="${verificationUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #7c3aed; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px;">
+                🔒 Verify License Key to Unlock Assets &rarr;
+              </a>
+            </div>
+            <div style="font-size: 12px; color: #9a3412; margin-top: 6px;">
+              Click above to verify your key and unlock your Google Drive access.
+            </div>
           </div>
-        </div>
-      `;
-
-      itemsText += `${index + 1}. ${item.name}\n   Access Link (requires license verification): ${item.driveUrl}\n\n`;
+        `;
+        itemsText += `${index + 1}. ${item.name} [LOCKED — Verification Required]\n   Verify your key to unlock: ${verificationUrl}\n\n`;
+      }
     });
+
+    const subject = isVerified
+      ? `Order #${orderNumber} Deliverables Unlocked — Your Google Drive Download Links`
+      : `Order #${orderNumber} Confirmed — Your Personal License Key (Action Required: Verify to Unlock Downloads)`;
 
     const htmlBody = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Your KDW Assets & License Key</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
       </head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #334155; line-height: 1.6; background-color: #ffffff;">
         <div style="text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #f1f5f9;">
-          <div style="display: inline-block; width: 44px; height: 44px; line-height: 44px; background: linear-gradient(135deg, #0284c7, #0369a1); color: white; border-radius: 12px; font-weight: 900; font-size: 20px;">
+          <div style="display: inline-block; width: 44px; height: 44px; line-height: 44px; background-color: #7c3aed; color: white; border-radius: 12px; font-weight: 900; font-size: 20px;">
             K
           </div>
           <h1 style="color: #0f172a; font-size: 22px; margin: 8px 0 0 0; font-weight: 800;">Kanishk Digital World</h1>
-          <p style="color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 2px 0 0 0;">Digital Store & Assets</p>
+          <p style="color: #64748b; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin: 2px 0 0 0;">
+            ${isVerified ? 'Official Deliverables Unlocked & Personal License Active' : 'Official Order Delivery & Personal License Key'}
+          </p>
         </div>
 
-        <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">Hi ${customerName},</p>
+        <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">Hello ${customerName},</p>
         
         <p style="font-size: 14px; color: #475569; margin-top: 0;">
-          Thank you for claiming/purchasing your digital assets from <strong>Kanishk Digital World</strong>.
+          ${isVerified
+            ? `Thank you for choosing <strong>Kanishk Digital World</strong>. Your Personal License for order #${orderNumber} is verified and your Google Drive deliverables are now unlocked below.`
+            : `Thank you for choosing <strong>Kanishk Digital World</strong>. Your order #${orderNumber} is confirmed! Your official Personal License Key is provided below. <strong>Action Required:</strong> Please verify your license key to unlock your digital assets.`
+          }
         </p>
 
-        <div style="padding: 14px 18px; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; color: #065f46; font-size: 13px; font-weight: 600; margin: 16px 0;">
-          ✓ Entitlement Granted (Order #${orderNumber}) — Your ${bundleTitle ? `"${bundleTitle}" bundle` : 'asset'} is ready to download.
-        </div>
-
-        <!-- Prominent License Key Box -->
-        <div style="background-color: #f0fdf4; border: 2px dashed #16a34a; border-radius: 14px; padding: 20px; text-align: center; margin: 24px 0;">
+        <!-- Official Personal License Key Box -->
+        ${isVerified ? `
+        <div style="background-color: #f0fdf4; border: 2px solid #86efac; border-radius: 14px; padding: 20px; text-align: center; margin: 24px 0;">
           <span style="font-size: 11px; font-weight: 800; color: #15803d; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">
-            Your Official Commercial License Key
+            Your Official Personal License Key (Verified &amp; Active)
           </span>
-          <div style="font-size: 20px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-weight: 900; color: #166534; background: #dcfce7; padding: 10px 16px; border-radius: 8px; display: inline-block; letter-spacing: 1.5px; margin: 8px 0; border: 1px solid #86efac;">
+          <div style="font-size: 18px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-weight: 800; color: #14532d; background: #dcfce7; padding: 10px 16px; border-radius: 8px; display: inline-block; letter-spacing: 1.5px; margin: 8px 0; border: 1px solid #bbf7d0;">
             ${primaryLicenceKey}
           </div>
-          <p style="font-size: 12px; color: #374151; margin: 8px 0 0 0;">
-            Copy this license key and verify it using the button below to immediately unlock and download your files.
+          <div style="margin-top: 8px;">
+            <span style="display: inline-block; background-color: #dcfce7; color: #15803d; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; border: 1px solid #bbf7d0;">
+              ✅ Status: Active &amp; Verified Personal License
+            </span>
+          </div>
+          <p style="font-size: 12px; color: #166534; margin: 8px 0 0 0;">
+            Your license authorizes lifetime personal use. Keep this for your records.
           </p>
         </div>
-
-        <!-- Verification Call to Action Button -->
-        <div style="text-align: center; margin: 28px 0;">
-          <a href="${verificationUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 12px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35); text-transform: uppercase; letter-spacing: 0.5px;">
-            Verify License & Unlock Download &rarr;
-          </a>
-          <p style="font-size: 11px; color: #94a3b8; margin-top: 8px;">
-            Link: <a href="${verificationUrl}" style="color: #0284c7; text-decoration: underline;">${verificationUrl}</a>
+        ` : `
+        <div style="background-color: #faf5ff; border: 2px dashed #9333ea; border-radius: 14px; padding: 20px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 11px; font-weight: 800; color: #7e22ce; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 6px;">
+            Your Official Personal License Key (Verification Required)
+          </span>
+          <div style="font-size: 18px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-weight: 800; color: #581c87; background: #f3e8ff; padding: 10px 16px; border-radius: 8px; display: inline-block; letter-spacing: 1.5px; margin: 8px 0; border: 1px solid #d8b4fe;">
+            ${primaryLicenceKey}
+          </div>
+          <div style="margin-top: 8px;">
+            <span style="display: inline-block; background-color: #fef3c7; color: #92400e; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; border: 1px solid #fde68a;">
+              🔒 Status: Verification Required to Unlock Downloads
+            </span>
+          </div>
+          <p style="font-size: 12px; color: #6b7280; margin: 8px 0 0 0;">
+            Your downloads are locked. You must verify this key to activate access to your deliverables.
           </p>
         </div>
+        `}
 
-        <!-- 3-Step Verification Guide -->
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 24px 0; font-size: 13px; color: #334155;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
-            How to Access Your Deliverables:
-          </strong>
-          <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
-            <li>Click <strong>"Verify License & Unlock Download"</strong> above or visit <a href="${frontendUrl}/verify-license" style="color: #0284c7; font-weight: 600;">${frontendUrl}/verify-license</a>.</li>
-            <li>Your License Key (<code style="background: #e2e8f0; padding: 2px 5px; border-radius: 4px; font-family: monospace;">${primaryLicenceKey}</code>) will be verified and activated on the portal.</li>
-            <li>Once verified, return to this email and click the <strong>"Open &amp; Download Assets (Google Drive)"</strong> buttons below to access your files.</li>
-            <li><strong>Note:</strong> In accordance with KDW security policy, product assets can only be opened through verified links delivered to your email with link token and time limit enforcement.</li>
-          </ol>
-        </div>
-
-        <h2 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 24px 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-          Direct Deliverables:
+        <h2 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 24px 0 14px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+          Your Digital Deliverables:
         </h2>
         
         ${itemsHtml}
 
-        <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
-          All purchases and active licenses are permanently stored in your <a href="${frontendUrl}/dashboard" style="color: #0284c7; font-weight: bold; text-decoration: underline;">KDW Account Dashboard</a> under the <strong>Licenses</strong> and <strong>Downloads</strong> tabs.
-        </p>
+        <!-- Verification Portal Section -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 24px 0; text-align: center;">
+          <p style="margin: 0 0 10px 0; color: #64748b; font-size: 13px;">
+            ${isVerified 
+              ? 'You can verify your key anytime on our customer license portal or access all past downloads in your dashboard.' 
+              : 'Enter your Personal License Key on our license verification portal to unlock your Google Drive download link.'
+            }
+          </p>
+          <a href="${verificationUrl}" target="_blank" rel="noopener noreferrer" style="color: #7c3aed; font-weight: bold; text-decoration: underline;">
+            Open License Verification Portal &rarr;
+          </a>
+        </div>
 
-        <p style="font-size: 14px; color: #0f172a; font-weight: 600; margin-top: 24px;">
-          Thank you for choosing Kanishk Digital World.
-        </p>
-
-        <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 28px 0 16px 0;" />
-        
-        <p style="font-size: 11px; color: #94a3b8; text-align: center;">
-          Need assistance? Reply directly to this email or visit our <a href="${frontendUrl}/support" style="color: #0284c7;">Help Center</a>.
-        </p>
+        <div style="border-top: 1px solid #e2e8f0; margin-top: 32px; padding-top: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
+          <p style="margin: 0 0 4px 0;">This is an automated transactional order confirmation for Order #${orderNumber}.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} Kanishk Digital World. All rights reserved.</p>
+        </div>
       </body>
       </html>
     `;
 
     const textBody = `
-Hi ${customerName},
+Hello ${customerName},
 
-Thank you for claiming/purchasing your digital assets from Kanishk Digital World.
+Thank you for choosing Kanishk Digital World. Your order #${orderNumber} is confirmed.
 
-Your entitlement has been successfully verified (Order #${orderNumber}).
-
-YOUR COMMERCIAL LICENSE KEY:
+YOUR OFFICIAL PERSONAL LICENSE KEY:
 ${primaryLicenceKey}
+(${isVerified ? 'Status: ACTIVE & VERIFIED' : 'Status: LOCKED — VERIFICATION REQUIRED'})
 
-VERIFY & UNLOCK DOWNLOAD LINK:
-${verificationUrl}
-
-HOW TO ACCESS:
-1. Open the link above or visit ${frontendUrl}/verify-license
-2. Enter or confirm your License Key: ${primaryLicenceKey}
-3. Click "Verify & Access Assets" to open your Google Drive files and download.
-
-${bundleTitle ? `Bundle: ${bundleTitle}\n` : ''}Products included: ${items.length}
-
-Direct Downloads:
+YOUR DIGITAL ASSETS & DOWNLOAD STATUS:
 ${itemsText}
 
-Thank you for choosing Kanishk Digital World.
+LICENSE VERIFICATION PORTAL:
+${verificationUrl}
+
+${isVerified ? 'Your deliverables are unlocked. Thank you for choosing Kanishk Digital World.' : 'Please verify your license key above to unlock your Google Drive downloads.'}
     `.trim();
 
     const fromHeader = `"${providerConfig.fromName}" <${providerConfig.fromEmail}>`;
@@ -183,12 +218,15 @@ Thank you for choosing Kanishk Digital World.
       from: fromHeader,
       to: recipientEmail,
       replyTo: providerConfig.replyTo,
-      subject: `Your KDW License Key & Assets Ready (Order #${orderNumber})`,
+      subject,
       text: textBody,
       html: htmlBody,
+      headers: {
+        'X-Entity-Ref-ID': `order-${orderNumber}`
+      }
     });
 
-    console.log(`[EmailService] Digital delivery email with license key sent to ${recipientEmail} via ${providerConfig.provider} (MsgID: ${info.messageId})`);
+    console.log(`[EmailService] Digital delivery email (${isVerified ? 'UNLOCKED' : 'LOCKED_VERIFICATION_REQUIRED'}) sent to ${recipientEmail} via ${providerConfig.provider} (MsgID: ${info.messageId})`);
 
     return { success: true, messageId: info.messageId };
   } catch (error) {

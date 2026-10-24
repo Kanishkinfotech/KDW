@@ -54,8 +54,10 @@ export default function Shop({
   const activeSubcategoryParam = subcategorySlug || searchParams.get('subcategory') || 'All';
   const activeSearchParam = searchParams.get('search') || searchParams.get('q') || '';
   const activeSortParam = searchParams.get('sort') || searchParams.get('sortBy') || 'newest';
-  const activeMinPriceParam = searchParams.get('minPrice') || '';
-  const activeMaxPriceParam = searchParams.get('maxPrice') || '';
+  const rawMinPrice = searchParams.get('minPrice') || '';
+  const rawMaxPrice = searchParams.get('maxPrice') || '';
+  const activeMinPriceParam = rawMinPrice && !isNaN(Number(rawMinPrice)) && Number(rawMinPrice) >= 0 ? rawMinPrice : '';
+  const activeMaxPriceParam = rawMaxPrice && !isNaN(Number(rawMaxPrice)) && Number(rawMaxPrice) >= 0 ? rawMaxPrice : '';
   const activePageParam = parseInt(searchParams.get('page') || '1', 10);
 
   // Component state
@@ -562,44 +564,75 @@ export default function Shop({
               </div>
 
               {/* Subcategories Grid Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
                 {currentCategoryData.children.map((sub: any) => {
                   const subCount = sub.count !== undefined ? sub.count : (sub.productCount !== undefined ? sub.productCount : (sub._count?.products || 0));
+                  const subImage = sub.image || sub.banner || (products.find((p: any) => p.subcategoryId === sub.id || p.subcategory?.toLowerCase() === sub.name?.toLowerCase())?.thumbnail) || null;
+
                   return (
                     <button
                       key={sub.id || sub.slug || sub.name}
                       onClick={() => handleSubcategorySelect(sub.slug || sub.name)}
-                      className="p-6 rounded-2xl bg-[#fafafa] hover:bg-white border border-slate-200/90 hover:border-[#5b21b6] hover:shadow-md transition-all text-left group flex flex-col justify-between min-h-[160px] cursor-pointer"
+                      className="rounded-2xl bg-[#fafafa] hover:bg-white border border-slate-200/90 hover:border-[#5b21b6] hover:shadow-lg transition-all duration-300 text-left group flex flex-col justify-between overflow-hidden cursor-pointer"
                     >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#5b21b6] bg-[#ede9fe] px-2.5 py-0.5 rounded-md">
+                      {/* Subcategory Image Header */}
+                      <div className="relative h-44 sm:h-48 w-full bg-slate-100 overflow-hidden shrink-0">
+                        {subImage ? (
+                          <img
+                            src={subImage}
+                            alt={sub.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            loading="lazy"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = '/images/fallback/image-unavailable.png';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#ede9fe]/80 to-[#ddd6fe]/50 text-[#5b21b6]">
+                            <Layers className="w-10 h-10 opacity-50 mb-1" />
+                            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider opacity-70">
+                              KDW Subcategory
+                            </span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-60 group-hover:opacity-30 transition-opacity" />
+
+                        {/* Floating Badges */}
+                        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
+                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#5b21b6] bg-white/95 backdrop-blur-xs px-2.5 py-0.5 rounded-md shadow-xs border border-purple-100">
                             Subcategory
                           </span>
                           {sub.featured && (
-                            <span className="text-[10px] font-mono font-bold bg-amber-400 text-amber-950 px-2 py-0.5 rounded flex items-center gap-1 border border-amber-300">
+                            <span className="text-[10px] font-mono font-bold bg-amber-400 text-amber-950 px-2 py-0.5 rounded flex items-center gap-1 shadow-xs border border-amber-300">
                               ★ Featured
                             </span>
                           )}
                         </div>
-                        <h3 className="text-lg font-serif font-bold text-slate-900 group-hover:text-[#5b21b6] transition-colors leading-snug">
-                          {sub.name}
-                        </h3>
-                        {sub.description && (
-                          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed font-sans">
-                            {sub.description}
-                          </p>
-                        )}
                       </div>
 
-                      <div className="pt-4 mt-4 border-t border-slate-200/60 flex items-center justify-between text-xs font-semibold text-[#5b21b6]">
-                        <span className="text-slate-500 font-mono text-[11px]">
-                          {subCount > 0 ? `${subCount} Products` : 'Explore pack'}
-                        </span>
-                        <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                          <span>View products</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </span>
+                      {/* Card Content */}
+                      <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3 w-full">
+                        <div className="space-y-1.5">
+                          <h3 className="text-lg font-serif font-bold text-slate-900 group-hover:text-[#5b21b6] transition-colors leading-snug">
+                            {sub.name}
+                          </h3>
+                          {sub.description && (
+                            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed font-sans">
+                              {sub.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="pt-3.5 border-t border-slate-200/60 flex items-center justify-between text-xs font-semibold text-[#5b21b6]">
+                          <span className="text-slate-500 font-mono text-[11px]">
+                            {subCount > 0 ? `${subCount} Products` : 'Explore pack'}
+                          </span>
+                          <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                            <span>View products</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
                       </div>
                     </button>
                   );
@@ -661,17 +694,49 @@ export default function Shop({
                   <span className="text-xs text-slate-500 font-medium">Price:</span>
                   <input
                     type="number"
+                    min="0"
                     placeholder="Min"
                     value={priceMinInput}
-                    onChange={(e) => setPriceMinInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+') {
+                        e.preventDefault();
+                      }
+                    }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setPriceMinInput('');
+                      } else {
+                        const num = parseFloat(val);
+                        if (!isNaN(num) && num >= 0) {
+                          setPriceMinInput(val);
+                        }
+                      }
+                    }}
                     className="w-18 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#5b21b6]"
                   />
                   <span className="text-slate-400">-</span>
                   <input
                     type="number"
+                    min="0"
                     placeholder="Max"
                     value={priceMaxInput}
-                    onChange={(e) => setPriceMaxInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+') {
+                        e.preventDefault();
+                      }
+                    }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setPriceMaxInput('');
+                      } else {
+                        const num = parseFloat(val);
+                        if (!isNaN(num) && num >= 0) {
+                          setPriceMaxInput(val);
+                        }
+                      }
+                    }}
                     className="w-18 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#5b21b6]"
                   />
                   <button

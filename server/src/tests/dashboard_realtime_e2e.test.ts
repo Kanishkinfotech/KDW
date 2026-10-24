@@ -33,7 +33,7 @@ async function runDashboardRealtimeE2ETest() {
       price: 1000,
       status: 'ACTIVE',
       categoryId: testCategory.id,
-      licenceType: 'COMMERCIAL',
+      licenceType: 'PERSONAL',
       licenceKeyRequired: true,
       downloadLimit: 5,
       version: '1.0.0'

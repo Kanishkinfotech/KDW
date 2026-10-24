@@ -71,7 +71,7 @@ export default function AnnouncementBar() {
   if (isDismissed) return null;
 
   // Determine message, target URL, and styling
-  let message = '⚡ 100% VERIFIED DIGITAL ASSETS · INSTANT GOOGLE DRIVE ACCESS · COMMERCIAL LICENCE INCLUDED';
+  let message = '⚡ 100% VERIFIED DIGITAL ASSETS · INSTANT GOOGLE DRIVE ACCESS · PERSONAL LICENCE INCLUDED';
   let targetLink = '/shop';
   let ctaText = 'Explore Shop';
   let isBundleOffer = false;

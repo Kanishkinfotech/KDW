@@ -189,7 +189,7 @@ const mapProductData = async (body: any, existingId?: string) => {
     tokenDurationMinutes: body.tokenDurationMinutes ? (parseInt(body.tokenDurationMinutes, 10) || 60) : 60,
     maxActiveTokens: body.maxActiveTokens ? (parseInt(body.maxActiveTokens, 10) || 3) : 3,
     refundPolicy: body.refundPolicy || 'REVOKE_ACCESS',
-    licenceType: (body.licenceType || 'COMMERCIAL').toUpperCase(),
+    licenceType: (body.licenceType || 'PERSONAL').toUpperCase(),
     licenceTerms: body.licenceTerms || null,
     licenceKeyRequired: Boolean(body.licenceKeyRequired),
     activationLimit: body.activationLimit !== undefined ? parseInt(body.activationLimit) : 1,
@@ -341,8 +341,8 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     // Price Filter
     if (minPrice !== undefined || maxPrice !== undefined) {
       where.price = {};
-      if (minPrice !== undefined && !isNaN(Number(minPrice))) where.price.gte = Number(minPrice);
-      if (maxPrice !== undefined && !isNaN(Number(maxPrice))) where.price.lte = Number(maxPrice);
+      if (minPrice !== undefined && !isNaN(Number(minPrice))) where.price.gte = Math.max(0, Number(minPrice));
+      if (maxPrice !== undefined && !isNaN(Number(maxPrice))) where.price.lte = Math.max(0, Number(maxPrice));
     }
 
     // Search Query (Search Name, Product Code, Slug, Description, Tags)

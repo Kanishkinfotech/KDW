@@ -93,7 +93,7 @@ export default function BundleDetails() {
     return [
       {
         question: 'What is included in this bundle?',
-        answer: 'You get full instant access to all digital assets listed in this bundle with lifetime updates and commercial licence.'
+        answer: 'You get full instant access to all digital assets listed in this bundle with lifetime updates and personal licence.'
       },
       {
         question: 'How do I access my files after payment?',
@@ -104,8 +104,8 @@ export default function BundleDetails() {
         answer: 'Yes! All future version upgrades, new additions, and bug fixes for the included digital assets are provided free for life.'
       },
       {
-        question: 'Can I use this bundle for commercial client projects?',
-        answer: 'Yes, this bundle includes a commercial licence permitting usage in both personal and commercial projects without additional licensing fees.'
+        question: 'Can I use this bundle for personal projects?',
+        answer: 'Yes, this bundle includes a personal licence permitting lifetime usage for personal and individual projects.'
       }
     ];
   }, [bundle?.faqs]);
@@ -148,6 +148,14 @@ export default function BundleDetails() {
     }
   };
 
+  const pricing = useMemo(() => getBundleEffectivePricing(bundle), [bundle]);
+
+  useEffect(() => {
+    if (pricing.isDealActive && pricing.activeDeal?.offerId) {
+      trackOfferView(pricing.activeDeal.offerId);
+    }
+  }, [pricing.isDealActive, pricing.activeDeal?.offerId]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#fcfbf9]">
@@ -173,14 +181,6 @@ export default function BundleDetails() {
       </div>
     );
   }
-
-  const pricing = getBundleEffectivePricing(bundle);
-
-  useEffect(() => {
-    if (pricing.isDealActive && pricing.activeDeal?.offerId) {
-      trackOfferView(pricing.activeDeal.offerId);
-    }
-  }, [pricing.isDealActive, pricing.activeDeal?.offerId]);
 
   const handleAddToCart = () => {
     if (pricing.isDealActive && pricing.activeDeal?.offerId) {
@@ -224,7 +224,7 @@ export default function BundleDetails() {
   const benefits = [
     { icon: Download, text: 'Instant Digital Download' },
     { icon: Zap, text: 'Lifetime Updates' },
-    { icon: Shield, text: 'Commercial License' },
+    { icon: Shield, text: 'Personal License' },
     { icon: Crown, text: 'Premium Quality' },
     { icon: Lock, text: 'Secure Payment' },
     { icon: Smartphone, text: 'Mobile Friendly' }

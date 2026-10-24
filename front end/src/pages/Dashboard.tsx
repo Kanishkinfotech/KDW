@@ -915,7 +915,7 @@ export default function Dashboard() {
             <div className="space-y-6">
               <div>
                 <h1 className="text-3xl font-black text-slate-900 tracking-tight">Licenses</h1>
-                <p className="text-slate-500 text-sm mt-1">Official usage rights and commercial licenses for your acquired products.</p>
+                <p className="text-slate-500 text-sm mt-1">Official usage rights and personal licenses for your acquired products.</p>
               </div>
 
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
@@ -937,12 +937,12 @@ export default function Dashboard() {
                           Order <span className="font-mono text-slate-700">{p.orderNumber || 'COMPLETED'}</span> &bull; Issued {new Date(p.purchasedAt).toLocaleDateString()}
                         </p>
                         <p className="text-xs text-slate-600 font-medium mt-2">
-                          Standard Commercial License &bull; Unlimited personal & client projects allowed.
+                          Personal License &bull; Lifetime personal use allowed.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         {(() => {
-                          const key = p.licenceKey || p.licenseKey || (p.orderNumber ? `KDW-COMM-${p.orderNumber.replace(/[^A-Z0-9]/gi, '')}-${(p.productId || 'ASSET').substring(0, 8).toUpperCase()}` : `KDW-COMM-${p.id}`);
+                          const key = p.licenceKey || p.licenseKey || (p.orderNumber ? `KDW-PERS-${p.orderNumber.replace(/[^A-Z0-9]/gi, '')}-${(p.productId || 'ASSET').substring(0, 8).toUpperCase()}` : `KDW-PERS-${p.id}`);
                           return (
                             <>
                               <button

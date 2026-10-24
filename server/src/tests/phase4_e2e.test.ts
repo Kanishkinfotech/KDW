@@ -103,7 +103,7 @@ async function runPhase4Tests() {
         stock: 50,
         minStock: 5,
         licenceKeyRequired: true,
-        licenceType: 'COMMERCIAL'
+        licenceType: 'PERSONAL'
       }
     });
 

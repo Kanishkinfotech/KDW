@@ -69,7 +69,7 @@ export default function AdminBundleForm() {
     tags: '',
     brand: 'KDW Originals',
     pricingPolicy: 'FLAT_DISCOUNT',
-    licenceType: 'COMMERCIAL',
+    licenceType: 'PERSONAL',
     licenceTerms: '',
     licenceDomains: 1,
     licenceActivations: 1,
@@ -172,7 +172,7 @@ export default function AdminBundleForm() {
           tags: b.tags || '',
           brand: b.brand || 'KDW Originals',
           pricingPolicy: b.pricingPolicy || 'FLAT_DISCOUNT',
-          licenceType: b.licenceType || 'COMMERCIAL',
+          licenceType: b.licenceType || 'PERSONAL',
           licenceTerms: b.licenceTerms || '',
           licenceDomains: b.licenceDomains || 1,
           licenceActivations: b.licenceActivations || 1,
@@ -883,7 +883,7 @@ export default function AdminBundleForm() {
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-slate-500 font-mono font-bold">₹{p.price}</span>
                             <span className="text-[10px] text-slate-400 font-mono">v{p.version || '1.0.0'}</span>
-                            <span className="text-[10px] text-primary font-semibold">{p.licenceType || 'Commercial'}</span>
+                            <span className="text-[10px] text-primary font-semibold">{p.licenceType || 'Personal'}</span>
                           </div>
                         </div>
                       </div>

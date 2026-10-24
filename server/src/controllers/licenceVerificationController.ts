@@ -4,6 +4,29 @@ import crypto from 'crypto';
 import { sendDigitalProductDeliveryEmail } from '../utils/emailService';
 
 /**
+ * Resolves the direct Google Drive access URL from product metadata
+ */
+export const resolveProductDriveUrl = (prod: any): string => {
+  if (!prod) return '';
+  if (prod.googleDriveFileId && typeof prod.googleDriveFileId === 'string' && prod.googleDriveFileId.trim() !== '') {
+    const trimmed = prod.googleDriveFileId.trim();
+    return trimmed.startsWith('http')
+      ? trimmed
+      : `https://drive.google.com/file/d/${trimmed}/view?usp=sharing`;
+  }
+  if (prod.googleDriveLinks) {
+    try {
+      const parsed = typeof prod.googleDriveLinks === 'string' ? JSON.parse(prod.googleDriveLinks) : prod.googleDriveLinks;
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]) {
+        const link = parsed[0].toString().trim();
+        return link.startsWith('http') ? link : `https://drive.google.com/file/d/${link}/view?usp=sharing`;
+      }
+    } catch (e) {}
+  }
+  return '';
+};
+
+/**
  * POST /api/licences/verify — Verify License Key and Unlock Product Access
  */
 export const verifyLicenceKey = async (req: Request, res: Response, next: NextFunction) => {
@@ -95,14 +118,14 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
         if (isOrderMatch || isKeyMatch || isEmailMatch) {
           let matchedLic = ord.licenceKeys[0] || null;
           if (!matchedLic) {
-            const autoKey = `KDW-COMM-${cleanOrd}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+            const autoKey = `KDW-PERS-${cleanOrd}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
             matchedLic = await prisma.licenceKey.create({
               data: {
                 orderId: ord.id,
                 customerId: ord.customerId,
                 keyMasked: autoKey,
                 keyHash: crypto.createHash('sha256').update(autoKey).digest('hex'),
-                licenceType: 'COMMERCIAL',
+                licenceType: 'PERSONAL',
                 status: 'ACTIVE',
                 activationLimit: 5,
                 activationCount: 0
@@ -230,11 +253,12 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
           }
         });
 
+        const targetDriveUrl = resolveProductDriveUrl(p);
         const secureDownloadUrl = `${baseAppUrl}/api/purchases/download/${secureToken}`;
 
         emailDeliveryItems.push({
           name: p.name,
-          driveUrl: secureDownloadUrl,
+          driveUrl: targetDriveUrl || secureDownloadUrl,
           licenceKey: licence.keyMasked
         });
 
@@ -248,8 +272,8 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
           fileSize: p.fileSize || p.driveFileSize || 'Cloud Deliverable',
           tokenExpiresAt: tokenExpiry,
           coverImage: (p as any).thumbnail || (p as any).coverImage || null,
-          licenceType: (p as any).licenceType || (licence as any).licenceType || 'COMMERCIAL',
-          deliveryStatus: 'UNLOCKED_IN_EMAIL'
+          licenceType: (p as any).licenceType || (licence as any).licenceType || 'PERSONAL',
+          deliveryStatus: 'SENT_TO_EMAIL'
         });
       } else if (item.bundle) {
         const b = item.bundle;
@@ -283,7 +307,7 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
                 productId: bp.id,
                 bundleId: b.id,
                 productVersion: bp.version || bi.versionSnapshot || '1.0.0',
-                licenceType: bp.licenceType || b.licenceType || 'COMMERCIAL',
+                licenceType: bp.licenceType || b.licenceType || 'PERSONAL',
                 downloadLimit: compDownloadLimit,
                 downloadCount: 0,
                 status: 'ACTIVE',
@@ -306,11 +330,12 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
             }
           });
 
+          const compTargetDriveUrl = resolveProductDriveUrl(bp);
           const compSecureDownloadUrl = `${baseAppUrl}/api/purchases/download/${compSecureToken}`;
 
           emailDeliveryItems.push({
             name: `${b.title} → ${bp.name}`,
-            driveUrl: compSecureDownloadUrl,
+            driveUrl: compTargetDriveUrl || compSecureDownloadUrl,
             bundleName: b.title,
             licenceKey: licence.keyMasked
           });
@@ -326,8 +351,8 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
             fileSize: bp.fileSize || 'Cloud Deliverable',
             tokenExpiresAt: compTokenExpiry,
             coverImage: bp.thumbnail || b.coverImage || null,
-            licenceType: b.licenceType || licence.licenceType || 'COMMERCIAL',
-            deliveryStatus: 'UNLOCKED_IN_EMAIL'
+            licenceType: b.licenceType || licence.licenceType || 'PERSONAL',
+            deliveryStatus: 'SENT_TO_EMAIL'
           });
         }
       }
@@ -343,7 +368,8 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
         orderNumber: licence.order?.orderNumber || 'KDW-ORDER',
         bundleTitle: licence.order?.items?.find(i => i.bundle)?.bundle?.title,
         licenceKey: licence.keyMasked,
-        items: emailDeliveryItems
+        items: emailDeliveryItems,
+        isVerified: true
       });
       emailDispatched = !!emailResult.success;
       if (!emailResult.success && !emailResult.skipped) {
@@ -358,10 +384,10 @@ export const verifyLicenceKey = async (req: Request, res: Response, next: NextFu
     res.json({
       success: true,
       verified: true,
-      message: 'Commercial License verified successfully! Your secure download links have been dispatched to your email.',
+      message: 'Personal License verified successfully! Your secure download links have been dispatched to your email.',
       data: {
         licenceKey: licence.keyMasked,
-        licenceType: licence.licenceType || 'COMMERCIAL',
+        licenceType: licence.licenceType || 'PERSONAL',
         status: 'ACTIVE',
         issuedAt: licence.issuedAt,
         orderNumber: licence.order?.orderNumber,
@@ -482,9 +508,10 @@ export const resendVerificationEmail = async (req: Request, res: Response, next:
           }
         });
 
+        const targetDriveUrl = resolveProductDriveUrl(p);
         emailDeliveryItems.push({
           name: p.name,
-          driveUrl: `${baseAppUrl}/api/purchases/download/${secureToken}`,
+          driveUrl: targetDriveUrl || `${baseAppUrl}/api/purchases/download/${secureToken}`,
           licenceKey: licence.keyMasked
         });
       } else if (item.bundle) {
@@ -511,7 +538,7 @@ export const resendVerificationEmail = async (req: Request, res: Response, next:
                 productId: bp.id,
                 bundleId: b.id,
                 productVersion: bp.version || '1.0.0',
-                licenceType: 'COMMERCIAL',
+                licenceType: 'PERSONAL',
                 downloadLimit: bp.downloadLimit || 10,
                 downloadCount: 0,
                 status: 'ACTIVE',
@@ -533,9 +560,10 @@ export const resendVerificationEmail = async (req: Request, res: Response, next:
             }
           });
 
+          const compTargetDriveUrl = resolveProductDriveUrl(bp);
           emailDeliveryItems.push({
             name: `${b.title} → ${bp.name}`,
-            driveUrl: `${baseAppUrl}/api/purchases/download/${compSecureToken}`,
+            driveUrl: compTargetDriveUrl || `${baseAppUrl}/api/purchases/download/${compSecureToken}`,
             bundleName: b.title,
             licenceKey: licence.keyMasked
           });
@@ -549,7 +577,8 @@ export const resendVerificationEmail = async (req: Request, res: Response, next:
       orderNumber: order.orderNumber,
       bundleTitle: order.items.find(i => i.bundle)?.bundle?.title,
       licenceKey: licence.keyMasked,
-      items: emailDeliveryItems
+      items: emailDeliveryItems,
+      isVerified: true
     });
 
     if (!mailResult.success && !mailResult.skipped) {

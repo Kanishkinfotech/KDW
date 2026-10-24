@@ -106,7 +106,7 @@ export default function PaymentSuccess() {
               <div className="p-4 bg-purple-50/70 rounded-2xl border border-purple-200 text-left space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-purple-800">
-                    Commercial License Key Dispatched
+                    Personal License Key Dispatched
                   </span>
                   <span className="text-[10px] font-mono text-purple-600">Sent to {order?.customerEmail || 'email'}</span>
                 </div>

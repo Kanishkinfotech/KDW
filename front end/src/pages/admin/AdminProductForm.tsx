@@ -24,7 +24,7 @@ const STEPS = [
   { id: 'pricing', title: 'Pricing & Tax', stepNum: 4, desc: 'Regular price, sale price, and GST' },
   { id: 'media', title: 'Media & Preview', stepNum: 5, desc: 'Cover image and visual assets' },
   { id: 'access', title: 'Access & Download', stepNum: 6, desc: 'Download limits and access duration' },
-  { id: 'licence', title: 'Licence Configuration', stepNum: 7, desc: 'Commercial usage terms & activations' },
+  { id: 'licence', title: 'Licence Configuration', stepNum: 7, desc: 'Personal usage terms & activations' },
   { id: 'content', title: 'Content & FAQs', stepNum: 8, desc: "What's included, software, and FAQs" },
   { id: 'seo', title: 'SEO & Social', stepNum: 9, desc: 'Search engine metadata and preview' },
   { id: 'review', title: 'Review & Publish', stepNum: 10, desc: 'Final verification gate' }
@@ -167,12 +167,12 @@ export default function AdminProductForm() {
   // STAGE 7: LICENCE
   // ============================================================================
   const [licenceKeyRequired, setLicenceKeyRequired] = useState(false);
-  const [licenceType, setLicenceType] = useState('COMMERCIAL');
+  const [licenceType, setLicenceType] = useState('PERSONAL');
   const [activationLimit, setActivationLimit] = useState('1');
   const [domainLimit, setDomainLimit] = useState('1');
   const [deviceLimit, setDeviceLimit] = useState('3');
   const [licenceTerms, setLicenceTerms] = useState(
-    'Permitted for commercial client deliverables. Direct redistribution or resale of raw source files is strictly prohibited.'
+    'Permitted for personal use. Direct redistribution or resale of raw source files is strictly prohibited.'
   );
 
   // ============================================================================
@@ -181,7 +181,7 @@ export default function AdminProductForm() {
   const [whatsIncludedList, setWhatsIncludedList] = useState<string[]>([
     '500+ Fully Editable Canva Templates',
     'Step-by-Step Video Walkthrough & Instructions',
-    'Commercial Usage Licence Rights',
+    'Personal Usage Licence Rights',
     'Free Lifetime Version Updates'
   ]);
   const [newWhatsIncludedItem, setNewWhatsIncludedItem] = useState('');
@@ -194,8 +194,8 @@ export default function AdminProductForm() {
       answer: 'Immediately upon successful payment, a secure link is sent to your email, and the file is instantly accessible in your My Purchases dashboard.' 
     },
     { 
-      question: 'Can I use these assets for client projects?', 
-      answer: 'Yes! Commercial rights are included with every purchase. You can use these templates for unlimited commercial and client projects.' 
+      question: 'Can I use these assets for personal projects?', 
+      answer: 'Yes! Personal rights are included with every purchase. You can use these templates for your personal projects.' 
     }
   ]);
   const [newFaqQ, setNewFaqQ] = useState('');
@@ -393,7 +393,7 @@ export default function AdminProductForm() {
 
             // Licence
             setLicenceKeyRequired(Boolean(p.licenceKeyRequired));
-            setLicenceType(p.licenceType || 'COMMERCIAL');
+            setLicenceType(p.licenceType || 'PERSONAL');
             setLicenceTerms(p.licenceTerms || '');
             setActivationLimit(p.activationLimit ? p.activationLimit.toString() : '1');
             setDomainLimit(p.domainLimit ? p.domainLimit.toString() : '1');
@@ -2296,7 +2296,7 @@ export default function AdminProductForm() {
                 </div>
                 <h2 className="text-xl font-black text-slate-900 tracking-tight">Licence Scope & Activations</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Determine if a commercial licence key or registration is required for this product.
+                  Determine if a personal licence key or registration is required for this product.
                 </p>
               </div>
 
@@ -2347,8 +2347,8 @@ export default function AdminProductForm() {
                           onChange={(e) => setLicenceType(e.target.value)}
                           className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer"
                         >
-                          <option value="COMMERCIAL">Commercial Licence (Default)</option>
-                          <option value="PERSONAL">Personal Licence</option>
+                          <option value="PERSONAL">Personal Licence (Default)</option>
+                          <option value="COMMERCIAL">Commercial Licence</option>
                           <option value="EXTENDED">Extended Agency Licence</option>
                           <option value="RESELLER">Reseller Licence</option>
                         </select>

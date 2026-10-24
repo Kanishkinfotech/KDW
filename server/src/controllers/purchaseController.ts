@@ -372,7 +372,7 @@ const sendDownloadResponseError = (
             </div>
           ` : ''}
           <div class="btn-group">
-            ${details?.verificationUrl ? `<a href="${details.verificationUrl}" class="btn btn-primary" style="background: #7c3aed; color: #ffffff;">Verify Commercial License Now &rarr;</a>` : ''}
+            ${details?.verificationUrl ? `<a href="${details.verificationUrl}" class="btn btn-primary" style="background: #7c3aed; color: #ffffff;">Verify Personal License Now &rarr;</a>` : ''}
             <a href="${frontendUrl}/dashboard?tab=downloads" class="btn ${details?.verificationUrl ? 'btn-secondary' : 'btn-primary'}">Go to My Downloads Dashboard &rarr;</a>
             <a href="${frontendUrl}/verify-license" class="btn btn-secondary">License Verification Portal</a>
             <a href="${frontendUrl}/support" class="btn btn-secondary">Contact Customer Support</a>
@@ -565,13 +565,17 @@ export const downloadProduct = async (req: Request, res: Response, next: NextFun
         }
       }
 
-      // E. Check Commercial License Verification Status
-      // Download links in email remain locked until the commercial license key is verified.
+      // E. Check Personal License Verification Status
+      // Download links in email remain locked until the personal license key is verified.
       const licence = ent.licenceId
         ? await prisma.licenceKey.findUnique({ where: { id: ent.licenceId } })
         : (ent.orderId ? await prisma.licenceKey.findFirst({ where: { orderId: ent.orderId } }) : null);
 
-      if (licence && licence.activationCount === 0 && ent.order?.licenceStatus !== 'VERIFIED' && ent.order?.licenceStatus !== 'ACTIVE') {
+      const isLicenceVerified = licence
+        ? (licence.activationCount > 0 || ent.order?.licenceStatus === 'VERIFIED')
+        : (ent.order?.licenceStatus === 'VERIFIED' || ent.order?.licenceStatus === 'NOT_REQUIRED');
+
+      if (licence && !isLicenceVerified) {
         await prisma.downloadLog.create({
           data: {
             entitlementId: ent.id,
@@ -584,7 +588,7 @@ export const downloadProduct = async (req: Request, res: Response, next: NextFun
             tokenId: downloadToken.id,
             eventType: 'verification_required',
             result: 'FAILED',
-            failureReason: 'License key must be verified before opening email download links.',
+            failureReason: 'Personal license key must be verified before opening download links.',
             failureCategory: 'Unverified license',
             durationMs: Date.now() - startTime,
             ipAddress: clientIp,
@@ -597,8 +601,8 @@ export const downloadProduct = async (req: Request, res: Response, next: NextFun
           res,
           req,
           403,
-          'License Verification Required',
-          `Your download link is locked until your commercial license key is verified. Please verify your license key (${licence.keyMasked}) on our verification portal to unlock your product assets.`,
+          'Personal License Verification Required',
+          `Your download link is locked until your Personal License Key is verified. Please verify your license key (${licence.keyMasked}) on our verification portal to unlock your product assets and Google Drive access.`,
           {
             productName: prod?.name,
             orderNumber: ent.order?.orderNumber,
@@ -727,14 +731,18 @@ export const downloadProduct = async (req: Request, res: Response, next: NextFun
       const legacyLicence = await prisma.licenceKey.findFirst({
         where: { orderId: legacyToken.purchase.orderId }
       });
-      if (legacyLicence && legacyLicence.activationCount === 0 && legacyToken.purchase.order?.licenceStatus !== 'VERIFIED' && legacyToken.purchase.order?.licenceStatus !== 'ACTIVE') {
+      const isLegacyVerified = legacyLicence
+        ? (legacyLicence.activationCount > 0 || legacyToken.purchase.order?.licenceStatus === 'VERIFIED')
+        : (legacyToken.purchase.order?.licenceStatus === 'VERIFIED' || legacyToken.purchase.order?.licenceStatus === 'NOT_REQUIRED');
+
+      if (legacyLicence && !isLegacyVerified) {
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         return sendDownloadResponseError(
           res,
           req,
           403,
-          'License Verification Required',
-          `Your download link is locked until your commercial license key is verified. Please verify your license key (${legacyLicence.keyMasked}) on our verification portal to unlock your product assets.`,
+          'Personal License Verification Required',
+          `Your download link is locked until your Personal License Key is verified. Please verify your license key (${legacyLicence.keyMasked}) on our verification portal to unlock your product assets and Google Drive access.`,
           {
             productName: legacyToken.purchase.product?.name,
             orderNumber: legacyToken.purchase.order?.orderNumber,
@@ -838,7 +846,7 @@ export const getPurchases = async (req: Request, res: Response, next: NextFuncti
         (lk: any) => (p.productId && lk.productId === p.productId) || (p.bundleId && (lk.keyMasked?.includes('BNDL') || lk.orderItemId))
       ) || p.order?.licenceKeys?.[0];
 
-      const licenceKeyVal = orderLicence?.keyMasked || (p.order?.orderNumber ? `KDW-COMM-${p.order.orderNumber.replace(/[^A-Z0-9]/gi, '')}` : null);
+      const licenceKeyVal = orderLicence?.keyMasked || (p.order?.orderNumber ? `KDW-PERS-${p.order.orderNumber.replace(/[^A-Z0-9]/gi, '')}` : null);
 
       if (p.bundle) {
         itemsMap.set(`bundle_${p.bundleId}`, {
@@ -899,7 +907,7 @@ export const getPurchases = async (req: Request, res: Response, next: NextFuncti
           (lk: any) => (item.productId && lk.productId === item.productId) || (item.id && lk.orderItemId === item.id)
         ) || o.licenceKeys[0];
 
-        const licenceKeyVal = itemLicence?.keyMasked || `KDW-COMM-${o.orderNumber.replace(/[^A-Z0-9]/gi, '')}`;
+        const licenceKeyVal = itemLicence?.keyMasked || `KDW-PERS-${o.orderNumber.replace(/[^A-Z0-9]/gi, '')}`;
 
         if (item.productId && item.product && !itemsMap.has(`prod_${item.productId}`)) {
           itemsMap.set(`prod_${item.productId}`, {

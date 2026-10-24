@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, Image as ImageIcon, Edit3, Trash2, Play, Pause, 
-  Eye, MousePointerClick, AlertCircle, Calendar, ExternalLink, Globe, LayoutGrid
+  Eye, MousePointerClick, AlertCircle, Calendar, ExternalLink, Globe, LayoutGrid,
+  UploadCloud, Loader2, X, RefreshCw
 } from 'lucide-react';
 import { ContentLayout } from '../../../components/admin/content/ContentLayout';
 import { ContentStatusBadge } from '../../../components/admin/content/ContentStatusBadge';
+import { uploadImage } from '../../../utils/uploadImage';
+import toast from 'react-hot-toast';
 
 export default function ContentBannersPage() {
   const [banners, setBanners] = useState<any[]>([]);
@@ -16,6 +19,8 @@ export default function ContentBannersPage() {
   const [editingBanner, setEditingBanner] = useState<any>(null);
   const [name, setName] = useState('');
   const [desktopImage, setDesktopImage] = useState('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [altText, setAltText] = useState('');
   const [headline, setHeadline] = useState('');
   const [supportingText, setSupportingText] = useState('');
@@ -80,10 +85,45 @@ export default function ContentBannersPage() {
     setShowModal(true);
   };
 
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file (PNG, JPG, WEBP, SVG, etc.)');
+      return;
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('Image file size must be less than 15MB');
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setUploadProgress(0);
+    try {
+      const url = await uploadImage(file, 'banners', (p) => setUploadProgress(p));
+      if (url) {
+        setDesktopImage(url);
+        if (!altText) {
+          const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+          setAltText(name || nameWithoutExt);
+        }
+        toast.success('Banner image uploaded successfully!');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to upload image');
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSaveBanner = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !desktopImage || !altText) {
-      return alert('Name, Desktop Image URL, and Alt Text are required.');
+      toast.error('Please provide a banner name, choose an image, and enter accessibility alt text.');
+      return;
     }
 
     setSaving(true);
@@ -112,14 +152,15 @@ export default function ContentBannersPage() {
       });
       const json = await res.json();
       if (json.success) {
+        toast.success(editingBanner ? 'Banner updated successfully!' : 'Banner created successfully!');
         setShowModal(false);
         fetchBanners();
       } else {
-        alert(json.message || 'Failed to save banner');
+        toast.error(json.message || 'Failed to save banner');
       }
     } catch (err) {
       console.error(err);
-      alert('Error saving banner');
+      toast.error('Error saving banner');
     } finally {
       setSaving(false);
     }
@@ -399,23 +440,89 @@ export default function ContentBannersPage() {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">Desktop Image URL *</label>
-                <input
-                  type="text"
-                  required
-                  value={desktopImage}
-                  onChange={e => setDesktopImage(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500"
-                />
-                {desktopImage && (
-                  <div className="mt-2 h-20 w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                    <img 
-                      src={desktopImage} 
-                      alt="Banner Preview" 
-                      className="w-full h-full object-cover" 
-                      onError={(e: any) => { e.target.style.display = 'none'; }}
+                <label className="block font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
+                  <span>Banner Image *</span>
+                  {desktopImage && (
+                    <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 normal-case">
+                      ✓ Image Selected
+                    </span>
+                  )}
+                </label>
+
+                {!desktopImage ? (
+                  <label className={`border-2 border-dashed rounded-xl p-5 flex flex-col items-center justify-center text-center transition-all cursor-pointer group relative overflow-hidden bg-slate-50 hover:bg-slate-100/80 ${isUploadingImage ? 'border-primary bg-primary/5 cursor-wait' : 'border-slate-300 hover:border-primary'}`}>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleImageFileSelect} 
+                      disabled={isUploadingImage}
+                      className="hidden" 
                     />
+                    
+                    {isUploadingImage ? (
+                      <div className="flex flex-col items-center justify-center py-2 space-y-2">
+                        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                        <span className="text-xs font-bold text-slate-700">Uploading banner image... {uploadProgress > 0 ? `${uploadProgress}%` : ''}</span>
+                        <div className="w-36 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary transition-all duration-300 rounded-full" style={{ width: `${uploadProgress}%` }} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-2 space-y-1.5">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <UploadCloud className="w-5 h-5" />
+                        </div>
+                        <div className="text-xs font-bold text-slate-800">
+                          <span className="text-primary hover:underline">Click to Choose Image</span> or drag & drop
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-medium">PNG, JPG, WEBP, GIF or SVG (Recommended: 1920x800)</p>
+                      </div>
+                    )}
+                  </label>
+                ) : (
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group">
+                    <div className="h-28 w-full relative">
+                      <img 
+                        src={desktopImage} 
+                        alt="Banner Preview" 
+                        className="w-full h-full object-cover" 
+                        onError={(e: any) => { e.target.src = 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&q=80&w=800'; }}
+                      />
+                      <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-2">
+                        <label className="px-3 py-1.5 bg-white/90 hover:bg-white text-slate-800 rounded-lg text-[11px] font-bold cursor-pointer shadow-sm transition-all flex items-center gap-1.5">
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={handleImageFileSelect} 
+                            disabled={isUploadingImage}
+                            className="hidden" 
+                          />
+                          <RefreshCw className="w-3 h-3" />
+                          Change Image
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setDesktopImage('')}
+                          className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all flex items-center gap-1.5"
+                        >
+                          <X className="w-3 h-3" />
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                    <div className="px-3 py-1.5 bg-slate-900/90 flex items-center justify-between text-[10px] text-slate-300">
+                      <span className="truncate max-w-[280px] font-mono">{desktopImage}</span>
+                      <label className="text-primary hover:text-white font-bold cursor-pointer shrink-0 ml-2">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleImageFileSelect} 
+                          disabled={isUploadingImage}
+                          className="hidden" 
+                        />
+                        Replace
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>

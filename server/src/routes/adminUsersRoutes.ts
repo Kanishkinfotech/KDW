@@ -7,7 +7,8 @@ import {
   inviteStaffUser,
   updateStaffRole,
   updateStaffPermissions,
-  updateStaffStatus
+  updateStaffStatus,
+  updateRoleDefaults
 } from '../controllers/adminUserController';
 
 const router = Router();
@@ -21,6 +22,8 @@ import { getStaffActivityLogs } from '../controllers/admin/staffActivityLogContr
 // 1. Static Subpaths (Must be registered before /:id)
 router.get('/activity-logs', getStaffActivityLogs);
 router.get('/permissions-catalog', getPermissionsCatalog);
+router.put('/role-defaults', updateRoleDefaults);
+router.put('/permissions-catalog', updateRoleDefaults);
 router.post('/invite', inviteStaffUser);
 
 // 2. Collection

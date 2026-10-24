@@ -177,7 +177,7 @@ export default function ProductCard({ product, viewMode = 'grid', attached = fal
                 {product.shortDescription || product.description || 'Production-grade templates, customizable assets, and modular foundations for independent teams.'}
               </p>
               <div className="pt-2 border-t border-white/15 flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span className="text-slate-300">Commercial Licence</span>
+                <span className="text-slate-300">{product.licenceType ? (product.licenceType.toUpperCase() === 'PERSONAL' ? 'Personal Licence' : `${product.licenceType} Licence`) : 'Personal Licence'}</span>
                 <span className="text-white font-medium flex items-center gap-0.5">
                   Explore <ArrowUpRight className="w-3 h-3 text-[#c4b5fd]" />
                 </span>
@@ -218,7 +218,7 @@ export default function ProductCard({ product, viewMode = 'grid', attached = fal
           <div className="flex flex-wrap gap-1.5 pt-1">
             {(settings?.show_licence_summary ?? true) && (
               <span className="px-2 py-0.5 border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-mono uppercase tracking-wider">
-                Commercial Licence
+                {product.licenceType ? (product.licenceType.toUpperCase() === 'PERSONAL' ? 'Personal Licence' : `${product.licenceType} Licence`) : 'Personal Licence'}
               </span>
             )}
             {(settings?.show_download_format ?? true) && product.format && (

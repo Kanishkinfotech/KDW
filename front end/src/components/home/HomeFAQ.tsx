@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useId } from 'react';
 import { 
-  HelpCircle, Plus, Minus, ArrowRight, MessageSquare, 
-  Sparkles
+  HelpCircle, Plus, Minus, ArrowRight, MessageSquare 
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
@@ -13,6 +12,10 @@ export interface FAQItem {
   categoryName?: string;
   scopeType?: string;
   displayOrder?: number;
+}
+
+export interface HomeFAQProps {
+  limit?: number;
 }
 
 const FALLBACK_FAQS: FAQItem[] = [
@@ -39,8 +42,8 @@ const FALLBACK_FAQS: FAQItem[] = [
   },
   {
     id: 'faq-4',
-    question: 'Can I use purchased toolkits for client and commercial projects?',
-    answer: 'Yes! Every standard digital product on KDW includes a perpetual, royalty-free commercial license. You can freely use and customize these assets for unlimited client deliverables, commercial websites, and internal business operations. Reselling or redistributing raw source files is prohibited under our [Commercial Licensing Policy](/license).',
+    question: 'Can I use purchased toolkits for my personal projects?',
+    answer: 'Yes! Every digital product on KDW includes a lifetime personal license for your own personal projects, individual learning, and private workflows. Reselling or redistributing raw source files is prohibited under our [Licensing Policy](/license).',
     categoryName: 'Licensing & Rights',
     displayOrder: 4
   },
@@ -74,7 +77,7 @@ const FALLBACK_FAQS: FAQItem[] = [
   }
 ];
 
-export default function HomeFAQ() {
+export default function HomeFAQ({ limit = 3 }: HomeFAQProps) {
   const [faqs, setFaqs] = useState<FAQItem[]>(FALLBACK_FAQS);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>('faq-1');
@@ -144,9 +147,7 @@ export default function HomeFAQ() {
     };
   }, []);
 
-  const [showAll, setShowAll] = useState(false);
-  const INITIAL_LIMIT = 12;
-  const displayedFaqs = showAll || faqs.length <= INITIAL_LIMIT ? faqs : faqs.slice(0, INITIAL_LIMIT);
+  const displayedFaqs = faqs.slice(0, limit);
 
   const toggleFAQ = (id: string) => {
     setOpenId(prev => (prev === id ? null : id));
@@ -288,27 +289,6 @@ export default function HomeFAQ() {
           )}
         </div>
 
-        {/* Show More / Show Fewer Questions Toggle */}
-        {faqs.length > INITIAL_LIMIT && (
-          <div className="text-center pt-1">
-            <button
-              onClick={() => setShowAll(prev => !prev)}
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-[#ddd6fe] bg-white hover:bg-[#ede9fe]/50 text-[#5b21b6] text-xs font-bold font-sans shadow-2xs hover:shadow-xs transition-all cursor-pointer"
-            >
-              {showAll ? (
-                <>
-                  <span>Show Fewer Questions</span>
-                  <Minus className="w-3.5 h-3.5" />
-                </>
-              ) : (
-                <>
-                  <span>Show More Questions ({faqs.length - INITIAL_LIMIT} more)</span>
-                  <Plus className="w-3.5 h-3.5" />
-                </>
-              )}
-            </button>
-          </div>
-        )}
 
         {/* Bottom Support & Knowledge Base Strip */}
         <div className="bg-white rounded-3xl border border-[#e2e8f0] p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-2xs">

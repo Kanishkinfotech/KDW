@@ -88,33 +88,41 @@ export const authorize = (...roles: string[]) => {
   };
 };
 
+import { effectivePermissions, normalizeRole } from '../utils/permissionsCatalog';
+
 export const requirePermission = (requiredPermission: string) => {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ success: false, message: 'Not authenticated' });
     }
 
-    if (req.user.role === 'SUPER_ADMIN') {
-      return next(); // SUPER_ADMIN always bypasses permission checks
+    const normRole = normalizeRole(req.user.role);
+    if (normRole === 'super_admin') {
+      return next(); // super_admin always bypasses permission checks
     }
 
     try {
-      const role = await prisma.role.findUnique({
-        where: { name: req.user.role },
-        select: { permissions: true }
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { role: true, permissions: true }
       });
 
-      if (!role) {
-        return res.status(403).json({ success: false, message: 'Role not found' });
+      if (!user) {
+        return res.status(403).json({ success: false, message: 'User not found' });
       }
 
-      const permissions: string[] = JSON.parse(role.permissions);
-      
-      if (!permissions.includes('all') && !permissions.includes(requiredPermission)) {
-        return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
+      const eff = effectivePermissions({ role: user.role, permissions: user.permissions });
+
+      if (
+        eff.includes(requiredPermission) ||
+        eff.includes(requiredPermission.toLowerCase()) ||
+        eff.includes('all') ||
+        eff.includes('ALL')
+      ) {
+        return next();
       }
 
-      next();
+      return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
     } catch (error) {
       console.error('Permission check error:', error);
       res.status(500).json({ success: false, message: 'Internal server error checking permissions' });

@@ -6,9 +6,13 @@ import {
   STAFF_ROLES,
   PERMISSION_CATALOG,
   ROLE_DEFAULT_PERMISSIONS,
+  ROLE_LABEL_MAP,
   normalizeRole,
   isValidPermissionCode,
-  effectivePermissions
+  effectivePermissions,
+  getDynamicRoleDefaults,
+  saveDynamicRoleDefaults,
+  ALL_PERMISSION_CODES
 } from '../utils/permissionsCatalog';
 
 // Helper for safe audit logging
@@ -42,10 +46,10 @@ const logAudit = async (
 };
 
 // Safe user serializer (excludes passwords, hashes, and secrets)
-const serializeSafeUser = (user: any) => {
+const serializeSafeUser = (user: any, dynamicDefaults?: Record<string, string[]>) => {
   const normRole = normalizeRole(user.role);
   const permissionsList = Array.isArray(user.permissions) ? user.permissions : [];
-  const eff = effectivePermissions({ role: normRole, permissions: permissionsList });
+  const eff = effectivePermissions({ role: normRole, permissions: permissionsList }, dynamicDefaults);
 
   return {
     id: user.id,
@@ -101,12 +105,15 @@ export const getStaffUsers = async (req: Request, res: Response, next: NextFunct
       ];
     }
 
-    const users = await prisma.user.findMany({
-      where,
-      orderBy: { createdAt: 'desc' }
-    });
+    const [users, dynamicDefaults] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' }
+      }),
+      getDynamicRoleDefaults(prisma)
+    ]);
 
-    const safeUsers = users.map(serializeSafeUser);
+    const safeUsers = users.map(u => serializeSafeUser(u, dynamicDefaults));
 
     res.json({
       success: true,
@@ -124,13 +131,78 @@ export const getStaffUsers = async (req: Request, res: Response, next: NextFunct
 // ==========================================
 export const getPermissionsCatalog = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const dynamicDefaults = await getDynamicRoleDefaults(prisma);
     res.json({
       success: true,
       data: {
         roles: STAFF_ROLES,
         permissions: PERMISSION_CATALOG,
-        roleDefaults: ROLE_DEFAULT_PERMISSIONS
+        roleDefaults: dynamicDefaults,
+        roleLabels: ROLE_LABEL_MAP
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// 2B. UPDATE ROLE DEFAULTS (super_admin / admin only)
+// ==========================================
+export const updateRoleDefaults = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actorRole = normalizeRole((req as any).user?.role);
+    const actorId = (req as any).user?.id;
+
+    if (actorRole !== 'super_admin' && actorRole !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Only administrators can update default role permissions.'
+      });
+    }
+
+    const { roleDefaults } = req.body;
+    if (!roleDefaults || typeof roleDefaults !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request: roleDefaults object is required.'
+      });
+    }
+
+    // Validate that permission codes are valid
+    for (const [roleKey, perms] of Object.entries(roleDefaults)) {
+      if (!Array.isArray(perms)) {
+        return res.status(400).json({
+          success: false,
+          message: `Permissions for role "${roleKey}" must be an array of permission codes.`
+        });
+      }
+      for (const code of perms) {
+        if (!ALL_PERMISSION_CODES.includes(code)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid permission code: "${code}" for role "${roleKey}".`
+          });
+        }
+      }
+    }
+
+    const savedDefaults = await saveDynamicRoleDefaults(roleDefaults, prisma);
+
+    await logAudit(
+      actorId,
+      'UPDATED',
+      'RoleDefaults',
+      { updatedRoles: Object.keys(roleDefaults) },
+      req
+    );
+
+    res.json({
+      success: true,
+      data: {
+        roleDefaults: savedDefaults
+      },
+      message: 'Role permissions matrix updated and saved successfully'
     });
   } catch (error) {
     next(error);
@@ -144,9 +216,12 @@ export const getStaffUserById = async (req: Request, res: Response, next: NextFu
   try {
     const id = req.params.id as string;
 
-    const user = await prisma.user.findUnique({
-      where: { id }
-    });
+    const [user, dynamicDefaults] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id }
+      }),
+      getDynamicRoleDefaults(prisma)
+    ]);
 
     if (!user || ['CUSTOMER', 'customer', 'guest', 'GUEST'].includes(user.role)) {
       return res.status(404).json({ success: false, message: 'Staff account not found' });
@@ -154,7 +229,7 @@ export const getStaffUserById = async (req: Request, res: Response, next: NextFu
 
     res.json({
       success: true,
-      data: serializeSafeUser(user)
+      data: serializeSafeUser(user, dynamicDefaults)
     });
   } catch (error) {
     next(error);
@@ -234,7 +309,8 @@ export const inviteStaffUser = async (req: Request, res: Response, next: NextFun
       req
     );
 
-    const safeUser = serializeSafeUser(newUser);
+    const dynamicDefaults = await getDynamicRoleDefaults(prisma);
+    const safeUser = serializeSafeUser(newUser, dynamicDefaults);
 
     // temporaryPassword is ONLY returned once in this invite response
     res.status(201).json({
@@ -302,9 +378,11 @@ export const updateStaffRole = async (req: Request, res: Response, next: NextFun
       req
     );
 
+    const dynamicDefaults = await getDynamicRoleDefaults(prisma);
+
     res.json({
       success: true,
-      data: serializeSafeUser(updatedUser),
+      data: serializeSafeUser(updatedUser, dynamicDefaults),
       message: 'Staff role updated successfully'
     });
   } catch (error) {
@@ -364,9 +442,11 @@ export const updateStaffPermissions = async (req: Request, res: Response, next: 
       req
     );
 
+    const dynamicDefaults = await getDynamicRoleDefaults(prisma);
+
     res.json({
       success: true,
-      data: serializeSafeUser(updatedUser),
+      data: serializeSafeUser(updatedUser, dynamicDefaults),
       message: 'Staff permissions updated successfully'
     });
   } catch (error) {

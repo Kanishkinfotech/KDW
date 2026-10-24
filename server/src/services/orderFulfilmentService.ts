@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '../database/db';
 import { sendDigitalProductDeliveryEmail } from '../utils/emailService';
+import { resolveProductDriveUrl } from '../controllers/licenceVerificationController';
 
 export interface FulfilmentActor {
   id?: string;
@@ -118,7 +119,7 @@ export class OrderFulfilmentService {
           if (!licenceRecord) {
             const cleanOrderPart = order.orderNumber.replace(/[^A-Z0-9]/g, '');
             const cleanProdPart = (product.slug || product.id).replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
-            const rawKey = `KDW-${product.licenceType || 'COMM'}-${cleanOrderPart}-${cleanProdPart || crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+            const rawKey = `KDW-${product.licenceType || 'PERS'}-${cleanOrderPart}-${cleanProdPart || crypto.randomBytes(3).toString('hex').toUpperCase()}`;
             const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
             licenceRecord = await tx.licenceKey.create({
@@ -129,7 +130,7 @@ export class OrderFulfilmentService {
                 customerId: targetCustomerId,
                 keyMasked: rawKey,
                 keyHash,
-                licenceType: product.licenceType || 'COMMERCIAL',
+                licenceType: product.licenceType || 'PERSONAL',
                 status: 'ACTIVE',
                 activationLimit: product.activationLimit || 1,
                 domainLimit: product.domainLimit || 1,
@@ -204,11 +205,12 @@ export class OrderFulfilmentService {
           // 6. Build Secure Metered Delivery Link
           const baseAppUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
           const secureDeliveryUrl = `${baseAppUrl}/api/purchases/download/${secureToken}`;
+          const targetDriveUrl = resolveProductDriveUrl(product);
 
           deliveryLinksList.push({
             productId: product.id,
             productName: product.name,
-            downloadUrl: secureDeliveryUrl,
+            downloadUrl: secureDeliveryUrl || targetDriveUrl,
             version: product.version || '1.0.0',
             licenceKey: licenceKeyStr
           });
@@ -239,7 +241,7 @@ export class OrderFulfilmentService {
                 customerId: targetCustomerId,
                 keyMasked: bundleLicenceKeyStr,
                 keyHash,
-                licenceType: bundle.licenceType || 'COMMERCIAL',
+                licenceType: bundle.licenceType || 'PERSONAL',
                 status: 'ACTIVE',
                 activationLimit: 5,
                 domainLimit: 5,
@@ -258,7 +260,7 @@ export class OrderFulfilmentService {
                 orderId: order.id,
                 orderItemId: item.id,
                 status: 'ACTIVE',
-                licenceType: bundle.licenceType || 'COMMERCIAL',
+                licenceType: bundle.licenceType || 'PERSONAL',
                 downloadLimit: 20,
                 secureDownloadToken: bundleToken,
                 tokenExpiresAt: tokenExpiry
@@ -297,7 +299,7 @@ export class OrderFulfilmentService {
                   productId: compProduct.id,
                   bundleId: bundle.id,
                   productVersion: compProduct.version || bi.versionSnapshot || '1.0.0',
-                  licenceType: bi.licencePolicySnapshot || 'COMMERCIAL',
+                  licenceType: bi.licencePolicySnapshot || 'PERSONAL',
                   downloadLimit: compDownloadLimit,
                   downloadCount: 0,
                   status: 'ACTIVE',
@@ -321,11 +323,12 @@ export class OrderFulfilmentService {
 
             const baseAppUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
             const compSecureDeliveryUrl = `${baseAppUrl}/api/purchases/download/${compSecureToken}`;
+            const compTargetDriveUrl = resolveProductDriveUrl(compProduct);
 
             deliveryLinksList.push({
               productId: compProduct.id,
               productName: `${bundle.title} → ${compProduct.name}`,
-              downloadUrl: compSecureDeliveryUrl,
+              downloadUrl: compSecureDeliveryUrl || compTargetDriveUrl,
               version: compProduct.version || '1.0.0',
               licenceKey: bundleLicenceKeyStr,
               isBundleComponent: true
@@ -424,7 +427,8 @@ export class OrderFulfilmentService {
           name: d.productName,
           driveUrl: d.downloadUrl,
           licenceKey: d.licenceKey
-        }))
+        })),
+        isVerified: false
       });
       if (!mailResult.success && !mailResult.skipped) {
         throw new Error(mailResult.error?.message || 'SMTP delivery failed');

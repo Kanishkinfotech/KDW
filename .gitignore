@@ -16,8 +16,13 @@ yarn-debug.log*
 pnpm-debug.log*
 
 # Environment files
-.env.local
-.env.*.local
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
 # Archive & Binary uploads
 archive/

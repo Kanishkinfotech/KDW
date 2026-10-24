@@ -118,8 +118,8 @@ export default function Home() {
 
     let animationFrameId: number;
     let lastTimestamp = performance.now();
-    // 240 pixels per second = fast, energetic, silky-smooth rotation
-    const scrollSpeed = 240;
+    // Reduced scroll speed for smooth, readable, non-rushed automatic scrolling
+    const scrollSpeed = 75;
 
     const animateScroll = (currentTimestamp: number) => {
       const elapsed = Math.min((currentTimestamp - lastTimestamp) / 1000, 0.1);

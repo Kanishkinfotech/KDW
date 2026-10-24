@@ -20,12 +20,15 @@ export class CampaignService {
     totalEligible: number;
     suppressedCount: number;
   }> {
-    let whereClause: any = { status: 'ACTIVE', role: 'CUSTOMER' };
+    let whereClause: any = { status: 'ACTIVE', role: { in: ['CUSTOMER', 'ADMIN', 'SUPERADMIN'] } };
 
     const normSegment = (segment || 'VERIFIED_CUSTOMERS').toUpperCase().trim();
 
     if (normSegment === 'VERIFIED_CUSTOMERS') {
-      whereClause.emailVerified = true;
+      whereClause.OR = [
+        { emailVerified: true },
+        { orders: { some: { paymentStatus: 'PAID' } } }
+      ];
     } else if (normSegment === 'PAID_CUSTOMERS' || normSegment === 'RETURNING_CUSTOMERS') {
       whereClause.orders = { some: { paymentStatus: 'PAID' } };
     } else if (normSegment === 'NEW_CUSTOMERS' || normSegment === 'NON_BUYERS') {
@@ -274,10 +277,10 @@ export class CampaignService {
     const isWhatsApp = (campaign.channel || '').toUpperCase() === 'WHATSAPP';
     const utm = campaign.utmCampaign || campaign.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-    let recipientIdx = 0;
-    for (const recipient of audience.recipients) {
-      recipientIdx++;
-      if (isWhatsApp) {
+    if (isWhatsApp) {
+      let recipientIdx = 0;
+      for (const recipient of audience.recipients) {
+        recipientIdx++;
         const phone = recipient.mobile;
         if (!phone) {
           failed++;
@@ -372,27 +375,55 @@ export class CampaignService {
           console.error('[executeCampaign WhatsApp error]', err);
           failed++;
         }
-      } else {
-        // Email Channel
-        if (!recipient.email) {
-          failed++;
-          continue;
-        }
+      }
+    } else {
+      // Email Channel - Parallel Bulk Delivery all at once
+      const validRecipients = audience.recipients.filter(r => !!r.email);
+      const invalidRecipients = audience.recipients.filter(r => !r.email);
+      failed += invalidRecipients.length;
 
+      for (const inv of invalidRecipients) {
+        await prisma.campaignRecipient.create({
+          data: {
+            campaignId: campaign.id,
+            customerId: inv.id,
+            email: inv.email || '',
+            phone: inv.mobile,
+            channel: 'EMAIL',
+            eligibilityStatus: 'INVALID',
+            deliveryStatus: 'FAILED',
+            failureReason: 'Missing email address'
+          }
+        }).catch(() => {});
+      }
+
+      // Pre-create queued recipient records
+      const queuedTargets = await Promise.all(
+        validRecipients.map(async (recipient) => {
+          try {
+            const campRecipient = await prisma.campaignRecipient.create({
+              data: {
+                campaignId: campaign.id,
+                customerId: recipient.id,
+                email: recipient.email!,
+                phone: recipient.mobile,
+                channel: 'EMAIL',
+                eligibilityStatus: 'ELIGIBLE',
+                deliveryStatus: 'QUEUED'
+              }
+            });
+            return { recipient, campRecipient };
+          } catch (err) {
+            failed++;
+            return null;
+          }
+        })
+      );
+
+      // Dispatch all emails concurrently at once ("all single time at once")
+      const dispatchPromises = queuedTargets.filter(Boolean).map(async (target) => {
+        const { recipient, campRecipient } = target!;
         try {
-          // Create recipient record first to obtain recipientId
-          const campRecipient = await prisma.campaignRecipient.create({
-            data: {
-              campaignId: campaign.id,
-              customerId: recipient.id,
-              email: recipient.email,
-              phone: recipient.mobile,
-              channel: 'EMAIL',
-              eligibilityStatus: 'ELIGIBLE',
-              deliveryStatus: 'QUEUED'
-            }
-          });
-
           const renderedHtml = this.renderTemplate(campaign.emailBodyHtml || '', {
             customerName: recipient.name || 'Valued Customer',
             customerEmail: recipient.email,
@@ -408,7 +439,7 @@ export class CampaignService {
           });
 
           const emailResult = await sendGeneralEmail({
-            to: recipient.email,
+            to: recipient.email!,
             fromName: campaign.emailFromName || undefined,
             fromEmail: (campaign as any).senderEmail || undefined,
             replyTo: campaign.emailReplyTo || (campaign as any).senderEmail || undefined,
@@ -426,6 +457,7 @@ export class CampaignService {
               deliveryStatus: emailSent ? 'DELIVERED' : 'FAILED',
               sentAt: new Date(),
               deliveredAt: emailSent ? new Date() : null,
+              providerMessageId: emailResult.messageId || null,
               failureReason: emailResult.success ? undefined : (emailResult.error ? String(emailResult.error) : 'Failed to dispatch email')
             }
           });
@@ -434,8 +466,18 @@ export class CampaignService {
           else failed++;
         } catch (err: any) {
           failed++;
+          await prisma.campaignRecipient.update({
+            where: { id: campRecipient.id },
+            data: {
+              deliveryStatus: 'FAILED',
+              sentAt: new Date(),
+              failureReason: err?.message || 'Error executing email delivery'
+            }
+          }).catch(() => {});
         }
-      }
+      });
+
+      await Promise.allSettled(dispatchPromises);
     }
 
     await prisma.campaign.update({

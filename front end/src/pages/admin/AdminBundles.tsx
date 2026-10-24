@@ -489,7 +489,7 @@ export default function AdminBundles() {
                           {/* Licence */}
                           <td className="p-3 text-center">
                             <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-800 border border-slate-200 font-mono">
-                              {b.licenceType || 'COMMERCIAL'}
+                              {b.licenceType || 'PERSONAL'}
                             </span>
                           </td>
 

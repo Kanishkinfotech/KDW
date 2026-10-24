@@ -116,8 +116,8 @@ export const getBundles = async (req: Request, res: Response, next: NextFunction
     // Price range
     if (minPrice || maxPrice) {
       whereClause.price = {};
-      if (minPrice) whereClause.price.gte = parseFloat(String(minPrice));
-      if (maxPrice) whereClause.price.lte = parseFloat(String(maxPrice));
+      if (minPrice) whereClause.price.gte = Math.max(0, parseFloat(String(minPrice)));
+      if (maxPrice) whereClause.price.lte = Math.max(0, parseFloat(String(maxPrice)));
     }
 
     // High Refund Rate (> 5%)
@@ -537,7 +537,7 @@ export const createBundle = async (req: Request, res: Response, next: NextFuncti
       tags,
       brand = 'KDW Originals',
       pricingPolicy = 'FLAT_DISCOUNT',
-      licenceType = 'COMMERCIAL',
+      licenceType = 'PERSONAL',
       licenceTerms,
       licenceDomains = 1,
       licenceActivations = 1,
@@ -623,7 +623,7 @@ export const createBundle = async (req: Request, res: Response, next: NextFuncti
         displayOrder: comp.displayOrder || idx + 1,
         referencePriceSnapshot: refPrice,
         versionSnapshot: p?.version || comp.versionSnapshot || '1.0.0',
-        licencePolicySnapshot: p?.licenceType || comp.licencePolicySnapshot || 'COMMERCIAL',
+        licencePolicySnapshot: p?.licenceType || comp.licencePolicySnapshot || 'PERSONAL',
         accessPolicySnapshot: 'LIFETIME',
         isRequired: true
       };
@@ -832,7 +832,7 @@ export const updateBundle = async (req: Request, res: Response, next: NextFuncti
           displayOrder: comp.displayOrder || idx + 1,
           referencePriceSnapshot: refPrice,
           versionSnapshot: p?.version || comp.versionSnapshot || '1.0.0',
-          licencePolicySnapshot: p?.licenceType || comp.licencePolicySnapshot || 'COMMERCIAL',
+          licencePolicySnapshot: p?.licenceType || comp.licencePolicySnapshot || 'PERSONAL',
           accessPolicySnapshot: 'LIFETIME',
           isRequired: true
         };
@@ -1184,9 +1184,9 @@ export const validateBundle = async (req: Request, res: Response, next: NextFunc
     }
 
     // --- Pillar 5: Licensing ---
-    const bundleLicence = (payload.licenceType || 'COMMERCIAL').toUpperCase();
+    const bundleLicence = (payload.licenceType || 'PERSONAL').toUpperCase();
     products.forEach(p => {
-      const prodLicence = (p.licenceType || 'COMMERCIAL').toUpperCase();
+      const prodLicence = (p.licenceType || 'PERSONAL').toUpperCase();
       if (bundleLicence === 'AGENCY' && prodLicence === 'PERSONAL') {
         warnings.push({
           pillar: 'Licensing',

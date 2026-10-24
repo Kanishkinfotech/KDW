@@ -8,7 +8,8 @@ import {
   LogOut, 
   Settings, 
   Activity, 
-  KeyRound 
+  KeyRound,
+  UserCheck 
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
@@ -261,12 +262,12 @@ export default function Topbar({
 
               <div className="py-1">
                 <Link
-                  to="/admin/users/settings"
+                  to="/admin/users"
                   onClick={() => setShowProfileMenu(false)}
                   className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
                 >
-                  <Settings size={14} className="text-slate-400" />
-                  <span>Account Settings</span>
+                  <UserCheck size={14} className="text-slate-400" />
+                  <span>Admin Users & Staff</span>
                 </Link>
 
                 <Link
@@ -275,16 +276,7 @@ export default function Topbar({
                   className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   <KeyRound size={14} className="text-slate-400" />
-                  <span>Role & Permissions</span>
-                </Link>
-
-                <Link
-                  to="/admin/users/sessions"
-                  onClick={() => setShowProfileMenu(false)}
-                  className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
-                >
-                  <Shield size={14} className="text-slate-400" />
-                  <span>Active Sessions</span>
+                  <span>Roles & Permissions</span>
                 </Link>
 
                 <Link

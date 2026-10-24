@@ -144,7 +144,7 @@ export class DigitalDeliveryService {
                 orderId: order.id,
                 orderItemId: item.id,
                 status: 'ACTIVE',
-                licenceType: b.licenceType || 'COMMERCIAL',
+                licenceType: b.licenceType || 'PERSONAL',
                 licenceKey: `KDW-LIC-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
                 downloadLimit: 10,
                 downloadCount: 0,
@@ -211,7 +211,7 @@ export class DigitalDeliveryService {
                   productId: bp.id,
                   bundleId: b.id,
                   productVersion: bp.version || '1.0.0',
-                  licenceType: bp.licenceType || b.licenceType || 'COMMERCIAL',
+                  licenceType: bp.licenceType || b.licenceType || 'PERSONAL',
                   downloadLimit: compDownloadLimit,
                   downloadCount: 0,
                   status: 'ACTIVE',
@@ -259,7 +259,7 @@ export class DigitalDeliveryService {
                   orderId: order.id,
                   orderItemId: item.id,
                   productVersion: bp.version || '1.0.0',
-                  licenceType: bp.licenceType || b.licenceType || 'COMMERCIAL',
+                  licenceType: bp.licenceType || b.licenceType || 'PERSONAL',
                   downloadLimit: compDownloadLimit,
                   downloadCount: 0,
                   secureDownloadToken: compSecureToken,
@@ -399,7 +399,8 @@ export class DigitalDeliveryService {
         customerName: recipientName,
         orderNumber: order.orderNumber,
         bundleTitle: primaryBundleTitle,
-        items: deliveredItems
+        items: deliveredItems,
+        isVerified: false
       });
 
       const deliveryStatus = emailResult.success ? 'SENT' : 'FAILED';

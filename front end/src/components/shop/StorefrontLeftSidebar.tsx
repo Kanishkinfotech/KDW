@@ -528,8 +528,8 @@ export default function StorefrontLeftSidebar({
               <div className="space-y-1">
                 {[
                   { label: 'All Licences', value: '' },
-                  { label: 'Commercial Licence', value: 'COMMERCIAL' },
                   { label: 'Personal Licence', value: 'PERSONAL' },
+                  { label: 'Commercial Licence', value: 'COMMERCIAL' },
                   { label: 'Extended Commercial', value: 'EXTENDED' }
                 ].map(lic => (
                   <button

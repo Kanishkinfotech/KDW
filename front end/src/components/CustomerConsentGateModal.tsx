@@ -149,7 +149,7 @@ export default function CustomerConsentGateModal() {
               Customer Agreement &amp; Data Transparency Disclosure
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-              To guarantee lifetime digital asset delivery, valid commercial licensing, and secure account access, Kanishk Digital World maintains encrypted records of your transactions and entitlements. Please review the exhaustive disclosures below before continuing to your account dashboard.
+              To guarantee lifetime digital asset delivery, valid digital licensing, and secure account access, Kanishk Digital World maintains encrypted records of your transactions and entitlements. Please review the exhaustive disclosures below before continuing to your account dashboard.
             </p>
             <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-slate-700">
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 border border-sky-200/80 shadow-xs font-medium text-slate-700">
@@ -208,11 +208,11 @@ export default function CustomerConsentGateModal() {
                   <Key className="w-4 h-4" />
                 </div>
                 <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                  Commercial Licence Keys
+                  Personal Licence Keys
                 </h4>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Unique commercial licence tokens generated per order, activation limits, authorized deployment domains, and digital entitlement records.
+                Unique personal licence tokens generated per order, activation limits, and digital entitlement records.
               </p>
             </div>
 
@@ -305,7 +305,7 @@ export default function CustomerConsentGateModal() {
                 </span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Your digital purchase records, generated commercial licences, and download tokens are preserved indefinitely so that you retain uninterrupted lifetime access to re-download assets and invoices anytime from your account dashboard.
+                Your digital purchase records, generated personal licences, and download tokens are preserved indefinitely so that you retain uninterrupted lifetime access to re-download assets and invoices anytime from your account dashboard.
               </p>
             </div>
 
@@ -334,7 +334,7 @@ export default function CustomerConsentGateModal() {
             <div>
               <h3 className="text-base sm:text-lg font-serif font-bold text-slate-900 flex items-center gap-2">
                 <Shield className="w-4 h-4 text-[#5b21b6]" />
-                Terms of Service &amp; Commercial Digital Licensing
+                Terms of Service &amp; Personal Digital Licensing
               </h3>
               <p className="text-xs text-slate-500">
                 The binding legal terms governing intellectual property usage, template distribution, and digital delivery.
@@ -347,11 +347,11 @@ export default function CustomerConsentGateModal() {
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-purple-600 shrink-0" />
                 <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                  Commercial Usage Rights
+                  Personal Usage Rights
                 </h4>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Purchased digital assets may be deployed in unlimited commercial client projects, personal web applications, and business ventures. However, resale, redistribution, sublicensing, or public file-sharing of the raw digital files, templates, or licence tokens is strictly prohibited.
+                Purchased digital assets may be deployed in personal projects, individual learning, and private workflows. Resale, redistribution, sublicensing, or public file-sharing of the raw digital files, templates, or licence tokens is strictly prohibited.
               </p>
             </div>
 

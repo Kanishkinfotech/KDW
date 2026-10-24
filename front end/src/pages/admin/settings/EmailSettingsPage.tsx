@@ -11,10 +11,21 @@ export default function EmailSettingsPage() {
   const [sendingTest, setSendingTest] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
 
+  const getHeaders = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('adminAuth') || localStorage.getItem('authToken');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   const fetchSettings = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/settings/admin/email', { credentials: 'include' });
+      const res = await fetch('/api/admin/settings/admin/email', {
+        headers: getHeaders(),
+        credentials: 'include'
+      });
       const json = await res.json();
       if (json.success) {
         setSettings(json.data);
@@ -43,7 +54,7 @@ export default function EmailSettingsPage() {
     try {
       const res = await fetch('/api/admin/settings/admin/email', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         credentials: 'include',
         body: JSON.stringify(settings)
       });
@@ -71,7 +82,7 @@ export default function EmailSettingsPage() {
     try {
       const res = await fetch('/api/admin/settings/admin/email/test', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         credentials: 'include',
         body: JSON.stringify({ recipientEmail: testEmailAddress })
       });

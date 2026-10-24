@@ -58,7 +58,7 @@ export class DisputeService {
           name: i.productNameSnapshot || i.productName,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
-          licenceType: i.licenceSnapshot || 'COMMERCIAL'
+          licenceType: i.licenceSnapshot || 'PERSONAL'
         }))
       },
       proofOfAccess: {
